@@ -37,6 +37,12 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.gms.location.*
 import org.mapsforge.map.android.graphics.AndroidGraphicFactory
 
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -240,12 +246,14 @@ fun CarDashboard(
 
     var isMapExpanded by remember { mutableStateOf(false) }
     var showThemeModal by remember { mutableStateOf(false) }
+    var showFullscreenMusic by remember { mutableStateOf(false) } // <--- ESTADO DE PANTALLA COMPLETA DE MÚSICA
 
     var activeAppDrawerTarget by remember { mutableIntStateOf(0) }
 
     var currentSpeedKmH by remember { mutableFloatStateOf(0f) }
     var currentBearing by remember { mutableFloatStateOf(0f) }
-    var isMediaVideoMode by remember { mutableStateOf(false) }
+
+    var currentMediaMode by remember { mutableStateOf(MediaMode.MUSIC) }
 
     DisposableEffect(Unit) {
         val fusedClient = LocationServices.getFusedLocationProviderClient(context)
@@ -267,11 +275,13 @@ fun CarDashboard(
         onDispose { fusedClient.removeLocationUpdates(callback) }
     }
 
+    // --- BOX RAÍZ DE TODA LA PANTALLA ---
     Box(modifier = Modifier.fillMaxSize()) {
         if (isMapExpanded) {
+            // PANTALLA COMPLETA DEL MAPA
             Box(modifier = Modifier.fillMaxSize()) {
                 MapContainerWidget(
-                    onExpandClicked = { isMapExpanded = false } // AQUÍ SE CORRIGE EL ERROR
+                    onExpandClicked = { isMapExpanded = false }
                 )
 
                 IconButton(
@@ -291,6 +301,7 @@ fun CarDashboard(
                 }
             }
         } else {
+            // DASHBOARD PRINCIPAL (COLUMNAS)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -301,7 +312,7 @@ fun CarDashboard(
                     modifier = Modifier.fillMaxSize(),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // COLUMNA IZQUIERDA
+                    // --- COLUMNA IZQUIERDA ---
                     Column(
                         modifier = Modifier
                             .weight(1.1f)
@@ -319,7 +330,7 @@ fun CarDashboard(
                             }
                         ) {
                             MapContainerWidget(
-                                onExpandClicked = { isMapExpanded = true } // AQUÍ SE CORRIGE EL ERROR
+                                onExpandClicked = { isMapExpanded = true }
                             )
                         }
 
@@ -330,37 +341,33 @@ fun CarDashboard(
                             ModernSpeedometerWidget(
                                 speedKmH = currentSpeedKmH,
                                 bearing = currentBearing,
-                                onRequestAppSelection = { slot ->
+                                onRequestAppSelection = { slot: Int ->
                                     activeAppDrawerTarget = slot
                                 }
                             )
                         }
                     }
 
-                    // COLUMNA DERECHA
+                    // --- COLUMNA DERECHA ---
                     Column(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight(),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
+                        // Tarjeta del Reproductor Multimedia
                         ModernDashboardCard(
                             modifier = Modifier.weight(1.2f),
-                            title = if (isMediaVideoMode) "REPRODUCTOR DE VIDEO" else "REPRODUCTOR DE MÚSICA",
-                            icon = if (isMediaVideoMode) Icons.Default.Movie else Icons.Default.MusicNote,
-                            headerAction = {
-                                TextButton(onClick = { isMediaVideoMode = !isMediaVideoMode }) {
-                                    Text(
-                                        text = if (isMediaVideoMode) "Ver Música" else "Ver Video",
-                                        color = theme.accentCyan,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                            }
+                            title = null
                         ) {
-                            ModernMediaPlayerWidget(isVideoMode = isMediaVideoMode)
+                            ModernMediaPlayerWidget(
+                                currentMode = currentMediaMode,
+                                onModeChange = { newMode: MediaMode -> currentMediaMode = newMode },
+                                onExpandMusicFullscreen = { showFullscreenMusic = true }
+                            )
                         }
 
+                        // Fila Inferior (Reloj + Apps)
                         Row(
                             modifier = Modifier.weight(1f),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -378,8 +385,15 @@ fun CarDashboard(
                                 title = "APLICACIONES",
                                 icon = Icons.Default.Apps,
                                 headerAction = {
-                                    IconButton(onClick = { activeAppDrawerTarget = 99 }, modifier = Modifier.size(24.dp)) {
-                                        Icon(Icons.Default.Launch, contentDescription = "Ver Todas", tint = theme.accentCyan)
+                                    IconButton(
+                                        onClick = { activeAppDrawerTarget = 99 },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Launch,
+                                            contentDescription = "Ver Todas",
+                                            tint = theme.accentCyan
+                                        )
                                     }
                                 }
                             ) {
@@ -389,7 +403,7 @@ fun CarDashboard(
                     }
                 }
 
-                // BOTÓN FLOTANTE "MUNDO DE COLORES" EN LA ESQUINA INFERIOR IZQUIERDA
+                // BOTÓN FLOTANTE MUNDO DE COLORES
                 FloatingActionButton(
                     onClick = { showThemeModal = true },
                     containerColor = theme.cardBackground,
@@ -408,12 +422,23 @@ fun CarDashboard(
             }
         }
 
-        // PANTALLA COMPLETA DEL CAJÓN DE APPS DEL SISTEMA
+        // =========================================================================
+        // CAPAS SUPERPUESTAS A PANTALLA COMPLETA TOTAL (NIVEL RAÍZ)
+        // =========================================================================
+
+        // 🎵 1. REPRODUCTOR A PANTALLA COMPLETA TOTAL (CUBRE EL 100% DE LA TABLET)
+        if (showFullscreenMusic) {
+            FullscreenMusicPlayerWidget(
+                onClose = { showFullscreenMusic = false }
+            )
+        }
+
+        // 📱 2. CAJÓN DE APLICACIONES A PANTALLA COMPLETA
         if (activeAppDrawerTarget != 0) {
             FullscreenAppDrawerWidget(
                 title = if (activeAppDrawerTarget == 99) "TODAS LAS APLICACIONES" else "SELECCIONAR APP PARA SLOT $activeAppDrawerTarget",
                 onClose = { activeAppDrawerTarget = 0 },
-                onAppSelected = { selectedPackage ->
+                onAppSelected = { selectedPackage: String ->
                     if (activeAppDrawerTarget in 1..2) {
                         val prefs = context.getSharedPreferences("speedometer_apps_prefs", Context.MODE_PRIVATE)
                         prefs.edit().putString("slot_$activeAppDrawerTarget", selectedPackage).apply()
@@ -426,20 +451,20 @@ fun CarDashboard(
             )
         }
 
-        // MODAL PERSONALIZADOR DE COLORES Y TAMAÑO DE TEXTO
+        // 🎨 3. MODAL DE TEMAS Y TEXTO
         if (showThemeModal) {
             ThemeSelectorModal(
                 currentTheme = currentTheme,
                 currentTextScale = currentTextScale,
                 currentIsBold = currentIsBold,
                 onDismiss = { showThemeModal = false },
-                onThemeSelected = { newTheme ->
+                onThemeSelected = { newTheme: DashboardTheme ->
                     onThemeChanged(newTheme)
                 },
-                onTextScaleChanged = { newScale ->
+                onTextScaleChanged = { newScale: Float ->
                     onTextScaleChanged(newScale)
                 },
-                onIsBoldChanged = { newIsBold ->
+                onIsBoldChanged = { newIsBold: Boolean ->
                     onIsBoldChanged(newIsBold)
                 }
             )
