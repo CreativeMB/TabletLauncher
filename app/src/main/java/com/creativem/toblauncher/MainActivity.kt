@@ -58,11 +58,14 @@ class MainActivity : ComponentActivity() {
 
         promptDefaultLauncherSelection(this)
 
+        // LEER EL TEMA GUARDADO ANTES DE INICIAR COMPOSE (SOLUCIONA EL ERROR DashBackground)
+        val initialTheme = ThemeManager.getSavedTheme(this)
+
         setContent {
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = DashBackground
+                    color = initialTheme.dashBackground // Usa el color del tema guardado
                 ) {
                     MainScreen()
                 }
@@ -97,14 +100,16 @@ fun MainScreen() {
     var currentTheme by remember { mutableStateOf(ThemeManager.getSavedTheme(context)) }
     var currentTextScale by remember { mutableFloatStateOf(ThemeManager.getSavedTextScale(context)) }
     var currentIsBold by remember { mutableStateOf(ThemeManager.getSavedIsBold(context)) }
+
     // DENSIDAD PERSONALIZADA PARA ESCALAR TODA LA ESCRITURA Y NÚMEROS DE LA TABLET
     val currentDensity = LocalDensity.current
     val customDensity = remember(currentDensity, currentTextScale) {
         Density(
             density = currentDensity.density,
-            fontScale = currentTextScale // Aplica el multiplicador (80% al 180%)
+            fontScale = currentTextScale // Aplica el multiplicador (80% al 280%)
         )
     }
+
     // ESTILO DE TEXTO GLOBAL: CAMBIA EL GROSOR DE TODA LA APP EN TIEMPO REAL
     val defaultTextStyle = LocalTextStyle.current
     val customTextStyle = remember(defaultTextStyle, currentIsBold) {
@@ -112,6 +117,7 @@ fun MainScreen() {
             fontWeight = if (currentIsBold) FontWeight.ExtraBold else FontWeight.Normal
         )
     }
+
     // 2. DETERMINACIÓN SÍNCRONA DEL PASO DE PERMISOS
     val initialStep = remember {
         val hasLocation = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -136,8 +142,8 @@ fun MainScreen() {
     CompositionLocalProvider(
         LocalDensity provides customDensity,
         LocalDashboardTheme provides currentTheme,
-                LocalIsBoldText provides currentIsBold,
-                LocalTextStyle provides customTextStyle
+        LocalIsBoldText provides currentIsBold,
+        LocalTextStyle provides customTextStyle
     ) {
         when (currentStep) {
             1 -> PermissionStepScreen(
@@ -357,7 +363,7 @@ fun CarDashboard(
                         ) {
                             ModernDashboardCard(
                                 modifier = Modifier.weight(1f),
-                                title = null,
+                                title = "SISTEMA",
                                 icon = Icons.Default.Schedule
                             ) {
                                 ModernClockWidget()
@@ -416,7 +422,7 @@ fun CarDashboard(
             )
         }
 
-        // MODAL PERSONALIZADOR DE COLORES, TAMAÑO Y GROSOR DE TEXTO
+        // MODAL PERSONALIZADOR DE COLORES Y TAMAÑO DE TEXTO
         if (showThemeModal) {
             ThemeSelectorModal(
                 currentTheme = currentTheme,

@@ -13,9 +13,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
@@ -24,8 +26,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -49,17 +54,13 @@ fun ModernSpeedometerWidget(
     onRequestAppSelection: (slot: Int) -> Unit
 ) {
     val context = LocalContext.current
-    val isBold = LocalIsBoldText.current // OBTIENE EL ESTADO DE NEGRITA
+    val theme = LocalDashboardTheme.current
+    val isBold = LocalIsBoldText.current
     val activeFontWeight = if (isBold) FontWeight.ExtraBold else FontWeight.Normal
 
     val prefs = remember { context.getSharedPreferences("speedometer_apps_prefs", Context.MODE_PRIVATE) }
-
-    val slot1Pkg = remember(prefs.getString("slot_1", null)) {
-        prefs.getString("slot_1", "com.spotify.music") ?: "com.spotify.music"
-    }
-    val slot2Pkg = remember(prefs.getString("slot_2", null)) {
-        prefs.getString("slot_2", "com.google.android.apps.maps") ?: "com.google.android.apps.maps"
-    }
+    val slot1Pkg = remember(prefs.getString("slot_1", null)) { prefs.getString("slot_1", "com.spotify.music") ?: "com.spotify.music" }
+    val slot2Pkg = remember(prefs.getString("slot_2", null)) { prefs.getString("slot_2", "com.google.android.apps.maps") ?: "com.google.android.apps.maps" }
 
     var hardwareCompassBearing by remember { mutableFloatStateOf(0f) }
 
@@ -80,14 +81,8 @@ fun ModernSpeedometerWidget(
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
         }
-
-        rotationSensor?.let {
-            sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_UI)
-        }
-
-        onDispose {
-            sensorManager?.unregisterListener(listener)
-        }
+        rotationSensor?.let { sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_UI) }
+        onDispose { sensorManager?.unregisterListener(listener) }
     }
 
     val effectiveBearing = if (speedKmH > 3f && bearing != 0f) bearing else hardwareCompassBearing
@@ -98,23 +93,15 @@ fun ModernSpeedometerWidget(
         label = "SpeedAnimation"
     )
 
-    val dynamicSpeedColor = remember(animatedSpeed) {
+    val dynamicSpeedColor = remember(animatedSpeed, theme) {
         when {
-            animatedSpeed < 50f -> {
-                val fraction = (animatedSpeed / 50f).coerceIn(0f, 1f)
-                lerp(Color(0xFF00F2FE), Color(0xFF00E676), fraction)
-            }
-            animatedSpeed < 100f -> {
-                val fraction = ((animatedSpeed - 50f) / 50f).coerceIn(0f, 1f)
-                lerp(Color(0xFF00E676), Color(0xFFFFB300), fraction)
-            }
-            animatedSpeed < 150f -> {
-                val fraction = ((animatedSpeed - 100f) / 50f).coerceIn(0f, 1f)
-                lerp(Color(0xFFFFB300), Color(0xFFFF1744), fraction)
+            animatedSpeed < 60f -> {
+                val fraction = (animatedSpeed / 60f).coerceIn(0f, 1f)
+                lerp(theme.accentCyan, theme.accentPurple, fraction)
             }
             else -> {
-                val fraction = ((animatedSpeed - 150f) / 70f).coerceIn(0f, 1f)
-                lerp(Color(0xFFFF1744), Color(0xFFD500F9), fraction)
+                val fraction = ((animatedSpeed - 60f) / 100f).coerceIn(0f, 1f)
+                lerp(theme.accentPurple, theme.accentOrange, fraction)
             }
         }
     }
@@ -135,30 +122,38 @@ fun ModernSpeedometerWidget(
     }
 
     Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(0.dp),
+        modifier = Modifier.fillMaxSize().padding(0.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // 1. RELOJ ANALÓGICO
+        // ==========================================
+        // 1. RELOJ ANALÓGICO 3D HUNDIDO (50%)
+        // ==========================================
         Box(
             modifier = Modifier
                 .weight(1.2f)
                 .fillMaxHeight(),
             contentAlignment = Alignment.Center
         ) {
+            // Sombra interior falsa dibujada en fondo
+            Box(modifier = Modifier
+                .fillMaxSize(0.9f)
+                .clip(CircleShape)
+                .background(Brush.radialGradient(listOf(Color.Black.copy(0.4f), Color.Transparent)))
+            )
+
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val center = Offset(size.width / 2f, size.height / 2f)
                 val maxRadius = size.minDimension / 2f
-                val strokeWidthPx = 10.dp.toPx()
+                val strokeWidthPx = 12.dp.toPx()
 
                 val arcRadius = maxRadius - (strokeWidthPx / 2f)
-                val ticksRadius = arcRadius - 8.dp.toPx()
-                val textRadius = ticksRadius - 14.dp.toPx()
+                val ticksRadius = arcRadius - 10.dp.toPx()
+                val textRadius = ticksRadius - 16.dp.toPx()
 
+                // Arco Base 3D (Simula un carril físico)
                 drawArc(
-                    color = Color(0xFF161D2A),
+                    brush = Brush.sweepGradient(listOf(Color(0xFF0A0C12), Color(0xFF1E2638))),
                     startAngle = 135f,
                     sweepAngle = 270f,
                     useCenter = false,
@@ -168,22 +163,25 @@ fun ModernSpeedometerWidget(
                 )
 
                 val speedProgress = (animatedSpeed / 220f).coerceIn(0f, 1f)
+
+                // Resplandor Aura Neón
                 drawArc(
-                    color = dynamicSpeedColor.copy(alpha = 0.25f),
+                    color = dynamicSpeedColor.copy(alpha = 0.3f),
                     startAngle = 135f,
                     sweepAngle = 270f * speedProgress,
                     useCenter = false,
-                    style = Stroke(width = strokeWidthPx * 1.8f, cap = StrokeCap.Round),
+                    style = Stroke(width = strokeWidthPx * 2f, cap = StrokeCap.Round),
                     size = Size(arcRadius * 2, arcRadius * 2),
                     topLeft = Offset(center.x - arcRadius, center.y - arcRadius)
                 )
 
+                // Barra de Velocidad Sólida
                 drawArc(
                     color = dynamicSpeedColor,
                     startAngle = 135f,
                     sweepAngle = 270f * speedProgress,
                     useCenter = false,
-                    style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round),
+                    style = Stroke(width = strokeWidthPx * 0.8f, cap = StrokeCap.Round),
                     size = Size(arcRadius * 2, arcRadius * 2),
                     topLeft = Offset(center.x - arcRadius, center.y - arcRadius)
                 )
@@ -191,7 +189,6 @@ fun ModernSpeedometerWidget(
                 val totalSpeed = 220
                 val mainStep = 20
 
-                // PINCELES CON TIPOGRAFÍA BOLD CONFIGURABLE
                 val textPaintDimmed = AndroidPaint().apply {
                     color = android.graphics.Color.GRAY
                     textSize = 10.dp.toPx()
@@ -202,7 +199,7 @@ fun ModernSpeedometerWidget(
 
                 val textPaintActive = AndroidPaint().apply {
                     color = android.graphics.Color.WHITE
-                    textSize = 11.dp.toPx()
+                    textSize = 12.dp.toPx()
                     typeface = if (isBold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
                     textAlign = AndroidPaint.Align.CENTER
                     isAntiAlias = true
@@ -227,13 +224,13 @@ fun ModernSpeedometerWidget(
                         color = if (isPassed) dynamicSpeedColor else Color(0xFF2C3545),
                         start = Offset(startX, startY),
                         end = Offset(endX, endY),
-                        strokeWidth = if (isMainTick) 2.2.dp.toPx() else 1.dp.toPx(),
+                        strokeWidth = if (isMainTick) 2.5.dp.toPx() else 1.2.dp.toPx(),
                         cap = StrokeCap.Round
                     )
 
                     if (isMainTick) {
                         val numX = center.x + textRadius * cos(angleRad).toFloat()
-                        val numY = center.y + textRadius * sin(angleRad).toFloat() + 3.5.dp.toPx()
+                        val numY = center.y + textRadius * sin(angleRad).toFloat() + 4.dp.toPx()
 
                         drawContext.canvas.nativeCanvas.drawText(
                             s.toString(),
@@ -251,52 +248,57 @@ fun ModernSpeedometerWidget(
                     y = center.y + (needleLength * sin(needleAngleRad)).toFloat()
                 )
 
+                // Aguja con relieve
                 drawLine(
-                    color = dynamicSpeedColor.copy(alpha = 0.4f),
-                    start = center,
-                    end = needleEnd,
-                    strokeWidth = 7.dp.toPx(),
+                    color = Color.Black.copy(0.5f),
+                    start = Offset(center.x + 2f, center.y + 2f),
+                    end = Offset(needleEnd.x + 2f, needleEnd.y + 2f),
+                    strokeWidth = 5.dp.toPx(),
                     cap = StrokeCap.Round
                 )
-
                 drawLine(
                     color = dynamicSpeedColor,
                     start = center,
                     end = needleEnd,
-                    strokeWidth = 3.5.dp.toPx(),
+                    strokeWidth = 4.dp.toPx(),
                     cap = StrokeCap.Round
                 )
 
-                drawCircle(color = Color.White, radius = 5.dp.toPx(), center = center)
-                drawCircle(color = dynamicSpeedColor, radius = 2.5.dp.toPx(), center = center)
+                drawCircle(color = Color.White, radius = 6.dp.toPx(), center = center)
+                drawCircle(color = dynamicSpeedColor, radius = 3.dp.toPx(), center = center)
             }
         }
 
-        // 2. VELOCIDAD DIGITAL Y BRÚJULA
+        // ==========================================
+        // 2. VELOCIDAD DIGITAL Y BRÚJULA (EFECTO BOTÓN FÍSICO 3D)
+        // ==========================================
         Column(
             modifier = Modifier
                 .weight(0.9f)
                 .fillMaxHeight()
                 .padding(horizontal = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Surface(
-                color = Color(0xFF0F131C),
-                shape = RoundedCornerShape(16.dp),
+            // PANEL LCD DIGITAL 3D
+            Box(
                 modifier = Modifier
                     .weight(1.2f)
                     .fillMaxWidth()
-                    .border(1.dp, dynamicSpeedColor.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                    .shadow(8.dp, RoundedCornerShape(18.dp), spotColor = Color.Black)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Brush.verticalGradient(listOf(Color(0xFF222A3A), Color(0xFF0F131C))))
+                    .border(
+                        1.dp,
+                        Brush.linearGradient(listOf(Color.White.copy(0.3f), Color.Transparent, Color.Black)),
+                        RoundedCornerShape(18.dp)
+                    ),
+                contentAlignment = Alignment.Center
             ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "${animatedSpeed.toInt()}",
-                        fontSize = 42.sp,
+                        fontSize = 44.sp,
                         fontWeight = activeFontWeight,
                         fontFamily = FontFamily.Monospace,
                         color = Color.White,
@@ -312,38 +314,38 @@ fun ModernSpeedometerWidget(
                 }
             }
 
-            Surface(
-                color = Color(0xFF0F131C),
-                shape = RoundedCornerShape(16.dp),
+            // PANEL BRÚJULA 3D
+            Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .border(1.dp, Color(0xFF1E2636), RoundedCornerShape(16.dp))
+                    .shadow(6.dp, RoundedCornerShape(18.dp))
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Brush.verticalGradient(listOf(Color(0xFF1E2636), Color(0xFF0A0D14))))
+                    .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(0.15f), Color.Black)), RoundedCornerShape(18.dp)),
+                contentAlignment = Alignment.Center
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Default.Explore,
                         contentDescription = "Brújula",
                         tint = dynamicSpeedColor,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Column {
                         Text(
                             text = cardinalFullText,
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = activeFontWeight,
                             color = Color.White
                         )
                         Text(
                             text = "RUMBO: $cardinalDegrees°",
-                            fontSize = 9.sp,
+                            fontSize = 10.sp,
                             fontWeight = activeFontWeight,
                             color = Color.Gray
                         )
@@ -352,15 +354,17 @@ fun ModernSpeedometerWidget(
             }
         }
 
-        // 3. DOS CUADRITOS VERTICALES
+        // ==========================================
+        // 3. APPS CUADRITOS 3D
+        // ==========================================
         Column(
             modifier = Modifier
                 .weight(0.45f)
                 .fillMaxHeight(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            AppSlotSquare(
+            AppSlotSquare3D(
                 modifier = Modifier.weight(1f),
                 packageName = slot1Pkg,
                 accentColor = dynamicSpeedColor,
@@ -371,7 +375,7 @@ fun ModernSpeedometerWidget(
                 onLongClick = { onRequestAppSelection(1) }
             )
 
-            AppSlotSquare(
+            AppSlotSquare3D(
                 modifier = Modifier.weight(1f),
                 packageName = slot2Pkg,
                 accentColor = dynamicSpeedColor,
@@ -385,9 +389,10 @@ fun ModernSpeedometerWidget(
     }
 }
 
+// COMPONENTE AUXILIAR PARA BOTONES DE APPS 3D
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AppSlotSquare(
+private fun AppSlotSquare3D(
     modifier: Modifier = Modifier,
     packageName: String,
     accentColor: Color,
@@ -395,7 +400,6 @@ private fun AppSlotSquare(
     onLongClick: () -> Unit
 ) {
     val context = LocalContext.current
-
     val appIcon = remember(packageName) {
         try {
             val drawable = context.packageManager.getApplicationIcon(packageName)
@@ -413,38 +417,26 @@ private fun AppSlotSquare(
         }
     }
 
-    Surface(
-        color = Color(0xFF0F131C),
-        shape = RoundedCornerShape(16.dp),
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF1E2636), RoundedCornerShape(16.dp))
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
+            .shadow(6.dp, RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(16.dp))
+            .background(Brush.verticalGradient(listOf(Color(0xFF222A3A), Color(0xFF0F131C))))
+            .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(0.25f), Color.Black)), RoundedCornerShape(16.dp))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(10.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(8.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            if (appIcon != null) {
-                Image(
-                    bitmap = appIcon,
-                    contentDescription = "App Shortcut",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.Apps,
-                    contentDescription = "Elegir App",
-                    tint = accentColor,
-                    modifier = Modifier.fillMaxSize(0.6f)
-                )
-            }
+        if (appIcon != null) {
+            Image(
+                bitmap = appIcon,
+                contentDescription = "App Shortcut",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Icon(Icons.Default.Apps, contentDescription = "Elegir App", tint = accentColor, modifier = Modifier.fillMaxSize(0.7f))
         }
     }
 }

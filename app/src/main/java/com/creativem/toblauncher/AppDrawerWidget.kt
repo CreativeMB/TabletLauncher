@@ -47,6 +47,9 @@ fun FullscreenAppDrawerWidget(
     onAppSelected: ((packageName: String) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val theme = LocalDashboardTheme.current // OBTIENE EL TEMA DINÁMICO
+    val isBold = LocalIsBoldText.current    // OBTIENE LA NEGRITA
+
     var searchQuery by remember { mutableStateOf("") }
     var installedApps by remember { mutableStateOf<List<AndroidInstalledApp>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -81,11 +84,11 @@ fun FullscreenAppDrawerWidget(
         }
     }
 
-    // PANTALLA COMPLETA TOTAL (SIN VENTANAS)
+    // PANTALLA COMPLETA TOTAL (FONDO DEL TEMA ACTUAL)
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(DashBackground)
+            .background(theme.dashBackground) // CORRECCIÓN AQUÍ
             .padding(24.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -101,21 +104,21 @@ fun FullscreenAppDrawerWidget(
                     IconButton(
                         onClick = onClose,
                         modifier = Modifier
-                            .background(CardBackground, RoundedCornerShape(14.dp))
-                            .border(1.dp, CardBorder, RoundedCornerShape(14.dp))
+                            .background(theme.cardBackground, RoundedCornerShape(14.dp))
+                            .border(1.dp, theme.cardBorder, RoundedCornerShape(14.dp))
                             .size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = "Volver al Tablero",
-                            tint = AccentCyan
+                            tint = theme.accentCyan // COLOR DEL TEMA
                         )
                     }
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
                         text = title,
                         fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = if (isBold) FontWeight.ExtraBold else FontWeight.Bold,
                         color = Color.White,
                         letterSpacing = 1.sp
                     )
@@ -126,7 +129,7 @@ fun FullscreenAppDrawerWidget(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     placeholder = { Text("Buscar en la tablet...", color = Color.Gray, fontSize = 14.sp) },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = AccentCyan) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = theme.accentCyan) },
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) {
                             IconButton(onClick = { searchQuery = "" }) {
@@ -136,10 +139,10 @@ fun FullscreenAppDrawerWidget(
                     },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AccentCyan,
-                        unfocusedBorderColor = CardBorder,
-                        focusedContainerColor = CardBackground,
-                        unfocusedContainerColor = CardBackground,
+                        focusedBorderColor = theme.accentCyan,
+                        unfocusedBorderColor = theme.cardBorder,
+                        focusedContainerColor = theme.cardBackground,
+                        unfocusedContainerColor = theme.cardBackground,
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White
                     ),
@@ -154,9 +157,14 @@ fun FullscreenAppDrawerWidget(
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = AccentCyan)
+                        CircularProgressIndicator(color = theme.accentCyan)
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("Leyendo aplicaciones instaladas...", color = Color.Gray, fontSize = 14.sp)
+                        Text(
+                            text = "Leyendo aplicaciones instaladas...",
+                            color = Color.Gray,
+                            fontSize = 14.sp,
+                            fontWeight = if (isBold) FontWeight.Bold else FontWeight.Medium
+                        )
                     }
                 }
             } else {
@@ -169,6 +177,8 @@ fun FullscreenAppDrawerWidget(
                     items(filteredApps) { app ->
                         AppTileCard(
                             app = app,
+                            theme = theme,
+                            isBold = isBold,
                             onClick = {
                                 if (onAppSelected != null) {
                                     onAppSelected(app.packageName)
@@ -190,15 +200,17 @@ fun FullscreenAppDrawerWidget(
 @Composable
 private fun AppTileCard(
     app: AndroidInstalledApp,
+    theme: DashboardTheme,
+    isBold: Boolean,
     onClick: () -> Unit
 ) {
     Surface(
-        color = CardBackground,
+        color = theme.cardBackground,
         shape = RoundedCornerShape(18.dp),
         modifier = Modifier
             .fillMaxWidth()
             .height(115.dp)
-            .border(1.dp, CardBorder, RoundedCornerShape(18.dp))
+            .border(1.dp, theme.cardBorder, RoundedCornerShape(18.dp))
             .clickable(onClick = onClick)
     ) {
         Column(
@@ -218,7 +230,7 @@ private fun AppTileCard(
                 text = app.appName,
                 color = Color.White,
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
+                fontWeight = if (isBold) FontWeight.Bold else FontWeight.Medium,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
