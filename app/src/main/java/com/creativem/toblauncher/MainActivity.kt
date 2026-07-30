@@ -1,6 +1,9 @@
 package com.creativem.toblauncher
 
 import android.Manifest
+import android.app.role.RoleManager
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -8,11 +11,17 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,45 +31,36 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.compose.foundation.background
 import kotlinx.coroutines.launch
-
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.FullscreenExit
-
-// ==========================================
-// IMPORTACIONES DE MAPSFORGE (Mapas Offline .map)
-// ==========================================
 import org.mapsforge.map.android.graphics.AndroidGraphicFactory
-import org.mapsforge.map.android.util.AndroidUtil
-import org.mapsforge.map.android.view.MapView
-import org.mapsforge.core.model.LatLong
-import org.mapsforge.core.model.MapPosition
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+// =====================================================================
+        // FORZAR A QUE LA PANTALLA DE LA TABLET ESTÉ SIEMPRE ENCENDIDA (GLOBAL)
+        // =====================================================================
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // RECLAMAR EL 100% DE LA PANTALLA (Modo Inmersivo)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         controller.hide(WindowInsetsCompat.Type.systemBars())
         controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-        // Inicializamos los gráficos de Mapsforge
+        // Inicializamos los gráficos de Mapsforge de forma segura
         try {
             AndroidGraphicFactory.createInstance(application)
         } catch (e: Exception) {
-            // Ya inicializado
+            e.printStackTrace()
         }
+
+        // Solicitar selección como Launcher por defecto
+        promptDefaultLauncherSelection(this)
 
         setContent {
             MaterialTheme {
@@ -73,19 +73,52 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun promptDefaultLauncherSelection(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = context.getSystemService(RoleManager::class.java)
+            if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)) {
+                if (!roleManager.isRoleHeld(RoleManager.ROLE_HOME)) {
+                    val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME)
+                    startActivityForResult(intent, 1001)
+                }
+            }
+        } else {
+            // Método clásico fallback para versiones anteriores de Android
+            val intent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        }
+    }
 }
 
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
-    var currentStep by remember { mutableStateOf(1) }
 
-    LaunchedEffect(Unit) {
+    // Determina síncronamente el paso inicial exacto para evitar el parpadeo de pantalla inicial
+    val initialStep = remember {
         val hasLocation = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (hasLocation) {
-            currentStep = 0
+
+        val hasStorage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+
+        val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+        when {
+            !hasLocation -> 1  // Ir directo a GPS
+            !hasStorage -> 2   // Ir directo a Almacenamiento
+            !hasMic -> 3       // Ir directo a Micrófono
+            else -> 0          // Arrancar directo en el Dashboard
         }
     }
+
+    var currentStep by remember { mutableStateOf(initialStep) }
 
     when (currentStep) {
         1 -> PermissionStepScreen(
@@ -136,7 +169,9 @@ fun PermissionStepScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -148,7 +183,10 @@ fun PermissionStepScreen(
         Spacer(modifier = Modifier.height(40.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             OutlinedButton(onClick = onPermissionGranted) { Text("Omitir por ahora", color = Color.White) }
-            Button(onClick = { permissionLauncher.launch(permissionsToRequest) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF03DAC5))) {
+            Button(
+                onClick = { permissionLauncher.launch(permissionsToRequest) },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF03DAC5))
+            ) {
                 Text("Conceder Permiso", color = Color.Black)
             }
         }
@@ -157,25 +195,21 @@ fun PermissionStepScreen(
 
 @Composable
 fun CarDashboard() {
-    // Estado global de pantalla completa para el mapa
     var isMapExpanded by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (isMapExpanded) {
-            // ==========================================
             // MODO PANTALLA COMPLETA TOTAL (Toma el 100% de la tablet)
-            // ==========================================
             Box(modifier = Modifier.fillMaxSize()) {
                 MapContainerWidget()
 
-                // Botón flotante para salir de Pantalla Completa
                 IconButton(
                     onClick = { isMapExpanded = false },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(16.dp)
                         .background(
-                            color = Color(0xCC1E1E1E), // Fondo oscuro flotante
+                            color = Color(0xCC1E1E1E),
                             shape = MaterialTheme.shapes.medium
                         )
                         .size(44.dp)
@@ -189,16 +223,13 @@ fun CarDashboard() {
                 }
             }
         } else {
-            // ==========================================
             // MODO DASHBOARD NORMAL (PANTALLA DIVIDIDA)
-            // ==========================================
             Row(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // COLUMNA IZQUIERDA: MAPA
                 Card(
                     modifier = Modifier
                         .weight(0.55f)
@@ -208,7 +239,6 @@ fun CarDashboard() {
                     Box(modifier = Modifier.fillMaxSize()) {
                         MapContainerWidget()
 
-                        // Botón para Expandir
                         IconButton(
                             onClick = { isMapExpanded = true },
                             modifier = Modifier
@@ -229,16 +259,16 @@ fun CarDashboard() {
                     }
                 }
 
-                // COLUMNA DERECHA: MÚSICA Y VIDEO
                 Column(
                     modifier = Modifier
                         .weight(0.45f)
                         .fillMaxHeight(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Widget de Música
                     Card(
-                        modifier = Modifier.weight(0.5f).fillMaxWidth(),
+                        modifier = Modifier
+                            .weight(0.5f)
+                            .fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
                     ) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -249,9 +279,10 @@ fun CarDashboard() {
                         }
                     }
 
-                    // Widget de Video
                     Card(
-                        modifier = Modifier.weight(0.5f).fillMaxWidth(),
+                        modifier = Modifier
+                            .weight(0.5f)
+                            .fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
                     ) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {

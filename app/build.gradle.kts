@@ -54,6 +54,10 @@ dependencies {
 
     // 1. Íconos completos de Material Design (Soluciona el error de LibraryMusic, Mic, etc.)
     implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.animation:animation")
+
 
     // 3. Media3 ExoPlayer (El estándar moderno de Android para Video y Música)
     implementation("androidx.media3:media3-exoplayer:1.3.0")
