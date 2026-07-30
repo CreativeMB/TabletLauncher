@@ -270,7 +270,9 @@ fun CarDashboard(
     Box(modifier = Modifier.fillMaxSize()) {
         if (isMapExpanded) {
             Box(modifier = Modifier.fillMaxSize()) {
-                MapContainerWidget()
+                MapContainerWidget(
+                    onExpandClicked = { isMapExpanded = false } // AQUÍ SE CORRIGE EL ERROR
+                )
 
                 IconButton(
                     onClick = { isMapExpanded = false },
@@ -308,7 +310,7 @@ fun CarDashboard(
                     ) {
                         ModernDashboardCard(
                             modifier = Modifier.weight(1.2f),
-                            title = "NAVEGACIÓN GPS",
+                            title = null,
                             icon = Icons.Default.Map,
                             headerAction = {
                                 IconButton(onClick = { isMapExpanded = true }, modifier = Modifier.size(24.dp)) {
@@ -316,7 +318,9 @@ fun CarDashboard(
                                 }
                             }
                         ) {
-                            MapContainerWidget()
+                            MapContainerWidget(
+                                onExpandClicked = { isMapExpanded = true } // AQUÍ SE CORRIGE EL ERROR
+                            )
                         }
 
                         ModernDashboardCard(
@@ -363,7 +367,7 @@ fun CarDashboard(
                         ) {
                             ModernDashboardCard(
                                 modifier = Modifier.weight(1f),
-                                title = "SISTEMA",
+                                title = null,
                                 icon = Icons.Default.Schedule
                             ) {
                                 ModernClockWidget()

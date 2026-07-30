@@ -15,8 +15,6 @@ import android.net.Uri
 import android.os.Looper
 import android.view.ViewGroup
 import android.view.View
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,6 +24,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Settings
@@ -33,6 +32,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -166,7 +168,7 @@ fun MapsforgeWidget(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().clipToBounds().clip(RoundedCornerShape(16.dp))) {
         if (isMapAvailable) {
             AndroidView(
                 factory = { ctx ->
@@ -184,7 +186,6 @@ fun MapsforgeWidget(
                         )
                         model.frameBufferModel.overdrawFactor = 1.3
 
-                        // ESCALA ÓPTIMA GPU 1.35x: Cubre esquinas a 45° sin sobrepasar límites de textura
                         scaleX = 1.35f
                         scaleY = 1.35f
 
@@ -252,19 +253,19 @@ fun MapsforgeWidget(
             )
 
             // ==========================================
-            // BOTONES FLOTANTES DE ZOOM (+ y -)
+            // BOTONES FLOTANTES DE ZOOM (+ y -) PEGADOS A LA DERECHA
             // ==========================================
             Column(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .padding(end = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(end = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 FloatingActionButton(
                     onClick = { mapRefs.mapView?.model?.mapViewPosition?.zoomIn() },
                     containerColor = Color(0xCC1E1E1E),
                     contentColor = Color.White,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(42.dp)
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "Acercar", modifier = Modifier.size(24.dp))
                 }
@@ -273,7 +274,7 @@ fun MapsforgeWidget(
                     onClick = { mapRefs.mapView?.model?.mapViewPosition?.zoomOut() },
                     containerColor = Color(0xCC1E1E1E),
                     contentColor = Color.White,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(42.dp)
                 ) {
                     Icon(Icons.Default.Remove, contentDescription = "Alejar", modifier = Modifier.size(24.dp))
                 }
@@ -311,16 +312,17 @@ fun MapsforgeWidget(
 }
 
 // ==========================================
-// CONTENEDOR PRINCIPAL
+// CONTENEDOR PRINCIPAL DEL MAPA
 // ==========================================
 @Composable
-fun MapContainerWidget() {
+fun MapContainerWidget(
+    onExpandClicked: () -> Unit // Callback para avisarle a MainActivity que expanda la pantalla
+) {
     val context = LocalContext.current
+    val theme = LocalDashboardTheme.current
     val coroutineScope = rememberCoroutineScope()
-
     val prefs = remember { context.getSharedPreferences("toblauncher_prefs", Context.MODE_PRIVATE) }
 
-    var selectedMapMode by remember { mutableStateOf(prefs.getInt("map_mode", 0)) }
     var showMenu by remember { mutableStateOf(false) }
     var isNightMode by remember { mutableStateOf(prefs.getBoolean("night_mode", false)) }
     var isAutoCenterEnabled by remember { mutableStateOf(prefs.getBoolean("auto_center", true)) }
@@ -331,13 +333,11 @@ fun MapContainerWidget() {
     var isMapAvailable by remember { mutableStateOf(false) }
     var isPoiAvailable by remember { mutableStateOf(false) }
     var isCheckingFiles by remember { mutableStateOf(true) }
-
     var isLoadingFile by remember { mutableStateOf(false) }
     var loadingMessage by remember { mutableStateOf("") }
     var showNoFileManagerError by remember { mutableStateOf(false) }
 
     var lastKnownLocation by remember { mutableStateOf<LatLong?>(null) }
-
     val mapRefs = remember { MapRefs() }
 
     LaunchedEffect(Unit) {
@@ -346,125 +346,78 @@ fun MapContainerWidget() {
         isCheckingFiles = false
     }
 
-    fun safeLaunchPicker(
-        launcher: ActivityResultLauncher<String>,
-        onNotFound: () -> Unit
-    ) {
+    fun safeLaunchPicker(launcher: ActivityResultLauncher<String>, onNotFound: () -> Unit) {
         try {
             launcher.launch("*/*")
-        } catch (e: ActivityNotFoundException) {
-            e.printStackTrace()
-            onNotFound()
         } catch (e: Exception) {
-            e.printStackTrace()
             onNotFound()
         }
     }
 
-    val mapPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
+    val mapPickerLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { selectedUri ->
             isLoadingFile = true
             loadingMessage = "Cargando mapa en la memoria del auto..."
             coroutineScope.launch(Dispatchers.IO) {
                 try {
-                    try {
-                        val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        context.contentResolver.takePersistableUriPermission(selectedUri, takeFlags)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
-                    context.contentResolver.openInputStream(selectedUri)?.use { input ->
-                        FileOutputStream(targetMapFile).use { output -> input.copyTo(output) }
-                    }
-                    withContext(Dispatchers.Main) {
-                        if (OfflineMapManager.isMapDownloaded(context)) {
-                            isMapAvailable = true
-                        }
-                        isLoadingFile = false
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    withContext(Dispatchers.Main) { isLoadingFile = false }
+                    context.contentResolver.takePersistableUriPermission(selectedUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (e: Exception) {}
+                context.contentResolver.openInputStream(selectedUri)?.use { input ->
+                    FileOutputStream(targetMapFile).use { output -> input.copyTo(output) }
+                }
+                withContext(Dispatchers.Main) {
+                    if (OfflineMapManager.isMapDownloaded(context)) isMapAvailable = true
+                    isLoadingFile = false
                 }
             }
         }
     }
 
-    val poiPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
+    val poiPickerLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { selectedUri ->
             isLoadingFile = true
             loadingMessage = "Cargando Puntos de Interés (POI)..."
             coroutineScope.launch(Dispatchers.IO) {
                 try {
-                    try {
-                        val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        context.contentResolver.takePersistableUriPermission(selectedUri, takeFlags)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
-                    context.contentResolver.openInputStream(selectedUri)?.use { input ->
-                        FileOutputStream(targetPoiFile).use { output -> input.copyTo(output) }
-                    }
-                    withContext(Dispatchers.Main) {
-                        if (OfflineMapManager.isPoiDownloaded(context)) {
-                            isPoiAvailable = true
-                        }
-                        isLoadingFile = false
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    withContext(Dispatchers.Main) { isLoadingFile = false }
+                    context.contentResolver.takePersistableUriPermission(selectedUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (e: Exception) {}
+                context.contentResolver.openInputStream(selectedUri)?.use { input ->
+                    FileOutputStream(targetPoiFile).use { output -> input.copyTo(output) }
+                }
+                withContext(Dispatchers.Main) {
+                    if (OfflineMapManager.isPoiDownloaded(context)) isPoiAvailable = true
+                    isLoadingFile = false
                 }
             }
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
         if (isCheckingFiles) {
             Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1E1E)))
         } else if (isLoadingFile) {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF121212))
-                    .padding(24.dp),
+                modifier = Modifier.fillMaxSize().background(Color(0xFF121212)).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                CircularProgressIndicator(color = Color(0xFF03DAC5))
+                CircularProgressIndicator(color = theme.accentCyan)
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(text = loadingMessage, style = MaterialTheme.typography.bodyLarge, color = Color.White)
             }
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
-                when (selectedMapMode) {
-                    0 -> MapsforgeWidget(
-                        mapRefs = mapRefs,
-                        isMapAvailable = isMapAvailable,
-                        isAutoCenterEnabled = isAutoCenterEnabled,
-                        isNightMode = isNightMode,
-                        targetMapFile = targetMapFile,
-                        onLocationUpdated = { loc -> lastKnownLocation = loc },
-                        mapPickerLauncher = mapPickerLauncher,
-                        onNoFileManagerError = { showNoFileManagerError = true }
-                    )
-                    1 -> WebOrAppMapWidget(
-                        webUrl = "https://www.google.com/maps",
-                        packageName = "com.google.android.apps.maps",
-                        appName = "Google Maps"
-                    )
-                    2 -> WebOrAppMapWidget(
-                        webUrl = "https://www.waze.com/live-map",
-                        packageName = "com.waze",
-                        appName = "Waze"
-                    )
-                }
+
+                MapsforgeWidget(
+                    mapRefs = mapRefs,
+                    isMapAvailable = isMapAvailable,
+                    isAutoCenterEnabled = isAutoCenterEnabled,
+                    isNightMode = isNightMode,
+                    targetMapFile = targetMapFile,
+                    onLocationUpdated = { loc -> lastKnownLocation = loc },
+                    mapPickerLauncher = mapPickerLauncher,
+                    onNoFileManagerError = { showNoFileManagerError = true }
+                )
 
                 androidx.compose.animation.AnimatedVisibility(
                     visible = showMenu,
@@ -482,22 +435,29 @@ fun MapContainerWidget() {
                     )
                 }
 
+                // ==========================================
+                // PANEL DE CONTROL (Configuración, GPS y Expandir)
+                // ==========================================
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(16.dp),
+                        .padding(start = 6.dp, bottom = 6.dp),
                     contentAlignment = Alignment.BottomStart
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+
+                        // 1. BOTÓN DE MENÚ / CONFIGURACIÓN
                         FloatingActionButton(
                             onClick = { showMenu = !showMenu },
                             containerColor = Color(0xAA1E1E1E),
-                            contentColor = Color(0xFF03DAC5),
-                            modifier = Modifier.size(40.dp)
+                            contentColor = theme.accentCyan,
+                            modifier = Modifier.size(42.dp)
                         ) {
-                            Icon(Icons.Default.Settings, contentDescription = "Configuración", modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.Settings, contentDescription = "Configuración", modifier = Modifier.size(22.dp))
                         }
-                        if (selectedMapMode == 0 && isMapAvailable) {
+
+                        // 2. BOTÓN CENTRAR GPS
+                        if (isMapAvailable) {
                             FloatingActionButton(
                                 onClick = {
                                     isAutoCenterEnabled = true
@@ -507,18 +467,28 @@ fun MapContainerWidget() {
                                         mapRefs.mapView?.repaint()
                                     }
                                 },
-                                containerColor = if (isAutoCenterEnabled) Color(0xFF03DAC5) else Color(0xAA1E1E1E),
+                                containerColor = if (isAutoCenterEnabled) theme.accentCyan else Color(0xAA1E1E1E),
                                 contentColor = if (isAutoCenterEnabled) Color.Black else Color.White,
-                                modifier = Modifier.size(40.dp)
+                                modifier = Modifier.size(42.dp)
                             ) {
-                                Icon(Icons.Default.MyLocation, contentDescription = "Centrar Auto", modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.MyLocation, contentDescription = "Centrar Auto", modifier = Modifier.size(22.dp))
                             }
+                        }
+
+                        // 3. BOTÓN EXPANDIR (PANTALLA COMPLETA)
+                        FloatingActionButton(
+                            onClick = onExpandClicked,
+                            containerColor = Color(0xAA1E1E1E),
+                            contentColor = theme.accentCyan,
+                            modifier = Modifier.size(42.dp)
+                        ) {
+                            Icon(Icons.Default.Fullscreen, contentDescription = "Pantalla Completa", modifier = Modifier.size(24.dp))
                         }
                     }
                 }
 
                 // ==========================================
-                // MENÚ LATERAL
+                // MENÚ LATERAL OFFLINE
                 // ==========================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = showMenu,
@@ -527,117 +497,61 @@ fun MapContainerWidget() {
                     modifier = Modifier.align(Alignment.CenterStart)
                 ) {
                     Surface(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .width(280.dp),
+                        modifier = Modifier.fillMaxHeight().width(280.dp),
                         color = Color(0xFF1E1E1E),
                         tonalElevation = 8.dp
                     ) {
-                        val menuScrollState = rememberScrollState()
-
                         Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(20.dp)
-                                .verticalScroll(menuScrollState),
+                            modifier = Modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState()),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text(
-                                text = "Navegación",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Color.White,
-                                modifier = Modifier.padding(bottom = 4.dp)
-                            )
+                            Text(text = "Configuración Offline", style = MaterialTheme.typography.titleMedium, color = Color.White)
 
-                            PanelMenuItem("🗺️ Mapa Offline", selectedMapMode == 0) {
-                                selectedMapMode = 0
-                                prefs.edit().putInt("map_mode", 0).apply()
-                            }
-
-                            androidx.compose.animation.AnimatedVisibility(
-                                visible = selectedMapMode == 0,
-                                enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
-                                exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+                            Column(
+                                modifier = Modifier.fillMaxWidth().background(Color(0x0DFFFFFF), shape = MaterialTheme.shapes.medium).padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(start = 12.dp)
-                                        .background(Color(0x0DFFFFFF), shape = MaterialTheme.shapes.medium)
-                                        .padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("Modo Noche", color = Color.White, style = MaterialTheme.typography.bodyMedium)
-                                        Switch(
-                                            checked = isNightMode,
-                                            onCheckedChange = {
-                                                isNightMode = it
-                                                prefs.edit().putBoolean("night_mode", it).apply()
-                                            },
-                                            colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF03DAC5))
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Divider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
-                                    Spacer(modifier = Modifier.height(4.dp))
-
-                                    Button(
-                                        onClick = {
-                                            safeLaunchPicker(mapPickerLauncher) {
-                                                showNoFileManagerError = true
-                                            }
+                                    Text("Modo Noche", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                                    Switch(
+                                        checked = isNightMode,
+                                        onCheckedChange = {
+                                            isNightMode = it
+                                            prefs.edit().putBoolean("night_mode", it).apply()
                                         },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0x1A03DAC5), contentColor = Color(0xFF03DAC5)),
-                                        modifier = Modifier.fillMaxWidth(),
-                                        contentPadding = PaddingValues(vertical = 8.dp)
-                                    ) {
-                                        Text("📁 Cambiar .map", style = MaterialTheme.typography.bodyMedium)
-                                    }
+                                        colors = SwitchDefaults.colors(checkedThumbColor = theme.accentCyan)
+                                    )
+                                }
 
-                                    Button(
-                                        onClick = {
-                                            safeLaunchPicker(poiPickerLauncher) {
-                                                showNoFileManagerError = true
-                                            }
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isPoiAvailable) Color(0x1A03DAC5) else Color(0x1AFFFFFF),
-                                            contentColor = if (isPoiAvailable) Color(0xFF03DAC5) else Color.White
-                                        ),
-                                        modifier = Modifier.fillMaxWidth(),
-                                        contentPadding = PaddingValues(vertical = 8.dp)
-                                    ) {
-                                        Text(if (isPoiAvailable) "📁 Cambiar .poi" else "➕ Cargar .poi", style = MaterialTheme.typography.bodyMedium)
-                                    }
+                                Divider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
+
+                                Button(
+                                    onClick = { safeLaunchPicker(mapPickerLauncher) { showNoFileManagerError = true } },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x1A03DAC5), contentColor = theme.accentCyan),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("📁 Cambiar Mapa (.map)", style = MaterialTheme.typography.bodyMedium)
+                                }
+
+                                Button(
+                                    onClick = { safeLaunchPicker(poiPickerLauncher) { showNoFileManagerError = true } },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isPoiAvailable) Color(0x1A03DAC5) else Color(0x1AFFFFFF),
+                                        contentColor = if (isPoiAvailable) theme.accentCyan else Color.White
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(if (isPoiAvailable) "📁 Cambiar Puntos (.poi)" else "➕ Cargar Puntos (.poi)", style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.weight(1f))
 
-                            PanelMenuItem("📍 Google Maps", selectedMapMode == 1) {
-                                selectedMapMode = 1
-                                prefs.edit().putInt("map_mode", 1).apply()
-                                showMenu = false
-                            }
-
-                            PanelMenuItem("🚗 Waze", selectedMapMode == 2) {
-                                selectedMapMode = 2
-                                prefs.edit().putInt("map_mode", 2).apply()
-                                showMenu = false
-                            }
-
-                            Spacer(modifier = Modifier.height(20.dp))
-
-                            TextButton(
-                                onClick = { showMenu = false },
-                                modifier = Modifier.align(Alignment.End)
-                            ) {
+                            TextButton(onClick = { showMenu = false }, modifier = Modifier.align(Alignment.End)) {
                                 Text("Cerrar", color = Color.Gray)
                             }
                         }
@@ -650,60 +564,8 @@ fun MapContainerWidget() {
             AlertDialog(
                 onDismissRequest = { showNoFileManagerError = false },
                 title = { Text("Explorador no disponible") },
-                text = { Text("Esta pantalla o radio no cuenta con un selector de archivos compatible instalado en el sistema.") },
-                confirmButton = {
-                    Button(onClick = { showNoFileManagerError = false }) {
-                        Text("Aceptar")
-                    }
-                }
-            )
-        }
-    }
-}
-
-// ==========================================
-// MAPAS WEB
-// ==========================================
-@Composable
-fun WebOrAppMapWidget(webUrl: String, packageName: String, appName: String) {
-    val context = LocalContext.current
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { ctx ->
-                WebView(ctx).apply {
-                    settings.apply {
-                        javaScriptEnabled = true
-                        domStorageEnabled = true
-                        setGeolocationEnabled(true)
-                    }
-                    webViewClient = WebViewClient()
-                    loadUrl(webUrl)
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        SmallFloatingActionButton(
-            onClick = {
-                val intent = context.packageManager.getLaunchIntentForPackage(packageName)
-                if (intent != null) {
-                    context.startActivity(intent)
-                } else {
-                    val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse(webUrl))
-                    context.startActivity(webIntent)
-                }
-            },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(12.dp),
-            containerColor = Color(0xFF03DAC5),
-            contentColor = Color.Black
-        ) {
-            Text(
-                text = "Abrir App de $appName",
-                modifier = Modifier.padding(horizontal = 8.dp),
-                style = MaterialTheme.typography.bodySmall
+                text = { Text("Esta radio no cuenta con un explorador de archivos instalado.") },
+                confirmButton = { Button(onClick = { showNoFileManagerError = false }) { Text("Aceptar") } }
             )
         }
     }
@@ -721,7 +583,6 @@ fun startSmoothLocationTracking(
     onLocationUpdated: (LatLong) -> Unit
 ): LocationCallback {
     val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-
     var lastLat = cartMarker.latLong.latitude
     var lastLng = cartMarker.latLong.longitude
     var lastBearing = 0f
@@ -733,10 +594,7 @@ fun startSmoothLocationTracking(
         return delta
     }
 
-    val locationRequest = LocationRequest.Builder(
-        Priority.PRIORITY_HIGH_ACCURACY,
-        1500L
-    ).apply {
+    val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1500L).apply {
         setMinUpdateDistanceMeters(1.5f)
     }.build()
 
@@ -747,11 +605,7 @@ fun startSmoothLocationTracking(
             val targetLng = location.longitude
 
             val speedKmH = location.speed * 3.6f
-            val targetBearing = if (location.hasBearing() && speedKmH > 1.5f) {
-                location.bearing
-            } else {
-                lastBearing
-            }
+            val targetBearing = if (location.hasBearing() && speedKmH > 1.5f) location.bearing else lastBearing
 
             mapRefs.currentAnimator?.cancel()
 
@@ -764,7 +618,6 @@ fun startSmoothLocationTracking(
 
                 addUpdateListener { animation ->
                     val fraction = animation.animatedValue as Float
-
                     val currentLat = lastLat + (targetLat - lastLat) * fraction
                     val currentLng = lastLng + (targetLng - lastLng) * fraction
                     val currentBearing = startBearing + (deltaBearing * fraction)
@@ -794,32 +647,6 @@ fun startSmoothLocationTracking(
         }
     }
 
-    fusedLocationClient.requestLocationUpdates(
-        locationRequest,
-        locationCallback,
-        Looper.getMainLooper()
-    )
-
+    fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
     return locationCallback
-}
-
-// ==========================================
-// COMPOSABLE MENÚ
-// ==========================================
-@Composable
-private fun PanelMenuItem(text: String, isSelected: Boolean, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (isSelected) Color(0x3303DAC5) else Color.Transparent,
-            contentColor = if (isSelected) Color(0xFF03DAC5) else Color.White
-        ),
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
-    ) {
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-            Text(text = text, style = MaterialTheme.typography.bodyLarge)
-        }
-    }
 }
