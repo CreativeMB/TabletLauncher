@@ -21,7 +21,8 @@
     <!-- Para leer música y video (USB, MicroSD)    -->
     <!-- ========================================== -->
     <!-- Para radios con Android 12 o inferior: -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
     <!-- Para radios modernas con Android 13 o superior: -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
@@ -32,11 +33,26 @@
     <!-- ========================================== -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+
+
     <!-- ========================================== -->
     <!-- 5. EXTRAS PARA AUTO                        -->
     <!-- Evitar que la pantalla se apague           -->
     <!-- ========================================== -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- ===================================================================== -->
+    <!-- 6. PERMISO CRÍTICO PARA VER APPS INSTALADAS EN ANDROID 11, 12, 13, 14 -->
+    <!-- Sin esto, Android oculta las aplicaciones por seguridad               -->
+    <!-- ===================================================================== -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
 
     <application
         android:allowBackup="true"
