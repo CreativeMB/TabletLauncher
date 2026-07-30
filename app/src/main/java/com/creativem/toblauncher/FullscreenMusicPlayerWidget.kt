@@ -1,13 +1,11 @@
 package com.creativem.toblauncher
 
-import android.content.Intent
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import android.os.Environment
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.io.File
 
 @Composable
 fun FullscreenMusicPlayerWidget(
@@ -34,19 +33,7 @@ fun FullscreenMusicPlayerWidget(
     val musicPlayer = remember { SmartMusicPlayer.getInstance(context) }
     val currentTrack = musicPlayer.playlist.getOrNull(musicPlayer.currentTrackIndex)
 
-    val folderPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            try {
-                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            musicPlayer.scanFolder(uri)
-        }
-    }
+    var showFolderModal by remember { mutableStateOf(false) }
 
     // PANTALLA COMPLETA TOTAL
     Box(
@@ -86,15 +73,24 @@ fun FullscreenMusicPlayerWidget(
                     )
                 }
 
-                // Botón Seleccionar USB / Carpeta
+                // BOTÓN SELECCIONAR USB / CARPETA (ABRE EL EXPLORADOR INTERNO)
                 Button(
-                    onClick = { folderPickerLauncher.launch(null) },
+                    onClick = { showFolderModal = true },
                     colors = ButtonDefaults.buttonColors(containerColor = theme.cardBackground),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Icon(Icons.Default.FolderOpen, contentDescription = null, tint = theme.accentOrange, modifier = Modifier.size(18.dp))
+                    Icon(
+                        imageVector = Icons.Default.FolderOpen,
+                        contentDescription = null,
+                        tint = theme.accentOrange,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "📂 ${musicPlayer.selectedFolderName}", color = Color.White, fontSize = 12.sp)
+                    Text(
+                        text = "📂 ${musicPlayer.selectedFolderName}",
+                        color = Color.White,
+                        fontSize = 12.sp
+                    )
                 }
             }
 
@@ -242,7 +238,6 @@ fun FullscreenMusicPlayerWidget(
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    // Tiempos y Barra de Progreso
                     val elapsedTimeFormatted = formatMs(musicPlayer.currentPositionMs)
                     val totalTimeFormatted = formatMs(musicPlayer.totalDurationMs)
 
@@ -272,7 +267,6 @@ fun FullscreenMusicPlayerWidget(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Controles de Conducción Gigantes
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -296,7 +290,6 @@ fun FullscreenMusicPlayerWidget(
                             Icon(Icons.Default.SkipPrevious, null, tint = theme.accentOrange, modifier = Modifier.size(30.dp))
                         }
 
-                        // PLAY / PAUSA PRINCIPAL GIGANTE
                         IconButton(
                             onClick = { musicPlayer.togglePlayPause() },
                             modifier = Modifier
@@ -332,7 +325,145 @@ fun FullscreenMusicPlayerWidget(
                 }
             }
         }
+
+        // --- VENTANA EMERGENTE: EXPLORADOR CON BOTÓN "SELECCIONAR ESTA CARPETA" ---
+        if (showFolderModal) {
+            FolderPickerModal(
+                onDismiss = { showFolderModal = false },
+                onFolderSelected = { selectedFolder ->
+                    musicPlayer.scanFolderPath(selectedFolder)
+                }
+            )
+        }
     }
+}
+
+// ==========================================
+// VENTANA MODAL EXPLORADORA DE CARPETAS / USB
+// ==========================================
+@Composable
+fun FolderPickerModal(
+    onDismiss: () -> Unit,
+    onFolderSelected: (File) -> Unit
+) {
+    val storageRoots = remember {
+        val roots = mutableListOf<File>()
+        val primary = Environment.getExternalStorageDirectory()
+        if (primary != null && primary.exists()) roots.add(primary)
+
+        val storageDir = File("/storage")
+        if (storageDir.exists()) {
+            storageDir.listFiles()?.filter { it.isDirectory && it.canRead() }?.forEach { dir ->
+                if (!roots.contains(dir) && dir.name != "self" && dir.name != "emulated") {
+                    roots.add(dir)
+                }
+            }
+        }
+        roots
+    }
+
+    var currentDir by remember { mutableStateOf(storageRoots.firstOrNull() ?: File("/storage")) }
+
+    val subfolders = remember(currentDir) {
+        try {
+            currentDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") && it.canRead() }?.sortedBy { it.name } ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Explorador de Carpetas / USB", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("📁 ${currentDir.absolutePath}", fontSize = 11.sp, color = Color(0xFF00E5FF))
+            }
+        },
+        text = {
+            Column(modifier = Modifier.height(280.dp)) {
+                // Selector rápido (Memoria Interna vs memorias USB)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    storageRoots.forEach { root ->
+                        Button(
+                            onClick = { currentDir = root },
+                            modifier = Modifier.height(32.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (currentDir.absolutePath.startsWith(root.absolutePath)) Color(0xFF00E5FF) else Color(0xFF2A2A36)
+                            )
+                        ) {
+                            Text(
+                                text = if (root.name == "0" || root.name == "emulated") "📱 Interna" else "🔌 USB (${root.name})",
+                                fontSize = 10.sp,
+                                color = if (currentDir.absolutePath.startsWith(root.absolutePath)) Color.Black else Color.White
+                            )
+                        }
+                    }
+                }
+
+                // Botón para subir de nivel
+                if (currentDir.parentFile != null && currentDir.parentFile?.canRead() == true && currentDir.absolutePath != "/storage") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF222230))
+                            .clickable { currentDir = currentDir.parentFile!! }
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = null, tint = Color.Yellow, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(".. (Subir un nivel)", color = Color.Yellow, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+
+                // Lista de Subcarpetas
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(subfolders) { folder ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { currentDir = folder }
+                                .padding(vertical = 10.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Folder, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(folder.name, color = Color.White, fontSize = 13.sp, maxLines = 1)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            // BOTÓN PRINCIPAL PROMINENTE: SELECCIONAR ESTA CARPETA
+            Button(
+                onClick = {
+                    onFolderSelected(currentDir)
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9100)),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("✅ SELECCIONAR ESTA CARPETA", fontWeight = FontWeight.ExtraBold, color = Color.Black)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar", color = Color.Gray) }
+        },
+        containerColor = Color(0xFF14141E)
+    )
 }
 
 private fun formatMs(ms: Long): String {

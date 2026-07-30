@@ -11,6 +11,7 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.compose.runtime.*
 import kotlinx.coroutines.*
+import java.io.File
 
 enum class RepeatMode { ALL, ONE }
 
@@ -18,7 +19,6 @@ data class AudioTrack(val uri: Uri, val title: String)
 
 class SmartMusicPlayer private constructor(private val context: Context) {
 
-    // --- PATRÓN SINGLETON: CONSERVA LA MÚSICA VIVA EN MEMORIA NAVEGUES DONDE NAVEGUES ---
     companion object {
         @Volatile
         private var INSTANCE: SmartMusicPlayer? = null
@@ -73,39 +73,142 @@ class SmartMusicPlayer private constructor(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
     init {
-        // SOLAMENTE ESCANEA UNA VEZ CUANDO ENCIENDE LA APP POR PRIMERA VEZ
+        // Al encender la radio por primera vez, autodetectar canciones en la USB
         autoStartPlaybackOnBoot()
     }
 
-    // --- CONFIGURACIÓN DE AUTOREPRODUCCIÓN ---
     fun toggleAutoPlay() {
         isAutoPlayEnabled = !isAutoPlayEnabled
         prefs.edit().putBoolean("auto_play_enabled", isAutoPlayEnabled).apply()
     }
 
     private fun autoStartPlaybackOnBoot() {
-        if (playlist.isNotEmpty()) return // Si ya está cargada en memoria, NO vuelve a escanear
+        if (playlist.isNotEmpty()) return
 
+        val savedFolderPath = prefs.getString("selected_folder_path", null)
         val savedFolderUri = prefs.getString("selected_folder_uri", null)
-        if (savedFolderUri != null) {
+
+        if (savedFolderPath != null && File(savedFolderPath).exists()) {
+            scanFolderPathAndAutoPlay(File(savedFolderPath))
+        } else if (savedFolderUri != null) {
             scanFolderAndAutoPlay(Uri.parse(savedFolderUri))
         } else {
             scanMediaStoreFallbackAndPlay()
         }
     }
 
-    // --- ESCANEAR CARPETA SELECCIONADA MANUALMENTE ---
-    fun scanFolder(folderUri: Uri) {
+    // --- ESCANEAR CARPETA DIRECTA DESDE EL EXPLORADOR INTERNO (File) ---
+    fun scanFolderPath(folderFile: File) {
+        isScanning = true
+        selectedFolderName = folderFile.name.ifEmpty { "Memoria USB" }
+        prefs.edit().putString("folder_name", selectedFolderName).apply()
+        prefs.edit().putString("selected_folder_path", folderFile.absolutePath).apply()
+
+        scope.launch(Dispatchers.IO) {
+            val tracks = mutableListOf<AudioTrack>()
+            try {
+                folderFile.walkTopDown()
+                    .filter { it.isFile && isAudioFile(null, it.name) }
+                    .forEach { file ->
+                        tracks.add(AudioTrack(Uri.fromFile(file), file.nameWithoutExtension))
+                    }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            withContext(Dispatchers.Main) {
+                playlist.clear()
+                playlist.addAll(tracks)
+                playedIndicesHistory.clear()
+                isScanning = false
+
+                if (playlist.isNotEmpty()) {
+                    playTrackAtIndex(0, startPosMs = 0L)
+                }
+            }
+        }
+    }
+
+    private fun scanFolderPathAndAutoPlay(folderFile: File) {
+        isScanning = true
+        scope.launch(Dispatchers.IO) {
+            val tracks = mutableListOf<AudioTrack>()
+            try {
+                folderFile.walkTopDown()
+                    .filter { it.isFile && isAudioFile(null, it.name) }
+                    .forEach { file ->
+                        tracks.add(AudioTrack(Uri.fromFile(file), file.nameWithoutExtension))
+                    }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            withContext(Dispatchers.Main) {
+                playlist.clear()
+                playlist.addAll(tracks)
+                isScanning = false
+
+                if (playlist.isNotEmpty()) {
+                    val lastTrackUri = prefs.getString("last_track_uri", null)
+                    val lastPos = prefs.getLong("last_position_ms", 0L)
+
+                    val savedIndex = playlist.indexOfFirst { it.uri.toString() == lastTrackUri }
+                    val indexToPlay = if (savedIndex != -1) savedIndex else 0
+
+                    if (isAutoPlayEnabled) {
+                        playTrackAtIndex(indexToPlay, startPosMs = lastPos)
+                    } else {
+                        prepareTrackAtIndex(indexToPlay, startPosMs = lastPos)
+                    }
+                } else {
+                    scanMediaStoreFallbackAndPlay()
+                }
+            }
+        }
+    }
+
+    // --- ESCANEAR CARPETA DESDE EXTERNO (Uri) ---
+    fun scanFolder(selectedUri: Uri) {
         isScanning = true
         scope.launch(Dispatchers.IO) {
             val tracks = mutableListOf<AudioTrack>()
 
-            selectedFolderName = getFolderName(context, folderUri)
-            prefs.edit().putString("folder_name", selectedFolderName).apply()
-            prefs.edit().putString("selected_folder_uri", folderUri.toString()).apply()
+            try {
+                selectedFolderName = getFolderName(context, selectedUri)
+                prefs.edit().putString("folder_name", selectedFolderName).apply()
+                prefs.edit().putString("selected_folder_uri", selectedUri.toString()).apply()
 
-            val rootDocId = DocumentsContract.getTreeDocumentId(folderUri)
-            scanDirectoryNative(context, folderUri, rootDocId, tracks)
+                val rootDocId = DocumentsContract.getTreeDocumentId(selectedUri)
+                scanDirectoryNative(context, selectedUri, rootDocId, tracks)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                scanMediaStoreFallbackInternal(tracks)
+            }
+
+            withContext(Dispatchers.Main) {
+                playlist.clear()
+                playlist.addAll(tracks)
+                playedIndicesHistory.clear()
+                isScanning = false
+
+                if (playlist.isNotEmpty()) {
+                    val selectedIndex = playlist.indexOfFirst { it.uri == selectedUri }
+                    val indexToPlay = if (selectedIndex != -1) selectedIndex else 0
+                    playTrackAtIndex(indexToPlay, startPosMs = 0L)
+                }
+            }
+        }
+    }
+
+    // --- ESCANEO FORZADO DE USB ---
+    fun forceAutoScanUsb() {
+        isScanning = true
+        selectedFolderName = "Memoria USB"
+        prefs.edit().putString("folder_name", selectedFolderName).apply()
+
+        scope.launch(Dispatchers.IO) {
+            val tracks = mutableListOf<AudioTrack>()
+            scanMediaStoreFallbackInternal(tracks)
 
             withContext(Dispatchers.Main) {
                 playlist.clear()
@@ -129,6 +232,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                 scanDirectoryNative(context, folderUri, rootDocId, tracks)
             } catch (e: Exception) {
                 e.printStackTrace()
+                scanMediaStoreFallbackInternal(tracks)
             }
 
             withContext(Dispatchers.Main) {
@@ -158,35 +262,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
     private fun scanMediaStoreFallbackAndPlay() {
         scope.launch(Dispatchers.IO) {
             val tracks = mutableListOf<AudioTrack>()
-            val projection = arrayOf(
-                MediaStore.Audio.Media._ID,
-                MediaStore.Audio.Media.TITLE,
-                MediaStore.Audio.Media.DISPLAY_NAME
-            )
-            val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
-
-            try {
-                context.contentResolver.query(
-                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                    projection,
-                    selection,
-                    null,
-                    null
-                )?.use { cursor ->
-                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                    val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                    val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
-
-                    while (cursor.moveToNext()) {
-                        val id = cursor.getLong(idCol)
-                        val title = cursor.getString(titleCol) ?: cursor.getString(nameCol) ?: "Pista"
-                        val contentUri = Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id.toString())
-                        tracks.add(AudioTrack(contentUri, title.substringBeforeLast(".")))
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            scanMediaStoreFallbackInternal(tracks)
 
             withContext(Dispatchers.Main) {
                 if (tracks.isNotEmpty()) {
@@ -206,6 +282,45 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                         prepareTrackAtIndex(indexToPlay, startPosMs = lastPos)
                     }
                 }
+            }
+        }
+    }
+
+    private fun scanMediaStoreFallbackInternal(tracksList: MutableList<AudioTrack>) {
+        val projection = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.DISPLAY_NAME
+        )
+        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+
+        val urisToQuery = listOf(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            MediaStore.Audio.Media.INTERNAL_CONTENT_URI
+        )
+
+        for (contentUri in urisToQuery) {
+            try {
+                context.contentResolver.query(
+                    contentUri,
+                    projection,
+                    selection,
+                    null,
+                    null
+                )?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                    val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                    val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(idCol)
+                        val title = cursor.getString(titleCol) ?: cursor.getString(nameCol) ?: "Pista"
+                        val audioUri = Uri.withAppendedPath(contentUri, id.toString())
+                        tracksList.add(AudioTrack(audioUri, title.substringBeforeLast(".")))
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }
@@ -358,7 +473,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         }
     }
 
- fun playTrackAtIndex(index: Int, startPosMs: Long = 0L) {
+    fun playTrackAtIndex(index: Int, startPosMs: Long = 0L) {
         if (index !in playlist.indices) return
         currentTrackIndex = index
         val track = playlist[index]

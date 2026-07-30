@@ -1,9 +1,12 @@
 package com.creativem.toblauncher
 
+import android.os.Environment
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,25 +19,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.RepeatOne
-
-import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.FlashOff
-
+import java.io.File
 
 // 1. ENUM PARA LOS 3 MODOS
 enum class MediaMode {
@@ -72,7 +61,7 @@ fun ModernMediaPlayerWidget(
                 when (mode) {
                     MediaMode.MUSIC -> MusicPlayerView(
                         theme = theme,
-                        onExpandFullscreen = onExpandMusicFullscreen // <--- Y QUE SE PASE AQUÍ
+                        onExpandFullscreen = onExpandMusicFullscreen
                     )
                     MediaMode.VIDEO -> VideoPlayerView(theme)
                     MediaMode.IPTV -> IptvPlayerView(theme)
@@ -82,7 +71,7 @@ fun ModernMediaPlayerWidget(
 
         Spacer(modifier = Modifier.width(6.dp))
 
-        // --- 2. BARRA LATERAL DERECHA (SOLO ICONOS BAJANDO) ---
+        // --- 2. BARRA LATERAL DERECHA (SOLO ICONOS) ---
         Column(
             modifier = Modifier
                 .fillMaxHeight()
@@ -142,7 +131,7 @@ private fun VerticalIconButton(
     }
 }
 
-// --- VISTAS DE REPRODUCCIÓN ---
+// --- VISTA DE MÚSICA CON EXPLORADOR INTERNO NATIVO ---
 
 @Composable
 fun MusicPlayerView(
@@ -151,20 +140,7 @@ fun MusicPlayerView(
 ) {
     val context = LocalContext.current
     val musicPlayer = remember { SmartMusicPlayer.getInstance(context) }
-
-    val folderPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            try {
-                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            musicPlayer.scanFolder(uri)
-        }
-    }
+    var showFolderModal by remember { mutableStateOf(false) }
 
     val currentTrack = musicPlayer.playlist.getOrNull(musicPlayer.currentTrackIndex)
 
@@ -188,7 +164,7 @@ fun MusicPlayerView(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // --- 1. CABECERA: TÍTULO Y DETALLES USB ---
+            // CABECERA CON BOTÓN DE EXPLORADOR
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -211,7 +187,7 @@ fun MusicPlayerView(
                         } else if (musicPlayer.playlist.isNotEmpty()) {
                             "📂 ${musicPlayer.selectedFolderName} • ${musicPlayer.playlist.size} pistas"
                         } else {
-                            "📂 Selecciona una carpeta o USB"
+                            "📂 Toca aquí o conecta tu USB"
                         },
                         color = if (musicPlayer.isScanning) theme.accentOrange else theme.accentCyan,
                         fontSize = 10.sp,
@@ -220,8 +196,9 @@ fun MusicPlayerView(
                     )
                 }
 
+                // BOTÓN DE CARPETA (ABRE EL EXPLORADOR CON EL BOTÓN "SELECCIONAR ESTA CARPETA")
                 IconButton(
-                    onClick = { folderPickerLauncher.launch(null) },
+                    onClick = { showFolderModal = true },
                     modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
@@ -366,11 +343,20 @@ fun MusicPlayerView(
                 }
             }
         }
+
+        // --- VENTANA EMERGENTE: EXPLORADOR CON BOTÓN "SELECCIONAR ESTA CARPETA" ---
+        if (showFolderModal) {
+            FolderPickerModal(
+                onDismiss = { showFolderModal = false },
+                onFolderSelected = { selectedFolder ->
+                    musicPlayer.scanFolderPath(selectedFolder)
+                }
+            )
+        }
     }
 }
 
-
-// Función de formato de tiempo (00:00)
+// FUNCIÓN AUXILIAR FORMATO TIEMPO
 private fun formatMs(ms: Long): String {
     if (ms <= 0L) return "00:00"
     val totalSeconds = ms / 1000
@@ -378,6 +364,7 @@ private fun formatMs(ms: Long): String {
     val seconds = totalSeconds % 60
     return String.format("%02d:%02d", minutes, seconds)
 }
+
 @Composable
 private fun VideoPlayerView(theme: DashboardTheme) {
     Box(
