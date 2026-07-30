@@ -8,9 +8,12 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.net.Uri
 import android.os.Looper
 import android.view.ViewGroup
+import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -21,6 +24,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MyLocation
@@ -47,10 +52,10 @@ import org.mapsforge.map.android.view.MapView
 import org.mapsforge.map.layer.overlay.Marker
 import java.io.File
 import java.io.FileOutputStream
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 // ==========================================
-// CLASE CONTENEDORA DE REFERENCIAS (Previene bucles de recomposición)
+// CLASE CONTENEDORA DE REFERENCIAS
 // ==========================================
 class MapRefs {
     var mapView: MapView? = null
@@ -59,7 +64,7 @@ class MapRefs {
 }
 
 // ==========================================
-// FUNCIÓN AUXILIAR PARA EL DIBUJADO DEL PULSO CONSTANTE
+// FUNCIÓN AUXILIAR PARA EL DIBUJADO DEL PULSO CONSTANTE (SOPORTE TABLET)
 // ==========================================
 fun createPulseBitmap(progress: Float): Bitmap {
     val size = 260 // Lienzo más grande para soportar el tamaño ampliado en Tablets
@@ -118,7 +123,7 @@ fun createPulseBitmap(progress: Float): Bitmap {
 }
 
 // ==========================================
-// COMPOSABLE DEL MAPA OFFLINE (SÓLO DIBUJADO Y GPS)
+// COMPOSABLE DEL MAPA OFFLINE (CON SOPORTE 3D E INCLINACIÓN)
 // ==========================================
 @SuppressLint("RememberReturnType")
 @Composable
@@ -126,12 +131,20 @@ fun MapsforgeWidget(
     mapRefs: MapRefs,
     isMapAvailable: Boolean,
     isAutoCenterEnabled: Boolean,
+    isNavigationMode3D: Boolean,
+    isNightMode: Boolean,
     targetMapFile: File,
-    onLocationUpdated: (LatLong) -> Unit,
+    lastKnownBearing: Float, // Rumbo actual para rotar al instante
+    onLocationUpdated: (LatLong, Float) -> Unit,
     mapPickerLauncher: ActivityResultLauncher<String>,
     onNoFileManagerError: () -> Unit
 ) {
     val context = LocalContext.current
+
+    // 1. SOLUCIÓN AL CAPTURE: Referencias dinámicas siempre actualizadas para el hilo de GPS
+    val currentNavigationMode3D by rememberUpdatedState(isNavigationMode3D)
+    val currentAutoCenterEnabled by rememberUpdatedState(isAutoCenterEnabled)
+    val currentBearing by rememberUpdatedState(lastKnownBearing)
 
     // Animación de pulso infinito y constante
     val infiniteTransition = rememberInfiniteTransition(label = "PulseTransition")
@@ -145,7 +158,7 @@ fun MapsforgeWidget(
         label = "PulseProgress"
     )
 
-    // Efecto para animar el pulso dinámicamente
+    // Efecto de pulso en el marcador
     LaunchedEffect(pulseProgress) {
         val mapView = mapRefs.mapView
         val marker = mapRefs.marker
@@ -156,7 +169,46 @@ fun MapsforgeWidget(
         }
     }
 
-    // LIMPIEZA ABSOLUTA DE RECURSOS SÓLO CUANDO EL WIDGET SE DESTRUYE COMPLETAMENTE (Key: Unit)
+    // 2. SOLUCIÓN ESTÁTICA: Rotar e INCLINAR el mapa en 3D AL INSTANTE al cambiar el interruptor
+    // Rotar, inclinar y ESCALAR el mapa en 3D AL INSTANTE para llenar todo el visor
+    LaunchedEffect(isNavigationMode3D) {
+        val mapView = mapRefs.mapView ?: return@LaunchedEffect
+        if (isNavigationMode3D) {
+            mapView.rotationX = 45f      // Inclinación 3D óptima
+            mapView.scaleX = 1.6f        // Mayor ancho para cubrir esquinas
+            mapView.scaleY = 1.7f        // Mayor altura para cubrir el horizonte comprimido
+            mapView.translationY = -110f // Empuja el mapa hacia arriba para tapar la franja vacía
+            mapView.rotation = -currentBearing
+        } else {
+            mapView.rotationX = 0f       // Resetea a plano 2D plano
+            mapView.scaleX = 1.0f        // Resetea escala
+            mapView.scaleY = 1.0f
+            mapView.translationY = 0f    // Resetea desplazamiento
+            mapView.rotation = 0f
+        }
+        mapView.repaint()
+    }
+
+    // Efecto para aplicar en tiempo real la Capa de Noche
+    LaunchedEffect(isNightMode) {
+        val mapView = mapRefs.mapView ?: return@LaunchedEffect
+        if (isNightMode) {
+            val paint = Paint()
+            val matrix = ColorMatrix(floatArrayOf(
+                0.2f, 0f, 0f, 0f, 10f,
+                0f, 0.2f, 0f, 0f, 20f,
+                0f, 0f, 0.4f, 0f, 40f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            paint.colorFilter = ColorMatrixColorFilter(matrix)
+            mapView.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
+        } else {
+            mapView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        }
+        mapView.repaint()
+    }
+
+    // Limpieza absoluta de recursos
     DisposableEffect(Unit) {
         onDispose {
             mapRefs.locationCallback?.let { callback ->
@@ -192,10 +244,15 @@ fun MapsforgeWidget(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
+
+                        // Ajustamos la profundidad de perspectiva física para la inclinación 3D
+                        val density = ctx.resources.displayMetrics.density
+                        cameraDistance = 6000f * density
+
                         setZoomLevelMin(3.toByte())
                         setZoomLevelMax(22.toByte())
                         model.mapViewPosition.setMapPosition(
-                            MapPosition(LatLong(4.6018403, -74.0796899), 19.toByte()) // Zoom 19 (más de cerca)
+                            MapPosition(LatLong(4.6018403, -74.0796899), 19.toByte())
                         )
                     }
 
@@ -238,15 +295,31 @@ fun MapsforgeWidget(
 
                     mapView.layerManager.layers.add(cartMarker)
 
-                    // Iniciar el GPS inmediatamente al crear el mapa
-                    val callback = startLocationTracking(ctx, mapView, cartMarker) { newLatLong ->
-                        onLocationUpdated(newLatLong)
-                        if (isAutoCenterEnabled) {
+                    // Iniciar el GPS leyendo de las referencias actualizadas de Compose
+                    // Iniciar el GPS leyendo de las referencias actualizadas de Compose
+                    val callback = startLocationTracking(ctx, mapView, cartMarker) { newLatLong, bearing ->
+                        onLocationUpdated(newLatLong, bearing)
+
+                        if (currentAutoCenterEnabled) {
                             mapView.model.mapViewPosition.center = newLatLong
+                        }
+
+                        // Aplicar escala, traslación e inclinación en movimiento
+                        if (currentNavigationMode3D) {
+                            mapView.rotationX = 45f
+                            mapView.scaleX = 1.6f
+                            mapView.scaleY = 1.7f
+                            mapView.translationY = -110f
+                            mapView.rotation = -bearing
+                        } else {
+                            mapView.rotationX = 0f
+                            mapView.scaleX = 1.0f
+                            mapView.scaleY = 1.0f
+                            mapView.translationY = 0f
+                            mapView.rotation = 0f
                         }
                     }
 
-                    // Guardamos las referencias en el objeto mutable sin disparar recomposiciones
                     mapRefs.mapView = mapView
                     mapRefs.marker = cartMarker
                     mapRefs.locationCallback = callback
@@ -256,7 +329,6 @@ fun MapsforgeWidget(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            // Pantalla si no hay mapa offline configurado
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -288,16 +360,23 @@ fun MapsforgeWidget(
 }
 
 // ==========================================
-// CONTENEDOR MAESTRO DE MAPAS CON MENÚ INTEGRADO
+// CONTENEDOR MAESTRO DE MAPAS CON MENÚ INTEGRADO Y GUARDADO PERSISTENTE
 // ==========================================
 @Composable
 fun MapContainerWidget() {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // 0 = Offline, 1 = Google Maps, 2 = Waze
-    var selectedMapMode by remember { mutableStateOf(0) }
+    // 1. INICIALIZAR SHAREDPREFERENCES DE FORMA SEGURA
+    val prefs = remember { context.getSharedPreferences("toblauncher_prefs", Context.MODE_PRIVATE) }
+
+    // 2. CARGAR ESTADOS INICIALES DESDE EL ALMACENAMIENTO DE LA TABLET
+    var selectedMapMode by remember { mutableStateOf(prefs.getInt("map_mode", 0)) }
     var showMenu by remember { mutableStateOf(false) }
+
+    var isNavigationMode3D by remember { mutableStateOf(prefs.getBoolean("nav_3d", false)) }
+    var isNightMode by remember { mutableStateOf(prefs.getBoolean("night_mode", false)) }
+    var isAutoCenterEnabled by remember { mutableStateOf(prefs.getBoolean("auto_center", true)) }
 
     val targetMapFile = remember { OfflineMapManager.getMapFile(context) }
     val targetPoiFile = remember { OfflineMapManager.getPoiFile(context) }
@@ -310,12 +389,11 @@ fun MapContainerWidget() {
     var loadingMessage by remember { mutableStateOf("") }
     var showNoFileManagerError by remember { mutableStateOf(false) }
 
-    var isAutoCenterEnabled by remember { mutableStateOf(true) }
     var lastKnownLocation by remember { mutableStateOf<LatLong?>(null) }
+    var lastKnownBearing by remember { mutableStateOf(0f) }
 
     val mapRefs = remember { MapRefs() }
 
-    // Comprobación inicial de archivos en segundo plano
     LaunchedEffect(Unit) {
         isMapAvailable = withContext(Dispatchers.IO) {
             OfflineMapManager.isMapDownloaded(context)
@@ -423,14 +501,19 @@ fun MapContainerWidget() {
             }
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
-                // Renderizado del mapa según selección
                 when (selectedMapMode) {
                     0 -> MapsforgeWidget(
                         mapRefs = mapRefs,
                         isMapAvailable = isMapAvailable,
                         isAutoCenterEnabled = isAutoCenterEnabled,
+                        isNavigationMode3D = isNavigationMode3D,
+                        isNightMode = isNightMode,
                         targetMapFile = targetMapFile,
-                        onLocationUpdated = { lastKnownLocation = it },
+                        lastKnownBearing = lastKnownBearing,
+                        onLocationUpdated = { loc, bearing ->
+                            lastKnownLocation = loc
+                            lastKnownBearing = bearing
+                        },
                         mapPickerLauncher = mapPickerLauncher,
                         onNoFileManagerError = { showNoFileManagerError = true }
                     )
@@ -446,7 +529,7 @@ fun MapContainerWidget() {
                     )
                 }
 
-                // Fondo traslúcido de enfoque (al hacer clic en él se cierra el menú lateral)
+                // Fondo traslúcido para cerrar el menú con un clic fuera
                 androidx.compose.animation.AnimatedVisibility(
                     visible = showMenu,
                     enter = androidx.compose.animation.fadeIn(),
@@ -456,7 +539,7 @@ fun MapContainerWidget() {
                         modifier = Modifier
                             .fillMaxSize()
                             .background(Color.Black.copy(alpha = 0.5f))
-                            .clickable( // <-- AQUÍ ESTÁ LA CORRECCIÓN
+                            .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) { showMenu = false }
@@ -479,13 +562,23 @@ fun MapContainerWidget() {
                         ) {
                             Icon(Icons.Default.Settings, contentDescription = "Configuración", modifier = Modifier.size(20.dp))
                         }
-
+                        // Botón de centrado (Solo visible si está en modo offline y hay mapa cargado)
                         if (selectedMapMode == 0 && isMapAvailable) {
                             FloatingActionButton(
                                 onClick = {
                                     isAutoCenterEnabled = true
+                                    // Guardamos el estado de auto-centrado en el disco
+                                    prefs.edit().putBoolean("auto_center", true).apply()
+
                                     lastKnownLocation?.let { location ->
                                         mapRefs.mapView?.model?.mapViewPosition?.center = location
+                                        if (isNavigationMode3D) {
+                                            mapRefs.mapView?.rotationX = 45f
+                                            mapRefs.mapView?.rotation = -lastKnownBearing
+                                        } else {
+                                            mapRefs.mapView?.rotationX = 0f
+                                            mapRefs.mapView?.rotation = 0f
+                                        }
                                         mapRefs.mapView?.repaint()
                                     }
                                 },
@@ -500,7 +593,7 @@ fun MapContainerWidget() {
                 }
 
                 // ==========================================
-                // MENÚ LATERAL MODERNO (DOCKADO A LA PARED IZQUIERDA)
+                // MENÚ LATERAL MODERNO DOCKADO A LA IZQUIERDA (CON SCROLL)
                 // ==========================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = showMenu,
@@ -515,50 +608,84 @@ fun MapContainerWidget() {
                         color = Color(0xFF1E1E1E),
                         tonalElevation = 8.dp
                     ) {
+                        val menuScrollState = rememberScrollState()
+
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                                .padding(20.dp)
+                                .verticalScroll(menuScrollState),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Text(
                                 text = "Navegación",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = Color.White,
-                                modifier = Modifier.padding(bottom = 8.dp)
+                                modifier = Modifier.padding(bottom = 4.dp)
                             )
 
-                            // Items del Menú Estilo Panel de Control
-                            PanelMenuItem(
-                                text = "🗺️ Mapa Offline",
-                                isSelected = selectedMapMode == 0,
-                                onClick = {
-                                    selectedMapMode = 0
-                                    showMenu = false
-                                }
+                            // GUARDAR EL MODO DE MAPA SELECCIONADO EN DISCO
+                            PanelMenuItem("🗺️ Mapa Offline", selectedMapMode == 0) {
+                                selectedMapMode = 0
+                                prefs.edit().putInt("map_mode", 0).apply()
+                                showMenu = false
+                            }
+                            PanelMenuItem("📍 Google Maps", selectedMapMode == 1) {
+                                selectedMapMode = 1
+                                prefs.edit().putInt("map_mode", 1).apply()
+                                showMenu = false
+                            }
+                            PanelMenuItem("🚗 Waze", selectedMapMode == 2) {
+                                selectedMapMode = 2
+                                prefs.edit().putInt("map_mode", 2).apply()
+                                showMenu = false
+                            }
+
+                            Divider(color = Color.Gray.copy(alpha = 0.3f), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 4.dp))
+
+                            Text(
+                                text = "Estilo y Vista",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = Color.Gray
                             )
 
-                            PanelMenuItem(
-                                text = "📍 Google Maps",
-                                isSelected = selectedMapMode == 1,
-                                onClick = {
-                                    selectedMapMode = 1
-                                    showMenu = false
-                                }
-                            )
+                            // GUARDAR EL ESTADO DE NAVEGACIÓN 3D EN DISCO
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            ) {
+                                Text("Rumbo 3D (Navegación)", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                                Switch(
+                                    checked = isNavigationMode3D,
+                                    onCheckedChange = {
+                                        isNavigationMode3D = it
+                                        prefs.edit().putBoolean("nav_3d", it).apply()
+                                    },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF03DAC5))
+                                )
+                            }
 
-                            PanelMenuItem(
-                                text = "🚗 Waze",
-                                isSelected = selectedMapMode == 2,
-                                onClick = {
-                                    selectedMapMode = 2
-                                    showMenu = false
-                                }
-                            )
+                            // GUARDAR EL ESTADO DE MODO NOCHE EN DISCO
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            ) {
+                                Text("Modo Noche (Capa)", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                                Switch(
+                                    checked = isNightMode,
+                                    onCheckedChange = {
+                                        isNightMode = it
+                                        prefs.edit().putBoolean("night_mode", it).apply()
+                                    },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF03DAC5))
+                                )
+                            }
 
-                            // Ajustes de archivos de Mapas (Sólo visibles si el modo Offline está seleccionado)
+                            // Configuración de archivos de mapa offline
                             if (selectedMapMode == 0) {
-                                Divider(color = Color.Gray.copy(alpha = 0.3f), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 8.dp))
+                                Divider(color = Color.Gray.copy(alpha = 0.3f), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 4.dp))
 
                                 Button(
                                     onClick = {
@@ -590,7 +717,7 @@ fun MapContainerWidget() {
                                 }
                             }
 
-                            Spacer(modifier = Modifier.weight(1f))
+                            Spacer(modifier = Modifier.height(20.dp))
 
                             TextButton(
                                 onClick = { showMenu = false },
@@ -619,26 +746,6 @@ fun MapContainerWidget() {
     }
 }
 
-// ==========================================
-// COMPOSABLE AUXILIAR PARA DISEÑO DE BOTONES DEL MENÚ
-// ==========================================
-@Composable
-private fun PanelMenuItem(text: String, isSelected: Boolean, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (isSelected) Color(0x3303DAC5) else Color.Transparent,
-            contentColor = if (isSelected) Color(0xFF03DAC5) else Color.White
-        ),
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
-    ) {
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-            Text(text = text, style = MaterialTheme.typography.bodyLarge)
-        }
-    }
-}
 // ==========================================
 // COMPOSABLE DE MAPAS WEB (WEBVIEW)
 // ==========================================
@@ -688,14 +795,14 @@ fun WebOrAppMapWidget(webUrl: String, packageName: String, appName: String) {
 }
 
 // ==========================================
-// FUNCIÓN DE RASTREO GPS
+// FUNCIÓN DE RASTREO GPS MEJORADA CON RUMBO (BEARING)
 // ==========================================
 @SuppressLint("MissingPermission")
 fun startLocationTracking(
     context: Context,
     mapView: MapView,
     cartMarker: Marker,
-    onLocationUpdated: (LatLong) -> Unit
+    onLocationUpdated: (LatLong, Float) -> Unit
 ): LocationCallback {
     val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
 
@@ -710,9 +817,10 @@ fun startLocationTracking(
         override fun onLocationResult(result: LocationResult) {
             val location = result.lastLocation ?: return
             val newLatLong = LatLong(location.latitude, location.longitude)
+            val bearing = location.bearing // Rumbo de conducción obtenido del sensor GPS
 
             cartMarker.latLong = newLatLong
-            onLocationUpdated(newLatLong)
+            onLocationUpdated(newLatLong, bearing)
             mapView.repaint()
         }
     }
@@ -724,4 +832,25 @@ fun startLocationTracking(
     )
 
     return locationCallback
+}
+
+// ==========================================
+// COMPOSABLE AUXILIAR PARA DISEÑO DE BOTONES DEL MENÚ
+// ==========================================
+@Composable
+private fun PanelMenuItem(text: String, isSelected: Boolean, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (isSelected) Color(0x3303DAC5) else Color.Transparent,
+            contentColor = if (isSelected) Color(0xFF03DAC5) else Color.White
+        ),
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+            Text(text = text, style = MaterialTheme.typography.bodyLarge)
+        }
+    }
 }
