@@ -26,6 +26,7 @@ import org.mapsforge.map.layer.overlay.Marker
 import android.graphics.BitmapFactory
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.graphics.Bitmap
 import android.os.Looper
 import com.google.android.gms.location.*
@@ -42,14 +43,9 @@ import android.content.Intent
 
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.activity.result.ActivityResultLauncher
 
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
+
 @SuppressLint("RememberReturnType")
 @Composable
 fun MapsforgeWidget() {
@@ -73,19 +69,48 @@ fun MapsforgeWidget() {
     var loadingMessage by remember { mutableStateOf("") }
     var showMenu by remember { mutableStateOf(false) }
 
+    // Estado para controlar la alerta si la radio no tiene explorador de archivos
+    var showNoFileManagerError by remember { mutableStateOf(false) }
+
     // Estado para saber si el mapa debe centrar automáticamente al auto
     var isAutoCenterEnabled by remember { mutableStateOf(true) }
     var lastKnownLocation by remember { mutableStateOf<LatLong?>(null) }
     var currentMapView by remember { mutableStateOf<MapView?>(null) }
 
+    // FUNCIÓN SEGURA PARA EVITAR CRASHES EN RADIOS CHINAS / TABLETS
+    // 1. La función segura ahora trabaja con String directo
+    fun safeLaunchPicker(
+        launcher: ActivityResultLauncher<String>,
+        onNotFound: () -> Unit
+    ) {
+        try {
+            launcher.launch("*/*")
+        } catch (e: ActivityNotFoundException) {
+            e.printStackTrace()
+            onNotFound()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            onNotFound()
+        }
+    }
+
+// 2. Launcher para el mapa .map usando GetContent
     val mapPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
+        contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let { selectedUri ->
             isLoadingFile = true
             loadingMessage = "Cargando mapa en la memoria del auto..."
             coroutineScope.launch(Dispatchers.IO) {
                 try {
+                    // Intentar obtener persistencia si la fuente lo soporta
+                    try {
+                        val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        context.contentResolver.takePersistableUriPermission(selectedUri, takeFlags)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+
                     context.contentResolver.openInputStream(selectedUri)?.use { input ->
                         FileOutputStream(targetMapFile).use { output -> input.copyTo(output) }
                     }
@@ -103,14 +128,22 @@ fun MapsforgeWidget() {
         }
     }
 
+// 3. Launcher para el archivo .poi usando GetContent
     val poiPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
+        contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let { selectedUri ->
             isLoadingFile = true
             loadingMessage = "Cargando Puntos de Interés (POI)..."
             coroutineScope.launch(Dispatchers.IO) {
                 try {
+                    try {
+                        val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        context.contentResolver.takePersistableUriPermission(selectedUri, takeFlags)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+
                     context.contentResolver.openInputStream(selectedUri)?.use { input ->
                         FileOutputStream(targetPoiFile).use { output -> input.copyTo(output) }
                     }
@@ -156,7 +189,7 @@ fun MapsforgeWidget() {
                         mapView.model.mapViewPosition.setMapPosition(
                             MapPosition(
                                 LatLong(4.6018403, -74.0796899),
-                                17.toByte()
+                                19.toByte()
                             )
                         )
 
@@ -184,42 +217,53 @@ fun MapsforgeWidget() {
 
                         mapView.layerManager.layers.add(rendererLayer)
 
-                        // 1. Cargas el bitmap original desde los recursos
                         val originalBitmap = BitmapFactory.decodeResource(
                             ctx.resources,
                             R.drawable.car
                         )
 
-// 2. DEFINES EL TAMAÑO (Ejemplo: 48x48 px, ajústalo según necesites)
                         val targetWidth = 120
                         val targetHeight = 120
                         val scaledBitmap = Bitmap.createScaledBitmap(originalBitmap, targetWidth, targetHeight, true)
-
-// 3. Lo envuelves para Mapsforge
                         val mapsforgeDrawable = AndroidBitmap(scaledBitmap)
 
-// 4. CREACIÓN DEL MARCADOR
                         val cartMarker = Marker(
                             LatLong(4.5709, -74.2973),
                             mapsforgeDrawable,
-                            0, // Horizontal offset (0 = centrado horizontalmente)
-                            0  // Vertical offset (0 = el CENTRO del ícono coincide exactamente con la coordenada)
+                            0,
+                            0
                         )
 
                         mapView.layerManager.layers.add(cartMarker)
 
-
-                        // SEGUIMIENTO GPS CON CENTRADO CONDICIONAL
                         startLocationTracking(
                             ctx,
                             mapView,
                             cartMarker
                         ) { newLatLong ->
                             lastKnownLocation = newLatLong
-                            // Si el centrado automático está activo, movemos la cámara
                             if (isAutoCenterEnabled) {
                                 mapView.model.mapViewPosition.center = newLatLong
                             }
+                        }
+
+                        var autoCenterJob: kotlinx.coroutines.Job? = null
+
+                        mapView.setOnTouchListener { _, event ->
+                            if (event.action == android.view.MotionEvent.ACTION_MOVE) {
+                                isAutoCenterEnabled = false
+                                autoCenterJob?.cancel()
+
+                                autoCenterJob = coroutineScope.launch {
+                                    kotlinx.coroutines.delay(5000L)
+                                    isAutoCenterEnabled = true
+                                    lastKnownLocation?.let { loc ->
+                                        mapView.model.mapViewPosition.center = loc
+                                        mapView.repaint()
+                                    }
+                                }
+                            }
+                            false
                         }
 
                         mapView.repaint()
@@ -236,7 +280,6 @@ fun MapsforgeWidget() {
                     contentAlignment = Alignment.BottomStart
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        // Botón 1: Menú de Configuración de Archivos
                         FloatingActionButton(
                             onClick = { showMenu = !showMenu },
                             containerColor = Color(0xAA1E1E1E),
@@ -246,7 +289,6 @@ fun MapsforgeWidget() {
                             Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(20.dp))
                         }
 
-                        // Botón 2: RECENTRAR EN EL AUTO (Súper importante)
                         FloatingActionButton(
                             onClick = {
                                 isAutoCenterEnabled = true
@@ -272,7 +314,9 @@ fun MapsforgeWidget() {
                             text = { Text("✅ Cambiar archivo .map", color = Color(0xFF03DAC5)) },
                             onClick = {
                                 showMenu = false
-                                mapPickerLauncher.launch(arrayOf("*/*"))
+                                safeLaunchPicker(mapPickerLauncher) {
+                                    showNoFileManagerError = true
+                                }
                             }
                         )
                         DropdownMenuItem(
@@ -284,7 +328,9 @@ fun MapsforgeWidget() {
                             },
                             onClick = {
                                 showMenu = false
-                                poiPickerLauncher.launch(arrayOf("*/*"))
+                                safeLaunchPicker(poiPickerLauncher) {
+                                    showNoFileManagerError = true
+                                }
                             }
                         )
                     }
@@ -306,15 +352,34 @@ fun MapsforgeWidget() {
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Button(
-                    onClick = { mapPickerLauncher.launch(arrayOf("*/*")) },
+                    onClick = {
+                        safeLaunchPicker(mapPickerLauncher) {
+                            showNoFileManagerError = true
+                        }
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF03DAC5))
                 ) {
                     Text("Seleccionar archivo .map", color = Color.Black)
                 }
             }
         }
+
+        // ALERTA DE ERROR SI LA TABLET / RADIO NO TIENE EXPLORADOR NATIVO
+        if (showNoFileManagerError) {
+            AlertDialog(
+                onDismissRequest = { showNoFileManagerError = false },
+                title = { Text("Explorador no disponible") },
+                text = { Text("Esta pantalla o radio no cuenta con un selector de archivos compatible instalados en el sistema.") },
+                confirmButton = {
+                    Button(onClick = { showNoFileManagerError = false }) {
+                        Text("Aceptar")
+                    }
+                }
+            )
+        }
     }
 }
+
 @Composable
 fun MapContainerWidget() {
     val context = LocalContext.current

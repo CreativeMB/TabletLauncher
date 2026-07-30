@@ -30,6 +30,12 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.background
 import kotlinx.coroutines.launch
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
+
 // ==========================================
 // IMPORTACIONES DE MAPSFORGE (Mapas Offline .map)
 // ==========================================
@@ -151,119 +157,109 @@ fun PermissionStepScreen(
 
 @Composable
 fun CarDashboard() {
-    Row(
-        modifier = Modifier.fillMaxSize().padding(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // ==========================================
-        // COLUMNA IZQUIERDA: CONTENEDOR MULTI-MAPA (Offline, Google Maps, Waze)
-        // ==========================================
-        Card(
-            modifier = Modifier.weight(0.55f).fillMaxHeight(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-        ) {
-            MapContainerWidget() // <- ¡CAMBIA MapsforgeWidget() POR MapContainerWidget() AQUÍ!
-        }
+    // Estado global de pantalla completa para el mapa
+    var isMapExpanded by remember { mutableStateOf(false) }
 
-        // COLUMNA DERECHA: MÚSICA Y VIDEO
-        Column(
-            modifier = Modifier.weight(0.45f).fillMaxHeight(),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Card(modifier = Modifier.weight(0.5f).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.LibraryMusic, contentDescription = null, tint = Color.White, modifier = Modifier.size(40.dp))
-                        Text("Reproductor de Música", color = Color.White)
-                    }
-                }
-            }
-            Card(modifier = Modifier.weight(0.5f).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    Text("Reproductor de Video", color = Color.White)
-                }
-            }
-        }
-    }
-}
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (isMapExpanded) {
+            // ==========================================
+            // MODO PANTALLA COMPLETA TOTAL (Toma el 100% de la tablet)
+            // ==========================================
+            Box(modifier = Modifier.fillMaxSize()) {
+                MapContainerWidget()
 
-@Composable
-fun MapDownloadSelector(
-    onCountrySelected: (CountryMap) -> Unit
-) {
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedCountry by remember { mutableStateOf<CountryMap?>(null) }
-    val searchResults = remember(searchQuery) { MapRepository.searchCountries(searchQuery) }
-
-    Column(
-        modifier = Modifier.fillMaxSize().background(Color(0xFF1E1E1E)).padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(text = "🗺️ Selecciona tu País", style = MaterialTheme.typography.titleLarge, color = Color.White)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(text = "Busca tu país de América para descargar el mapa offline:", style = MaterialTheme.typography.bodyMedium, color = Color.Gray, textAlign = TextAlign.Center)
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = {
-                searchQuery = it
-                selectedCountry = null
-            },
-            label = { Text("Escribe un país (Ej: México, Colombia...)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(0.8f),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color(0xFF03DAC5),
-                unfocusedBorderColor = Color.Gray,
-                focusedLabelColor = Color(0xFF03DAC5),
-                cursorColor = Color(0xFF03DAC5),
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White
-            )
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (searchResults.isNotEmpty() && selectedCountry == null) {
-            Card(
-                modifier = Modifier.fillMaxWidth(0.8f).heightIn(max = 140.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF2D2D2D))
-            ) {
-                Column(modifier = Modifier.padding(4.dp)) {
-                    searchResults.forEach { country ->
-                        DropdownMenuItem(
-                            text = { Text("${country.name} (${country.fileSize})", color = Color.White) },
-                            onClick = {
-                                selectedCountry = country
-                                searchQuery = country.name
-                            }
+                // Botón flotante para salir de Pantalla Completa
+                IconButton(
+                    onClick = { isMapExpanded = false },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .background(
+                            color = Color(0xCC1E1E1E), // Fondo oscuro flotante
+                            shape = MaterialTheme.shapes.medium
                         )
+                        .size(44.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FullscreenExit,
+                        contentDescription = "Salir de Pantalla Completa",
+                        tint = Color(0xFF03DAC5),
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+        } else {
+            // ==========================================
+            // MODO DASHBOARD NORMAL (PANTALLA DIVIDIDA)
+            // ==========================================
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // COLUMNA IZQUIERDA: MAPA
+                Card(
+                    modifier = Modifier
+                        .weight(0.55f)
+                        .fillMaxHeight(),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        MapContainerWidget()
+
+                        // Botón para Expandir
+                        IconButton(
+                            onClick = { isMapExpanded = true },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp)
+                                .background(
+                                    color = Color(0xAA1E1E1E),
+                                    shape = MaterialTheme.shapes.small
+                                )
+                                .size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Fullscreen,
+                                contentDescription = "Expandir Mapa",
+                                tint = Color(0xFF03DAC5)
+                            )
+                        }
+                    }
+                }
+
+                // COLUMNA DERECHA: MÚSICA Y VIDEO
+                Column(
+                    modifier = Modifier
+                        .weight(0.45f)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Widget de Música
+                    Card(
+                        modifier = Modifier.weight(0.5f).fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.LibraryMusic, contentDescription = null, tint = Color.White, modifier = Modifier.size(40.dp))
+                                Text("Reproductor de Música", color = Color.White)
+                            }
+                        }
+                    }
+
+                    // Widget de Video
+                    Card(
+                        modifier = Modifier.weight(0.5f).fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Text("Reproductor de Video", color = Color.White)
+                        }
                     }
                 }
             }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(
-            onClick = {
-                selectedCountry?.let { country ->
-                    onCountrySelected(country)
-                }
-            },
-            enabled = selectedCountry != null,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF03DAC5),
-                disabledContainerColor = Color.DarkGray
-            )
-        ) {
-            Text(
-                text = if (selectedCountry != null) "Descargar Mapa de ${selectedCountry?.name}" else "Selecciona un país",
-                color = if (selectedCountry != null) Color.Black else Color.Gray
-            )
         }
     }
 }
