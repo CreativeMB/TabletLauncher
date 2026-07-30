@@ -362,18 +362,20 @@ fun MapsforgeWidget(
 // ==========================================
 // CONTENEDOR MAESTRO DE MAPAS CON MENÚ INTEGRADO Y GUARDADO PERSISTENTE
 // ==========================================
+// ==========================================
+// CONTENEDOR MAESTRO DE MAPAS CON MENÚ INTEGRADO, CONTROL DE ARCHIVOS Y PERSISTENCIA
+// ==========================================
 @Composable
 fun MapContainerWidget() {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // 1. INICIALIZAR SHAREDPREFERENCES DE FORMA SEGURA
+    // 1. SHAREDPREFERENCES PARA GUARDAR LA CONFIGURACIÓN DEL CONDUCIR
     val prefs = remember { context.getSharedPreferences("toblauncher_prefs", Context.MODE_PRIVATE) }
 
-    // 2. CARGAR ESTADOS INICIALES DESDE EL ALMACENAMIENTO DE LA TABLET
+    // Estados persistentes
     var selectedMapMode by remember { mutableStateOf(prefs.getInt("map_mode", 0)) }
     var showMenu by remember { mutableStateOf(false) }
-
     var isNavigationMode3D by remember { mutableStateOf(prefs.getBoolean("nav_3d", false)) }
     var isNightMode by remember { mutableStateOf(prefs.getBoolean("night_mode", false)) }
     var isAutoCenterEnabled by remember { mutableStateOf(prefs.getBoolean("auto_center", true)) }
@@ -394,6 +396,7 @@ fun MapContainerWidget() {
 
     val mapRefs = remember { MapRefs() }
 
+    // Comprobación inicial de archivos en segundo plano (Evita el parpadeo de pantalla inicial)
     LaunchedEffect(Unit) {
         isMapAvailable = withContext(Dispatchers.IO) {
             OfflineMapManager.isMapDownloaded(context)
@@ -419,6 +422,7 @@ fun MapContainerWidget() {
         }
     }
 
+    // Lanzador para cargar el mapa offline .map
     val mapPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -451,6 +455,7 @@ fun MapContainerWidget() {
         }
     }
 
+    // Lanzador para cargar el archivo de puntos de interés .poi
     val poiPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -501,6 +506,7 @@ fun MapContainerWidget() {
             }
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
+                // Carga de vistas según selección de mapa
                 when (selectedMapMode) {
                     0 -> MapsforgeWidget(
                         mapRefs = mapRefs,
@@ -529,7 +535,7 @@ fun MapContainerWidget() {
                     )
                 }
 
-                // Fondo traslúcido para cerrar el menú con un clic fuera
+                // Fondo traslúcido para cerrar el menú lateral al hacer clic fuera de él
                 androidx.compose.animation.AnimatedVisibility(
                     visible = showMenu,
                     enter = androidx.compose.animation.fadeIn(),
@@ -546,7 +552,7 @@ fun MapContainerWidget() {
                     )
                 }
 
-                // Botones flotantes laterales
+                // Botones de acción flotantes de la esquina inferior izquierda
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -562,14 +568,11 @@ fun MapContainerWidget() {
                         ) {
                             Icon(Icons.Default.Settings, contentDescription = "Configuración", modifier = Modifier.size(20.dp))
                         }
-                        // Botón de centrado (Solo visible si está en modo offline y hay mapa cargado)
                         if (selectedMapMode == 0 && isMapAvailable) {
                             FloatingActionButton(
                                 onClick = {
                                     isAutoCenterEnabled = true
-                                    // Guardamos el estado de auto-centrado en el disco
                                     prefs.edit().putBoolean("auto_center", true).apply()
-
                                     lastKnownLocation?.let { location ->
                                         mapRefs.mapView?.model?.mapViewPosition?.center = location
                                         if (isNavigationMode3D) {
@@ -593,7 +596,7 @@ fun MapContainerWidget() {
                 }
 
                 // ==========================================
-                // MENÚ LATERAL MODERNO DOCKADO A LA IZQUIERDA (CON SCROLL)
+                // MENÚ LATERAL JERÁRQUICO COMPLETO (CON SCROLL)
                 // ==========================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = showMenu,
@@ -624,97 +627,110 @@ fun MapContainerWidget() {
                                 modifier = Modifier.padding(bottom = 4.dp)
                             )
 
-                            // GUARDAR EL MODO DE MAPA SELECCIONADO EN DISCO
+                            // 1. BOTÓN PRINCIPAL: MAPA OFFLINE
                             PanelMenuItem("🗺️ Mapa Offline", selectedMapMode == 0) {
                                 selectedMapMode = 0
                                 prefs.edit().putInt("map_mode", 0).apply()
-                                showMenu = false
                             }
+
+                            // SUB-OPCIONES DEL MAPA OFFLINE (Agrupadas dentro de una tarjeta con sangría)
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = selectedMapMode == 0,
+                                enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                                exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 12.dp)
+                                        .background(Color(0x0DFFFFFF), shape = MaterialTheme.shapes.medium)
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // Control Rumbo 3D
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Rumbo 3D", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                                        Switch(
+                                            checked = isNavigationMode3D,
+                                            onCheckedChange = {
+                                                isNavigationMode3D = it
+                                                prefs.edit().putBoolean("nav_3d", it).apply()
+                                            },
+                                            colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF03DAC5))
+                                        )
+                                    }
+
+                                    // Control Modo Noche
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Modo Noche", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                                        Switch(
+                                            checked = isNightMode,
+                                            onCheckedChange = {
+                                                isNightMode = it
+                                                prefs.edit().putBoolean("night_mode", it).apply()
+                                            },
+                                            colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF03DAC5))
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Divider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    // Botones de carga de archivos (.map y .poi)
+                                    Button(
+                                        onClick = {
+                                            safeLaunchPicker(mapPickerLauncher) {
+                                                showNoFileManagerError = true
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0x1A03DAC5), contentColor = Color(0xFF03DAC5)),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentPadding = PaddingValues(vertical = 8.dp)
+                                    ) {
+                                        Text("📁 Cambiar .map", style = MaterialTheme.typography.bodyMedium)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            safeLaunchPicker(poiPickerLauncher) {
+                                                showNoFileManagerError = true
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isPoiAvailable) Color(0x1A03DAC5) else Color(0x1AFFFFFF),
+                                            contentColor = if (isPoiAvailable) Color(0xFF03DAC5) else Color.White
+                                        ),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentPadding = PaddingValues(vertical = 8.dp)
+                                    ) {
+                                        Text(if (isPoiAvailable) "📁 Cambiar .poi" else "➕ Cargar .poi", style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // 2. BOTÓN PRINCIPAL: GOOGLE MAPS
                             PanelMenuItem("📍 Google Maps", selectedMapMode == 1) {
                                 selectedMapMode = 1
                                 prefs.edit().putInt("map_mode", 1).apply()
                                 showMenu = false
                             }
+
+                            // 3. BOTÓN PRINCIPAL: WAZE
                             PanelMenuItem("🚗 Waze", selectedMapMode == 2) {
                                 selectedMapMode = 2
                                 prefs.edit().putInt("map_mode", 2).apply()
                                 showMenu = false
-                            }
-
-                            Divider(color = Color.Gray.copy(alpha = 0.3f), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 4.dp))
-
-                            Text(
-                                text = "Estilo y Vista",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = Color.Gray
-                            )
-
-                            // GUARDAR EL ESTADO DE NAVEGACIÓN 3D EN DISCO
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                            ) {
-                                Text("Rumbo 3D (Navegación)", color = Color.White, style = MaterialTheme.typography.bodyMedium)
-                                Switch(
-                                    checked = isNavigationMode3D,
-                                    onCheckedChange = {
-                                        isNavigationMode3D = it
-                                        prefs.edit().putBoolean("nav_3d", it).apply()
-                                    },
-                                    colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF03DAC5))
-                                )
-                            }
-
-                            // GUARDAR EL ESTADO DE MODO NOCHE EN DISCO
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                            ) {
-                                Text("Modo Noche (Capa)", color = Color.White, style = MaterialTheme.typography.bodyMedium)
-                                Switch(
-                                    checked = isNightMode,
-                                    onCheckedChange = {
-                                        isNightMode = it
-                                        prefs.edit().putBoolean("night_mode", it).apply()
-                                    },
-                                    colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF03DAC5))
-                                )
-                            }
-
-                            // Configuración de archivos de mapa offline
-                            if (selectedMapMode == 0) {
-                                Divider(color = Color.Gray.copy(alpha = 0.3f), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 4.dp))
-
-                                Button(
-                                    onClick = {
-                                        showMenu = false
-                                        safeLaunchPicker(mapPickerLauncher) {
-                                            showNoFileManagerError = true
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x1A03DAC5), contentColor = Color(0xFF03DAC5)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("📁 Cambiar .map")
-                                }
-
-                                Button(
-                                    onClick = {
-                                        showMenu = false
-                                        safeLaunchPicker(poiPickerLauncher) {
-                                            showNoFileManagerError = true
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (isPoiAvailable) Color(0x1A03DAC5) else Color(0x1AFFFFFF),
-                                        contentColor = if (isPoiAvailable) Color(0xFF03DAC5) else Color.White
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(if (isPoiAvailable) "📁 Cambiar .poi" else "➕ Cargar .poi")
-                                }
                             }
 
                             Spacer(modifier = Modifier.height(20.dp))
