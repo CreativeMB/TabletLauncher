@@ -36,7 +36,7 @@ enum class MediaMode {
     MUSIC, VIDEO, IPTV
 }
 
-// 2. WIDGET CON BARRA VERTICAL DE ICONOS A LA DERECHA
+// 2. WIDGET CON CONMUTACIÓN EXCLUSIVA DE REPRODUCTORES
 @Composable
 fun ModernMediaPlayerWidget(
     currentMode: MediaMode = MediaMode.MUSIC,
@@ -45,6 +45,54 @@ fun ModernMediaPlayerWidget(
     onExpandVideoFullscreen: () -> Unit = {}
 ) {
     val theme = LocalDashboardTheme.current
+    val context = LocalContext.current
+
+    // Instancias singleton de los reproductores
+    val musicPlayer = remember { SmartMusicPlayer.getInstance(context) }
+    val videoPlayer = remember { SmartVideoPlayer.getInstance(context) }
+
+    // =========================================================================
+    // CONTROLADOR DE EXCLUSIVIDAD: PAUSA AUTOMÁTICAMENTE EL REPRODUCTOR ANTERIOR
+    // =========================================================================
+    LaunchedEffect(currentMode) {
+        when (currentMode) {
+            MediaMode.MUSIC -> {
+                // Al entrar a Música: Pausar Video
+                try {
+                    if (videoPlayer.isPlaying) {
+                        videoPlayer.mediaPlayer?.pause()
+                        videoPlayer.isPlaying = false
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            MediaMode.VIDEO -> {
+                // Al entrar a Video: Pausar Música
+                try {
+                    if (musicPlayer.isPlaying) {
+                        musicPlayer.togglePlayPause()
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            MediaMode.IPTV -> {
+                // Al entrar a IPTV: Pausar Música y Video
+                try {
+                    if (musicPlayer.isPlaying) {
+                        musicPlayer.togglePlayPause()
+                    }
+                    if (videoPlayer.isPlaying) {
+                        videoPlayer.mediaPlayer?.pause()
+                        videoPlayer.isPlaying = false
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
 
     Row(
         modifier = Modifier
@@ -54,35 +102,7 @@ fun ModernMediaPlayerWidget(
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // --- 1. CONTENIDO PRINCIPAL (IZQUIERDA) ---
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-            contentAlignment = Alignment.Center
-        ) {
-            AnimatedContent(
-                targetState = currentMode,
-                label = "modeTransition"
-            ) { mode: MediaMode ->
-                when (mode) {
-                    MediaMode.MUSIC -> MusicPlayerView(
-                        theme = theme,
-                        onExpandFullscreen = onExpandMusicFullscreen
-                    )
-
-                    MediaMode.VIDEO -> VideoPlayerView(
-                    theme = theme,
-                    onExpandFullscreen = onExpandVideoFullscreen // <--- CONECTADO AQUÍ
-                )
-                    MediaMode.IPTV -> IptvPlayerView(theme)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.width(6.dp))
-
-        // --- 2. BARRA LATERAL DERECHA (SOLO ICONOS) ---
+        // --- 1. BARRA LATERAL IZQUIERDA (MENÚ DE NAVEGACIÓN) ---
         Column(
             modifier = Modifier
                 .fillMaxHeight()
@@ -114,6 +134,34 @@ fun ModernMediaPlayerWidget(
                 onClick = { onModeChange(MediaMode.IPTV) }
             )
         }
+
+        Spacer(modifier = Modifier.width(6.dp))
+
+        // --- 2. CONTENIDO PRINCIPAL (DERECHA) ---
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
+            contentAlignment = Alignment.Center
+        ) {
+            AnimatedContent(
+                targetState = currentMode,
+                label = "modeTransition"
+            ) { mode: MediaMode ->
+                when (mode) {
+                    MediaMode.MUSIC -> MusicPlayerView(
+                        theme = theme,
+                        onExpandFullscreen = onExpandMusicFullscreen
+                    )
+
+                    MediaMode.VIDEO -> VideoPlayerView(
+                        theme = theme,
+                        onExpandFullscreen = onExpandVideoFullscreen
+                    )
+                    MediaMode.IPTV -> IptvPlayerView(theme)
+                }
+            }
+        }
     }
 }
 
@@ -143,7 +191,6 @@ private fun VerticalIconButton(
 }
 
 // --- VISTA DE MÚSICA CON EXPLORADOR INTERNO NATIVO ---
-
 @Composable
 fun MusicPlayerView(
     theme: DashboardTheme,
@@ -155,6 +202,21 @@ fun MusicPlayerView(
     var showFolderModal by remember { mutableStateOf(false) }
 
     val currentTrack = musicPlayer.playlist.getOrNull(musicPlayer.currentTrackIndex)
+
+    // =========================================================================
+    // AUTO-DISPARO INMEDIATO: REPRODUCE DE UNA AL ENTRAR AL MODO MÚSICA
+    // =========================================================================
+    LaunchedEffect(musicPlayer.playlist.isNotEmpty()) {
+        if (!musicPlayer.isPlaying && musicPlayer.playlist.isNotEmpty()) {
+            val indexToPlay = if (musicPlayer.currentTrackIndex in musicPlayer.playlist.indices) {
+                musicPlayer.currentTrackIndex
+            } else {
+                0
+            }
+            // Reanuda desde el último milisegundo guardado o inicia la pista
+            musicPlayer.playTrackAtIndex(indexToPlay, musicPlayer.currentPositionMs)
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -169,7 +231,6 @@ fun MusicPlayerView(
                     )
                 )
             )
-            // Corregido: Ahora solo abre la pantalla completa de música al tocar el fondo
             .clickable { onExpandFullscreen() }
             .padding(10.dp)
     ) {
@@ -209,7 +270,6 @@ fun MusicPlayerView(
                     )
                 }
 
-                // BOTÓN DE CARPETA (ABRE EL EXPLORADOR CON EL BOTÓN "SELECCIONAR ESTA CARPETA")
                 IconButton(
                     onClick = { showFolderModal = true },
                     modifier = Modifier.size(36.dp)
@@ -223,7 +283,7 @@ fun MusicPlayerView(
                 }
             }
 
-            // --- 2. CONTADORES DE TIEMPO Y BARRA DE PROGRESO ---
+            // --- CONTADORES DE TIEMPO Y BARRA DE PROGRESO ---
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -271,7 +331,7 @@ fun MusicPlayerView(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            val buttonScale = LocalButtonScale.current // ESCALA DINÁMICA (0.8x a 1.8x)
+            val buttonScale = LocalButtonScale.current
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -306,7 +366,7 @@ fun MusicPlayerView(
                     )
                 }
 
-                // Play / Pausa (GIGANTE CENTRAL)
+                // Play / Pausa
                 IconButton(
                     onClick = { musicPlayer.togglePlayPause() },
                     modifier = Modifier
@@ -336,7 +396,7 @@ fun MusicPlayerView(
                     )
                 }
 
-                // BOTÓN CAMBIADO: Reemplazado "Repetir" por "Expandir Pantalla"
+                // Expandir Pantalla
                 IconButton(
                     onClick = { onExpandFullscreen() },
                     modifier = Modifier.size((38 * buttonScale).dp)
@@ -363,7 +423,7 @@ fun MusicPlayerView(
                 }
             }
         }
-        // --- VENTANA EMERGENTE: EXPLORADOR CON BOTÓN "SELECCIONAR ESTA CARPETA" ---
+
         if (showFolderModal) {
             FolderPickerModal(
                 onDismiss = { showFolderModal = false },
@@ -374,7 +434,6 @@ fun MusicPlayerView(
         }
     }
 }
-
 // FUNCIÓN AUXILIAR FORMATO TIEMPO
 private fun formatMs(ms: Long): String {
     if (ms <= 0L) return "00:00"
@@ -395,13 +454,27 @@ fun VideoPlayerView(
 
     val currentVideo = videoPlayer.playlist.getOrNull(videoPlayer.currentTrackIndex)
 
-    // ESTADOS PARA OCULTAR INTERFAZ
     var showUI by remember { mutableStateOf(true) }
     val interactionSource = remember { MutableInteractionSource() }
 
     val buttonScale = LocalButtonScale.current
 
-    // TEMPORIZADOR ESTRICTO DE 5 SEGUNDOS (Oculta controles automáticamente si está reproduciendo)
+    // =========================================================================
+    // AUTO-DISPARO: SIEMPRE INICIA EL VIDEO DESDE EL PRINCIPIO (00:00)
+    // =========================================================================
+    LaunchedEffect(videoPlayer.playlist.isNotEmpty()) {
+        if (!videoPlayer.isPlaying && videoPlayer.playlist.isNotEmpty()) {
+            val indexToPlay = if (videoPlayer.currentTrackIndex in videoPlayer.playlist.indices) {
+                videoPlayer.currentTrackIndex
+            } else {
+                0
+            }
+            // Forzado a 0L para que NUNCA guarde ni restaure la posición intermedia
+            videoPlayer.playVideoAtIndex(indexToPlay, 0L)
+        }
+    }
+
+    // TEMPORIZADOR DE 5 SEGUNDOS PARA OCULTAR INTERFAZ
     LaunchedEffect(showUI, videoPlayer.isPlaying) {
         if (showUI && videoPlayer.isPlaying) {
             kotlinx.coroutines.delay(5000L)
@@ -421,7 +494,6 @@ fun VideoPlayerView(
                 showUI = !showUI
             }
     ) {
-        // 1. RENDERIZADOR NATIVO DE VIDEO
         if (currentVideo != null) {
             AndroidView(
                 factory = { ctx ->
@@ -433,10 +505,12 @@ fun VideoPlayerView(
                         }
                     }.apply {
                         setVideoURI(currentVideo.uri)
+                        tag = currentVideo.uri.toString()
                         setOnPreparedListener { mp ->
                             videoPlayer.bindMediaPlayer(mp)
-                            mp.seekTo(0) // Fuerza siempre inicio desde cero
+                            mp.seekTo(0) // SIEMPRE FUERZA INICIO DESDE EL PRINCIPIO (00:00)
                             mp.start()
+                            videoPlayer.isPlaying = true
                         }
                         setOnCompletionListener {
                             videoPlayer.playNextVideo()
@@ -450,6 +524,10 @@ fun VideoPlayerView(
                     if (currentPlayingUri != newUri) {
                         view.tag = newUri
                         view.setVideoURI(currentVideo.uri)
+                        view.seekTo(0) // SIEMPRE FUERZA INICIO DESDE EL PRINCIPIO (00:00)
+                        view.start()
+                        videoPlayer.isPlaying = true
+                    } else if (!view.isPlaying && videoPlayer.isPlaying) {
                         view.start()
                     }
                 },
@@ -462,7 +540,6 @@ fun VideoPlayerView(
             }
         }
 
-        // 2. CAPA SUPERPUESTA DE CONTROLES (ANIMADA)
         AnimatedVisibility(
             visible = showUI,
             enter = fadeIn(),
@@ -476,7 +553,6 @@ fun VideoPlayerView(
                     .padding(8.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // CABECERA
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -508,9 +584,7 @@ fun VideoPlayerView(
                     }
                 }
 
-                // BARRA INFERIOR DE CONTROLES E INDICADORES DE TIEMPO
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // Contadores de reproducción (Transcurrido vs Duración Total)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -552,7 +626,6 @@ fun VideoPlayerView(
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 1. BOTÓN ALEATORIO (SHUFFLE PERSISTENTE)
                         IconButton(
                             onClick = {
                                 videoPlayer.toggleShuffle()
@@ -568,7 +641,6 @@ fun VideoPlayerView(
                             )
                         }
 
-                        // 2. ANTERIOR
                         IconButton(
                             onClick = {
                                 videoPlayer.playPreviousVideo()
@@ -586,10 +658,14 @@ fun VideoPlayerView(
                             )
                         }
 
-                        // 3. PLAY / PAUSA
                         IconButton(
                             onClick = {
-                                videoPlayer.togglePlayPause(currentVideo?.uri?.toString() ?: "")
+                                val videoUrl = currentVideo?.uri?.toString() ?: ""
+                                if (videoPlayer.isPlaying) {
+                                    videoPlayer.pausePlayback()
+                                } else {
+                                    videoPlayer.togglePlayPause(videoUrl)
+                                }
                                 showUI = true
                             },
                             modifier = Modifier
@@ -604,7 +680,6 @@ fun VideoPlayerView(
                             )
                         }
 
-                        // 4. SIGUIENTE
                         IconButton(
                             onClick = {
                                 videoPlayer.playNextVideo()
@@ -622,26 +697,14 @@ fun VideoPlayerView(
                             )
                         }
 
-                        // BOTÓN PANTALLA COMPLETA (VideoPlayerView.kt)
                         IconButton(
                             onClick = {
                                 showUI = false
-
-                                // Consulta segura de la posición para evitar cierres (crashes)
-                                val safePosition = try {
-                                    videoPlayer.mediaPlayer?.currentPosition?.toLong() ?: 0L
-                                } catch (e: Exception) {
-                                    0L
-                                }
-                                videoPlayer.savedPlaybackPosition = safePosition
-
-                                // Pausa segura
                                 try {
                                     videoPlayer.mediaPlayer?.pause()
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                 }
-
                                 onExpandFullscreen()
                             },
                             modifier = Modifier.size((36 * buttonScale).dp)
@@ -658,7 +721,6 @@ fun VideoPlayerView(
             }
         }
 
-        // EXPLORADOR DE CARPETAS
         if (showFolderModal) {
             FolderPickerModal(
                 onDismiss = {
@@ -673,7 +735,6 @@ fun VideoPlayerView(
         }
     }
 }
-
 @Composable
 private fun IptvPlayerView(theme: DashboardTheme) {
     Row(

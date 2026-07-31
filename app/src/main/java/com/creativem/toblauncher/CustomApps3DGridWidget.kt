@@ -1,6 +1,7 @@
 package com.creativem.toblauncher
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.graphics.Bitmap
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -30,56 +31,60 @@ fun CustomApps3DGridWidget(
 ) {
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
-
-    // Carga de paquetes guardados para los 4 accesos directos
     val prefs = remember { context.getSharedPreferences("custom_grid_apps_prefs", Context.MODE_PRIVATE) }
 
-    val slot1 = remember(prefs.getString("grid_slot_1", null)) { prefs.getString("grid_slot_1", "") ?: "" }
-    val slot2 = remember(prefs.getString("grid_slot_2", null)) { prefs.getString("grid_slot_2", "") ?: "" }
-    val slot3 = remember(prefs.getString("grid_slot_3", null)) { prefs.getString("grid_slot_3", "") ?: "" }
-    val slot4 = remember(prefs.getString("grid_slot_4", null)) { prefs.getString("grid_slot_4", "") ?: "" }
+    // Estado reactivo que forzará el refresco instantáneo al cambiar SharedPreferences
+    var prefUpdateTrigger by remember { mutableStateOf(0) }
+
+    // Listener en tiempo real para detectar la selección de apps de inmediato
+    DisposableEffect(prefs) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            prefUpdateTrigger++
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+
+    // Configuración de la cuadrícula (3 Filas x 3 Columnas = 9 ranuras)
+    val totalRows = 3
+    val totalCols = 3
+    val themeAccents = remember(theme) {
+        listOf(theme.accentCyan, theme.accentPurple, theme.accentOrange)
+    }
 
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(8.dp) // Espaciado optimizado para pantallas de auto
+        verticalArrangement = Arrangement.spacedBy(6.dp) // Espaciado optimizado para 3 filas
     ) {
-        Row(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            LargeApp3DButton(
+        for (row in 0 until totalRows) {
+            Row(
                 modifier = Modifier.weight(1f),
-                packageName = slot1,
-                themeAccent = theme.accentCyan,
-                onClick = { launchOrAssign(context, slot1, 101, onRequestAppSelection) },
-                onLongClick = { onRequestAppSelection(101) }
-            )
-            LargeApp3DButton(
-                modifier = Modifier.weight(1f),
-                packageName = slot2,
-                themeAccent = theme.accentPurple,
-                onClick = { launchOrAssign(context, slot2, 102, onRequestAppSelection) },
-                onLongClick = { onRequestAppSelection(102) }
-            )
-        }
-        Row(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            LargeApp3DButton(
-                modifier = Modifier.weight(1f),
-                packageName = slot3,
-                themeAccent = theme.accentOrange,
-                onClick = { launchOrAssign(context, slot3, 103, onRequestAppSelection) },
-                onLongClick = { onRequestAppSelection(103) }
-            )
-            LargeApp3DButton(
-                modifier = Modifier.weight(1f),
-                packageName = slot4,
-                themeAccent = theme.accentCyan,
-                onClick = { launchOrAssign(context, slot4, 104, onRequestAppSelection) },
-                onLongClick = { onRequestAppSelection(104) }
-            )
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                for (col in 0 until totalCols) {
+                    val index = row * totalCols + col
+                    val slotId = 101 + index // Slots de 101 a 109
+
+                    // Obtiene la app guardada respetando el trigger de actualización
+                    val packageName = remember(prefUpdateTrigger, slotId) {
+                        prefs.getString("grid_slot_$slotId", null)
+                            ?: prefs.getString("grid_slot_${index + 1}", null) // Compatibilidad antigua
+                            ?: ""
+                    }
+
+                    val accentColor = themeAccents[index % themeAccents.size]
+
+                    LargeApp3DButton(
+                        modifier = Modifier.weight(1f),
+                        packageName = packageName,
+                        themeAccent = accentColor,
+                        onClick = { launchOrAssign(context, packageName, slotId, onRequestAppSelection) },
+                        onLongClick = { onRequestAppSelection(slotId) }
+                    )
+                }
+            }
         }
     }
 }
@@ -112,9 +117,9 @@ private fun LargeApp3DButton(
     onLongClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val buttonShape = RoundedCornerShape(16.dp)
+    val buttonShape = RoundedCornerShape(14.dp)
 
-    // Carga del icono de la app asignada
+    // Carga dinámica del icono al cambiar la app seleccionada
     val appIcon = remember(packageName) {
         if (packageName.isEmpty()) null else {
             try {
@@ -137,11 +142,11 @@ private fun LargeApp3DButton(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .shadow(6.dp, buttonShape, spotColor = Color.Black)
+            .shadow(5.dp, buttonShape, spotColor = Color.Black)
             .clip(buttonShape)
             .background(Brush.verticalGradient(listOf(Color(0xFF222A3A), Color(0xFF0F131C))))
             .border(
-                1.dp, // Borde fino de relieve metálico
+                1.dp,
                 Brush.linearGradient(listOf(Color.White.copy(0.2f), Color.Transparent, Color.Black)),
                 buttonShape
             )
@@ -149,7 +154,7 @@ private fun LargeApp3DButton(
                 onClick = onClick,
                 onLongClick = onLongClick
             )
-            .padding(4.dp), // Padding mínimo para expandir el icono al borde físico
+            .padding(4.dp),
         contentAlignment = Alignment.Center
     ) {
         if (appIcon != null) {
@@ -159,15 +164,15 @@ private fun LargeApp3DButton(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(buttonShape) // Mantiene la curvatura estética del botón en los extremos del icono
+                    .clip(buttonShape)
             )
         } else {
-            // Icono de suma (+) si la ranura está vacía
+            // Icono (+) si la ranura está libre
             Icon(
                 imageVector = Icons.Default.Add,
                 contentDescription = "Asignar App",
                 tint = themeAccent.copy(alpha = 0.6f),
-                modifier = Modifier.fillMaxSize(0.45f)
+                modifier = Modifier.fillMaxSize(0.4f)
             )
         }
     }

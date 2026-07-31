@@ -1,22 +1,15 @@
 package com.creativem.toblauncher
 
-import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.Paint as AndroidPaint
 import android.graphics.Typeface
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,12 +21,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -41,21 +31,15 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.cos
 import kotlin.math.sin
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ModernSpeedometerWidget(
     speedKmH: Float,
-    bearing: Float, // Parámetro restaurado para mantener compatibilidad con MainActivity
-    onRequestAppSelection: (slot: Int) -> Unit
+    bearing: Float = 0f,
+    onRequestAppSelection: (slot: Int) -> Unit = {}
 ) {
-    val context = LocalContext.current
     val theme = LocalDashboardTheme.current
     val isBold = LocalIsBoldText.current
     val activeFontWeight = if (isBold) FontWeight.ExtraBold else FontWeight.Normal
-
-    val prefs = remember { context.getSharedPreferences("speedometer_apps_prefs", Context.MODE_PRIVATE) }
-    val slot1Pkg = remember(prefs.getString("slot_1", null)) { prefs.getString("slot_1", "com.spotify.music") ?: "com.spotify.music" }
-    val slot2Pkg = remember(prefs.getString("slot_2", null)) { prefs.getString("slot_2", "com.google.android.apps.maps") ?: "com.google.android.apps.maps" }
 
     val animatedSpeed by animateFloatAsState(
         targetValue = speedKmH,
@@ -79,44 +63,65 @@ fun ModernSpeedometerWidget(
     Row(
         modifier = Modifier.fillMaxSize().padding(0.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // ==========================================
-        // 1. RELOJ ANALÓGICO CON EFECTO CONTRÁCTIL 3D (50%)
+        // 1. RELOJ ANALÓGICO 3D REALISTA CON AGUJA LARGA PRECISA
         // ==========================================
         Box(
             modifier = Modifier
-                .weight(1.2f)
+                .weight(1.3f)
                 .fillMaxHeight()
-                .shadow(8.dp, RoundedCornerShape(24.dp), spotColor = Color.Black)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Brush.verticalGradient(listOf(Color(0xFF222A3A), Color(0xFF0F131C))))
-                .border(
-                    1.dp,
-                    Brush.linearGradient(listOf(Color.White.copy(0.2f), Color.Transparent, Color.Black)),
-                    RoundedCornerShape(24.dp)
+                .shadow(12.dp, CircleShape, spotColor = Color.Black)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        listOf(Color(0xFF2E384D), Color(0xFF181F2C), Color(0xFF0D1017))
+                    )
                 )
-                .padding(8.dp),
+                .border(
+                    2.5.dp,
+                    Brush.sweepGradient(
+                        listOf(theme.accentCyan, theme.accentPurple, theme.accentOrange, theme.accentCyan)
+                    ),
+                    CircleShape
+                )
+                .padding(4.dp),
             contentAlignment = Alignment.Center
         ) {
-            Box(modifier = Modifier
-                .fillMaxSize()
-                .clip(CircleShape)
-                .background(Brush.radialGradient(listOf(Color.Black.copy(0.4f), Color.Transparent)))
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            listOf(Color.Transparent, Color.Black.copy(0.75f))
+                        )
+                    )
             )
 
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val center = Offset(size.width / 2f, size.height / 2f)
-                val maxRadius = (size.minDimension / 2f) - 4.dp.toPx()
-                val strokeWidthPx = 10.dp.toPx()
+                val maxRadius = (size.minDimension / 2f) - 2.dp.toPx()
+                val strokeWidthPx = 18.dp.toPx() // Franja gorda exterior
 
                 val arcRadius = maxRadius - (strokeWidthPx / 2f)
-                val ticksRadius = arcRadius - 8.dp.toPx()
-                val textRadius = ticksRadius - 14.dp.toPx()
+                val innerArcEdge = arcRadius - (strokeWidthPx / 2f) // Borde interno exacto de la franja gorda
 
-                // Arco Base 3D
+                val ticksRadius = innerArcEdge - 1.dp.toPx()
+                val textRadius = ticksRadius - 32.dp.toPx() // Números separados de las rayas
+
+                // AGUJA REALISTA: Se extiende casi hasta la franja gorda sin llegar a tocarla (justo sobre las rayas)
+                val needleLength = innerArcEdge - 30.dp.toPx()
+
+                // 1. ARCO DE FONDO BASE GRUESO (2do Color del Tema)
                 drawArc(
-                    brush = Brush.sweepGradient(listOf(Color(0xFF0A0C12), Color(0xFF1E2638))),
+                    brush = Brush.sweepGradient(
+                        listOf(
+                            theme.accentPurple.copy(alpha = 0.4f),
+                            theme.accentCyan.copy(alpha = 0.4f)
+                        )
+                    ),
                     startAngle = 135f,
                     sweepAngle = 270f,
                     useCenter = false,
@@ -125,56 +130,77 @@ fun ModernSpeedometerWidget(
                     topLeft = Offset(center.x - arcRadius, center.y - arcRadius)
                 )
 
+                // 2. ARCO DE FRANJA ALTA VELOCIDAD (3er Color del Tema)
                 val totalSpeed = 150
-                val speedProgress = (animatedSpeed / totalSpeed.toFloat()).coerceIn(0f, 1f)
+                val redZoneStartAngle = 135f + (120f / totalSpeed.toFloat()) * 270f
+                val redZoneSweepAngle = (30f / totalSpeed.toFloat()) * 270f
 
-                // Resplandor Aura Neón
                 drawArc(
-                    color = dynamicSpeedColor.copy(alpha = 0.3f),
-                    startAngle = 135f,
-                    sweepAngle = 270f * speedProgress,
+                    color = theme.accentOrange,
+                    startAngle = redZoneStartAngle,
+                    sweepAngle = redZoneSweepAngle,
                     useCenter = false,
-                    style = Stroke(width = strokeWidthPx * 2f, cap = StrokeCap.Round),
+                    style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round),
                     size = Size(arcRadius * 2, arcRadius * 2),
                     topLeft = Offset(center.x - arcRadius, center.y - arcRadius)
                 )
 
-                // Barra de Velocidad Sólida
+                val speedProgress = (animatedSpeed / totalSpeed.toFloat()).coerceIn(0f, 1f)
+
+                // 3. BARRA DE VELOCIDAD ACTIVA
+                drawArc(
+                    color = dynamicSpeedColor.copy(alpha = 0.4f),
+                    startAngle = 135f,
+                    sweepAngle = 270f * speedProgress,
+                    useCenter = false,
+                    style = Stroke(width = strokeWidthPx * 1.4f, cap = StrokeCap.Round),
+                    size = Size(arcRadius * 2, arcRadius * 2),
+                    topLeft = Offset(center.x - arcRadius, center.y - arcRadius)
+                )
+
                 drawArc(
                     color = dynamicSpeedColor,
                     startAngle = 135f,
                     sweepAngle = 270f * speedProgress,
                     useCenter = false,
-                    style = Stroke(width = strokeWidthPx * 0.8f, cap = StrokeCap.Round),
+                    style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round),
                     size = Size(arcRadius * 2, arcRadius * 2),
                     topLeft = Offset(center.x - arcRadius, center.y - arcRadius)
                 )
 
-                val mainStep = 30 // Divisiones: 0, 30, 60, 90, 120, 150
-
+                // 4. CONFIGURACIÓN DE NÚMEROS
                 val textPaintDimmed = AndroidPaint().apply {
-                    color = android.graphics.Color.GRAY
-                    textSize = 30.dp.toPx()
-                    typeface = if (isBold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                    color = android.graphics.Color.LTGRAY
+                    textSize = 12.sp.toPx()
+                    typeface = Typeface.DEFAULT_BOLD
                     textAlign = AndroidPaint.Align.CENTER
                     isAntiAlias = true
                 }
 
                 val textPaintActive = AndroidPaint().apply {
                     color = android.graphics.Color.WHITE
-                    textSize = 40.dp.toPx()
-                    typeface = if (isBold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                    textSize = 14.sp.toPx()
+                    typeface = Typeface.DEFAULT_BOLD
                     textAlign = AndroidPaint.Align.CENTER
                     isAntiAlias = true
                 }
 
-                for (s in 0..totalSpeed step 10) {
+                // 5. RAYAS INDICADORAS GORDAS Y LARGAS
+                for (s in 0..totalSpeed step 5) {
                     val angleDeg = 135f + (s.toFloat() / totalSpeed.toFloat()) * 270f
                     val angleRad = Math.toRadians(angleDeg.toDouble())
 
-                    val isMainTick = (s % mainStep == 0)
+                    val isMainTick = (s % 20 == 0 || s == 150)
+                    val isMediumTick = (s % 10 == 0 && !isMainTick)
+
+                    val tickLength = when {
+                        isMainTick -> 14.dp.toPx()
+                        isMediumTick -> 8.dp.toPx()
+                        else -> 4.5.dp.toPx()
+                    }
+
                     val tickStartR = ticksRadius
-                    val tickEndR = if (isMainTick) ticksRadius - 6.dp.toPx() else ticksRadius - 3.dp.toPx()
+                    val tickEndR = ticksRadius - tickLength
 
                     val startX = center.x + tickStartR * cos(angleRad).toFloat()
                     val startY = center.y + tickStartR * sin(angleRad).toFloat()
@@ -183,17 +209,35 @@ fun ModernSpeedometerWidget(
 
                     val isPassed = s <= animatedSpeed
 
+                    val tickColor = when {
+                        s >= 120 -> theme.accentOrange
+                        isPassed -> dynamicSpeedColor
+                        isMainTick -> Color.White
+                        else -> theme.accentPurple.copy(alpha = 0.85f)
+                    }
+
+                    // Sombra anti-reflejo bajo las rayas
                     drawLine(
-                        color = if (isPassed) dynamicSpeedColor else Color(0xFF2C3545),
-                        start = Offset(startX, startY),
-                        end = Offset(endX, endY),
-                        strokeWidth = if (isMainTick) 2.2.dp.toPx() else 1.0.dp.toPx(),
+                        color = Color.Black.copy(alpha = 0.85f),
+                        start = Offset(startX + 1.2f, startY + 1.2f),
+                        end = Offset(endX + 1.2f, endY + 1.2f),
+                        strokeWidth = if (isMainTick) 5.dp.toPx() else 2.5.dp.toPx(),
                         cap = StrokeCap.Round
                     )
 
+                    // Raya
+                    drawLine(
+                        color = tickColor,
+                        start = Offset(startX, startY),
+                        end = Offset(endX, endY),
+                        strokeWidth = if (isMainTick) 4.2.dp.toPx() else if (isMediumTick) 2.5.dp.toPx() else 1.5.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+
+                    // Números cada 20 km/h (Ubicados en la zona interna limpia)
                     if (isMainTick) {
                         val numX = center.x + textRadius * cos(angleRad).toFloat()
-                        val numY = center.y + textRadius * sin(angleRad).toFloat() + 3.5.dp.toPx()
+                        val numY = center.y + textRadius * sin(angleRad).toFloat() + 4.5.dp.toPx()
 
                         drawContext.canvas.nativeCanvas.drawText(
                             s.toString(),
@@ -204,48 +248,50 @@ fun ModernSpeedometerWidget(
                     }
                 }
 
+                // 6. AGUJA DE GRAN ALCANCE REALISTA (Punta rozando la franja gorda)
                 val needleAngleRad = Math.toRadians((135f + (270f * speedProgress)).toDouble())
-                val needleLength = arcRadius - 2.dp.toPx()
                 val needleEnd = Offset(
                     x = center.x + (needleLength * cos(needleAngleRad)).toFloat(),
                     y = center.y + (needleLength * sin(needleAngleRad)).toFloat()
                 )
 
-                // Aguja con relieve
+                // Sombra de la aguja para profundidad 3D
                 drawLine(
-                    color = Color.Black.copy(0.5f),
-                    start = Offset(center.x + 1.5f, center.y + 1.5f),
-                    end = Offset(needleEnd.x + 1.5f, needleEnd.y + 1.5f),
-                    strokeWidth = 4.dp.toPx(),
+                    color = Color.Black.copy(0.85f),
+                    start = Offset(center.x + 2f, center.y + 2f),
+                    end = Offset(needleEnd.x + 2f, needleEnd.y + 2f),
+                    strokeWidth = 5.dp.toPx(),
                     cap = StrokeCap.Round
                 )
+
+                // Cuerpo Principal de la Aguja
                 drawLine(
                     color = dynamicSpeedColor,
                     start = center,
                     end = needleEnd,
-                    strokeWidth = 3.dp.toPx(),
+                    strokeWidth = 3.5.dp.toPx(),
                     cap = StrokeCap.Round
                 )
 
-                drawCircle(color = Color.White, radius = 5.dp.toPx(), center = center)
-                drawCircle(color = dynamicSpeedColor, radius = 2.5.dp.toPx(), center = center)
+                // Centro Pivot Estilizado
+                drawCircle(color = theme.accentCyan, radius = 6.5.dp.toPx(), center = center)
+                drawCircle(color = dynamicSpeedColor, radius = 3.2.dp.toPx(), center = center)
             }
         }
 
         // ==========================================
-        // 2. VELOCIDAD DIGITAL UNIFICADA (EFECTO LCD 3D GRANDE)
+        // 2. VELOCIDAD DIGITAL UNIFICADA EXPANDIDA
         // ==========================================
         Box(
             modifier = Modifier
-                .weight(0.9f)
+                .weight(1.0f)
                 .fillMaxHeight()
-                .padding(horizontal = 6.dp)
-                .shadow(8.dp, RoundedCornerShape(24.dp), spotColor = Color.Black)
+                .shadow(10.dp, RoundedCornerShape(24.dp), spotColor = Color.Black)
                 .clip(RoundedCornerShape(24.dp))
                 .background(Brush.verticalGradient(listOf(Color(0xFF222A3A), Color(0xFF0F131C))))
                 .border(
-                    1.dp,
-                    Brush.linearGradient(listOf(Color.White.copy(0.3f), Color.Transparent, Color.Black)),
+                    1.5.dp,
+                    Brush.linearGradient(listOf(theme.accentCyan, Color.Transparent, theme.accentPurple)),
                     RoundedCornerShape(24.dp)
                 ),
             contentAlignment = Alignment.Center
@@ -256,105 +302,20 @@ fun ModernSpeedometerWidget(
             ) {
                 Text(
                     text = "${animatedSpeed.toInt()}",
-                    fontSize = 60.sp,
+                    fontSize = 72.sp,
                     fontWeight = activeFontWeight,
                     fontFamily = FontFamily.Monospace,
                     color = Color.White,
-                    letterSpacing = (-1.5).sp
+                    letterSpacing = (-2.0).sp
                 )
                 Text(
                     text = "KM / H",
-                    fontSize = 20.sp,
+                    fontSize = 22.sp,
                     fontWeight = activeFontWeight,
                     color = dynamicSpeedColor,
-                    letterSpacing = 1.5.sp
+                    letterSpacing = 2.0.sp
                 )
             }
-        }
-
-        // ==========================================
-        // 3. ACCESOS DIRECTOS A APLICACIONES 3D
-        // ==========================================
-        Column(
-            modifier = Modifier
-                .weight(0.45f)
-                .fillMaxHeight(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            AppSlotSquare3D(
-                modifier = Modifier.weight(1f),
-                packageName = slot1Pkg,
-                accentColor = dynamicSpeedColor,
-                onClick = {
-                    val intent = context.packageManager.getLaunchIntentForPackage(slot1Pkg)
-                    if (intent != null) context.startActivity(intent) else onRequestAppSelection(1)
-                },
-                onLongClick = { onRequestAppSelection(1) }
-            )
-
-            AppSlotSquare3D(
-                modifier = Modifier.weight(1f),
-                packageName = slot2Pkg,
-                accentColor = dynamicSpeedColor,
-                onClick = {
-                    val intent = context.packageManager.getLaunchIntentForPackage(slot2Pkg)
-                    if (intent != null) context.startActivity(intent) else onRequestAppSelection(2)
-                },
-                onLongClick = { onRequestAppSelection(2) }
-            )
-        }
-    }
-}
-
-// COMPONENTE AUXILIAR PARA BOTONES DE APPS 3D
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun AppSlotSquare3D(
-    modifier: Modifier = Modifier,
-    packageName: String,
-    accentColor: Color,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
-) {
-    val context = LocalContext.current
-    val appIcon = remember(packageName) {
-        try {
-            val drawable = context.packageManager.getApplicationIcon(packageName)
-            val bmp = Bitmap.createBitmap(
-                drawable.intrinsicWidth.coerceAtLeast(1),
-                drawable.intrinsicHeight.coerceAtLeast(1),
-                Bitmap.Config.ARGB_8888
-            )
-            val canvas = android.graphics.Canvas(bmp)
-            drawable.setBounds(0, 0, canvas.width, canvas.height)
-            drawable.draw(canvas)
-            bmp.asImageBitmap()
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .shadow(6.dp, RoundedCornerShape(16.dp))
-            .clip(RoundedCornerShape(16.dp))
-            .background(Brush.verticalGradient(listOf(Color(0xFF222A3A), Color(0xFF0F131C))))
-            .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(0.25f), Color.Black)), RoundedCornerShape(16.dp))
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        if (appIcon != null) {
-            Image(
-                bitmap = appIcon,
-                contentDescription = "App Shortcut",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            Icon(Icons.Default.Apps, contentDescription = "Elegir App", tint = accentColor, modifier = Modifier.fillMaxSize(0.7f))
         }
     }
 }

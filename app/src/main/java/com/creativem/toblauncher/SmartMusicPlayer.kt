@@ -5,8 +5,8 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
-import android.media.session.MediaSession // Importación nativa
-import android.media.session.PlaybackState // Importación nativa
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
@@ -35,9 +35,14 @@ class SmartMusicPlayer private constructor(private val context: Context) {
     private val prefs = context.getSharedPreferences("smart_music_prefs", Context.MODE_PRIVATE)
     private var mediaPlayer: MediaPlayer? = null
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var audioFocusRequest: AudioFocusRequest? = null
 
     // Sesión de medios del sistema
     private var mediaSession: MediaSession? = null
+
+    // --- ALGORITMO INTELIGENTE DE SHUFFLE PARA MILES DE PISTAS ---
+    private val shuffledDeck = mutableListOf<Int>()  // Mazo de cartas barajadas sin repetir
+    private val historyStack = mutableListOf<Int>()   // Historial para botón "Anterior"
 
     // --- ESTADOS OBSERVABLES EN COMPOSE ---
 
@@ -73,7 +78,6 @@ class SmartMusicPlayer private constructor(private val context: Context) {
     var isScanning by mutableStateOf(false)
         private set
 
-    private val playedIndicesHistory = mutableSetOf<Int>()
     private var progressJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
@@ -102,7 +106,21 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         }
     }
 
-    // --- CONFIGURACIÓN DE LA SESIÓN DE MEDIOS (Para botones físicos y gestos) ---
+    // --- RECONSTRUCCIÓN INTELIGENTE DEL MAZO DE SHUFFLE ---
+    private fun rebuildShuffledDeck() {
+        shuffledDeck.clear()
+        if (playlist.isEmpty()) return
+
+        val indices = playlist.indices.toMutableList()
+        // Evitamos que la canción actual vuelva a salir de primera en el mazo nuevo
+        if (currentTrackIndex in indices) {
+            indices.remove(currentTrackIndex)
+        }
+        indices.shuffle()
+        shuffledDeck.addAll(indices)
+    }
+
+    // --- CONFIGURACIÓN DE LA SESIÓN DE MEDIOS ---
     private fun setupMediaSession() {
         try {
             mediaSession = MediaSession(context, "SmartMusicPlayer").apply {
@@ -114,7 +132,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                     }
 
                     override fun onPause() {
-                        togglePlayPause()
+                        pausePlayback()
                     }
 
                     override fun onSkipToNext() {
@@ -125,7 +143,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                         playPreviousTrack()
                     }
                 })
-                isActive = true
+                isActive = false
             }
             updatePlaybackState(PlaybackState.STATE_NONE)
         } catch (e: Exception) {
@@ -133,7 +151,6 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         }
     }
 
-    // Informar a Android del estado del reproductor
     private fun updatePlaybackState(state: Int) {
         try {
             val stateBuilder = PlaybackState.Builder()
@@ -151,7 +168,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         }
     }
 
-    // --- ESCANEAR CARPETA DIRECTA DESDE EL EXPLORADOR INTERNO (File) ---
+    // --- ESCANEAR CARPETA DIRECTA DESDE EL EXPLORADOR INTERNO ---
     fun scanFolderPath(folderFile: File) {
         isScanning = true
         selectedFolderName = folderFile.name.ifEmpty { "Memoria USB" }
@@ -161,7 +178,6 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         scope.launch(Dispatchers.IO) {
             val tracks = mutableListOf<AudioTrack>()
 
-            // 1. Intento de escaneo directo en disco
             try {
                 if (folderFile.exists()) {
                     folderFile.walkTopDown()
@@ -174,12 +190,10 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                 e.printStackTrace()
             }
 
-            // 2. Respaldo por MediaStore (Si el sistema operativo bloqueó walkTopDown por Scoped Storage)
             if (tracks.isEmpty()) {
                 scanAudioViaMediaStoreUniversal(folderFile.absolutePath, folderFile.name, tracks)
             }
 
-            // 3. Respaldo general total
             if (tracks.isEmpty()) {
                 scanMediaStoreFallbackInternal(tracks)
             }
@@ -187,7 +201,8 @@ class SmartMusicPlayer private constructor(private val context: Context) {
             withContext(Dispatchers.Main) {
                 playlist.clear()
                 playlist.addAll(tracks)
-                playedIndicesHistory.clear()
+                historyStack.clear()
+                rebuildShuffledDeck()
                 isScanning = false
 
                 if (playlist.isNotEmpty()) {
@@ -220,6 +235,8 @@ class SmartMusicPlayer private constructor(private val context: Context) {
             withContext(Dispatchers.Main) {
                 playlist.clear()
                 playlist.addAll(tracks)
+                historyStack.clear()
+                rebuildShuffledDeck()
                 isScanning = false
 
                 if (playlist.isNotEmpty()) {
@@ -241,7 +258,6 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         }
     }
 
-    // --- ESCANER MEDIASTORE VÍA RUTA DE CARPETA (Evita bloqueos de seguridad de Android) ---
     private fun scanAudioViaMediaStoreUniversal(folderPath: String, folderName: String, tracksList: MutableList<AudioTrack>) {
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
@@ -277,7 +293,6 @@ class SmartMusicPlayer private constructor(private val context: Context) {
 
                         val audioName = title ?: name ?: "Pista"
 
-                        // Comprobar si pertenece a la carpeta seleccionada
                         val matchesFolder = filePath.isEmpty() ||
                                 filePath.contains(folderPath, ignoreCase = true) ||
                                 filePath.contains(folderName, ignoreCase = true)
@@ -301,7 +316,6 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         }
     }
 
-    // --- ESCANEAR CARPETA DESDE EXTERNO (Uri) ---
     fun scanFolder(selectedUri: Uri) {
         isScanning = true
         scope.launch(Dispatchers.IO) {
@@ -322,7 +336,8 @@ class SmartMusicPlayer private constructor(private val context: Context) {
             withContext(Dispatchers.Main) {
                 playlist.clear()
                 playlist.addAll(tracks)
-                playedIndicesHistory.clear()
+                historyStack.clear()
+                rebuildShuffledDeck()
                 isScanning = false
 
                 if (playlist.isNotEmpty()) {
@@ -334,7 +349,6 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         }
     }
 
-    // --- ESCANEO FORZADO DE USB ---
     fun forceAutoScanUsb() {
         isScanning = true
         selectedFolderName = "Memoria USB"
@@ -347,7 +361,8 @@ class SmartMusicPlayer private constructor(private val context: Context) {
             withContext(Dispatchers.Main) {
                 playlist.clear()
                 playlist.addAll(tracks)
-                playedIndicesHistory.clear()
+                historyStack.clear()
+                rebuildShuffledDeck()
                 isScanning = false
 
                 if (playlist.isNotEmpty()) {
@@ -372,6 +387,8 @@ class SmartMusicPlayer private constructor(private val context: Context) {
             withContext(Dispatchers.Main) {
                 playlist.clear()
                 playlist.addAll(tracks)
+                historyStack.clear()
+                rebuildShuffledDeck()
                 isScanning = false
 
                 if (playlist.isNotEmpty()) {
@@ -403,6 +420,8 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                     playlist.clear()
                     playlist.addAll(tracks)
                     selectedFolderName = "Memoria USB"
+                    historyStack.clear()
+                    rebuildShuffledDeck()
 
                     val lastTrackUri = prefs.getString("last_track_uri", null)
                     val lastPos = prefs.getLong("last_position_ms", 0L)
@@ -520,7 +539,21 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         return ext in listOf("mp3", "wav", "flac", "m4a", "aac", "ogg")
     }
 
-    // --- CONTROLES DE REPRODUCCIÓN ---
+    // --- CONTROLES DE REPRODUCCIÓN Y MANEJO DE FOCO ---
+
+    fun pausePlayback() {
+        mediaPlayer?.let { player ->
+            if (player.isPlaying) {
+                player.pause()
+            }
+        }
+        isPlaying = false
+        updatePlaybackState(PlaybackState.STATE_PAUSED)
+        mediaSession?.isActive = false
+        abandonAudioFocus()
+        saveCurrentState()
+    }
+
     fun togglePlayPause() {
         if (mediaPlayer == null && playlist.isNotEmpty()) {
             playTrackAtIndex(if (currentTrackIndex >= 0) currentTrackIndex else 0)
@@ -529,43 +562,49 @@ class SmartMusicPlayer private constructor(private val context: Context) {
 
         mediaPlayer?.let { player ->
             if (player.isPlaying) {
-                player.pause()
-                isPlaying = false
-                updatePlaybackState(PlaybackState.STATE_PAUSED) // Sincroniza estado de pausa
-                saveCurrentState()
+                pausePlayback()
             } else {
                 requestAudioFocus()
+                mediaSession?.isActive = true
                 player.start()
                 isPlaying = true
-                updatePlaybackState(PlaybackState.STATE_PLAYING) // Sincroniza estado de reproducción
+                updatePlaybackState(PlaybackState.STATE_PLAYING)
                 startProgressTracker()
             }
         }
     }
 
+    // --- NAVEGACIÓN INTELIGENTE DE CANCIONES (SIN REPETICIONES) ---
     fun playNextTrack(userTriggered: Boolean = false) {
         if (playlist.isEmpty()) return
 
+        // Repetir una sola canción
         if (repeatMode == RepeatMode.ONE && !userTriggered) {
             playTrackAtIndex(currentTrackIndex, 0L)
             return
         }
 
+        // Guardamos en el historial de canciones escuchadas
+        if (currentTrackIndex in playlist.indices) {
+            historyStack.add(currentTrackIndex)
+            // Limitamos el historial a 100 elementos para evitar fugas de memoria
+            if (historyStack.size > 100) historyStack.removeAt(0)
+        }
+
         if (isShuffle) {
-            if (playedIndicesHistory.size >= playlist.size) {
-                playedIndicesHistory.clear()
+            // Si el mazo se agotó (se escucharon TODAS las canciones de la carpeta) -> Rebarajamos
+            if (shuffledDeck.isEmpty()) {
+                rebuildShuffledDeck()
             }
-            playedIndicesHistory.add(currentTrackIndex)
 
-            val unplayedIndices = playlist.indices.filter { it !in playedIndicesHistory }
-            val nextIndex = if (unplayedIndices.isNotEmpty()) {
-                unplayedIndices.random()
+            if (shuffledDeck.isNotEmpty()) {
+                val nextIndex = shuffledDeck.removeAt(0)
+                playTrackAtIndex(nextIndex, 0L)
             } else {
-                playlist.indices.random()
+                playTrackAtIndex(0, 0L)
             }
-
-            playTrackAtIndex(nextIndex, 0L)
         } else {
+            // MODO NORMAL DE CORRIDO (Secuencial: 0, 1, 2... N-1, 0)
             val nextIndex = (currentTrackIndex + 1) % playlist.size
             playTrackAtIndex(nextIndex, 0L)
         }
@@ -573,14 +612,25 @@ class SmartMusicPlayer private constructor(private val context: Context) {
 
     fun playPreviousTrack() {
         if (playlist.isEmpty()) return
-        val prevIndex = if (currentTrackIndex - 1 < 0) playlist.size - 1 else currentTrackIndex - 1
-        playTrackAtIndex(prevIndex, 0L)
+
+        if (isShuffle && historyStack.isNotEmpty()) {
+            // Regresa a la canción exacta que acabas de escuchar
+            val prevIndex = historyStack.removeAt(historyStack.size - 1)
+            playTrackAtIndex(prevIndex, 0L)
+        } else {
+            // MODO NORMAL DE CORRIDO EN REVERSA
+            val prevIndex = if (currentTrackIndex - 1 < 0) playlist.size - 1 else currentTrackIndex - 1
+            playTrackAtIndex(prevIndex, 0L)
+        }
     }
 
     fun toggleShuffle() {
         isShuffle = !isShuffle
         prefs.edit().putBoolean("is_shuffle", isShuffle).apply()
-        playedIndicesHistory.clear()
+        historyStack.clear()
+        if (isShuffle) {
+            rebuildShuffledDeck()
+        }
     }
 
     fun toggleRepeatMode() {
@@ -604,7 +654,8 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                 setOnCompletionListener { playNextTrack(userTriggered = false) }
             }
             isPlaying = false
-            updatePlaybackState(PlaybackState.STATE_PAUSED) // Sincroniza estado de pausa inicial
+            mediaSession?.isActive = false
+            updatePlaybackState(PlaybackState.STATE_PAUSED)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -617,6 +668,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
 
         try {
             requestAudioFocus()
+            mediaSession?.isActive = true
             mediaPlayer?.release()
             mediaPlayer = MediaPlayer().apply {
                 setDataSource(context, track.uri)
@@ -628,7 +680,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                 setOnCompletionListener { playNextTrack(userTriggered = false) }
             }
             isPlaying = true
-            updatePlaybackState(PlaybackState.STATE_PLAYING) // Sincroniza estado de reproducción activa
+            updatePlaybackState(PlaybackState.STATE_PLAYING)
             startProgressTracker()
             saveCurrentState()
         } catch (e: Exception) {
@@ -639,18 +691,31 @@ class SmartMusicPlayer private constructor(private val context: Context) {
     private fun requestAudioFocus() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                val builder = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                     .setAudioAttributes(
                         AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_MEDIA)
                             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                             .build()
                     )
-                    .build()
-                audioManager.requestAudioFocus(focusRequest)
+                audioFocusRequest = builder.build()
+                audioManager.requestAudioFocus(audioFocusRequest!!)
             } else {
                 @Suppress("DEPRECATION")
                 audioManager.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.abandonAudioFocus(null)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -687,6 +752,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         mediaPlayer?.release()
         mediaPlayer = null
 
+        abandonAudioFocus()
         mediaSession?.isActive = false
         mediaSession?.release()
         mediaSession = null

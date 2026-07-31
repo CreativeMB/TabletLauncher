@@ -67,7 +67,6 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         try {
-            // Liberamos de forma segura el reproductor y la sesión de medios al destruir la actividad
             SmartMusicPlayer.getInstance(this).release()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -97,7 +96,6 @@ class MainActivity : ComponentActivity() {
 fun MainScreen() {
     val context = LocalContext.current
 
-    // ESTADOS DEL TEMA DE COLORES, ESCALA DE TEXTO Y BOTONES
     var currentTheme by remember { mutableStateOf(ThemeManager.getSavedTheme(context)) }
     var currentTextScale by remember { mutableFloatStateOf(ThemeManager.getSavedTextScale(context)) }
     var currentIsBold by remember { mutableStateOf(ThemeManager.getSavedIsBold(context)) }
@@ -411,14 +409,6 @@ fun CarDashboard(
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             ModernDashboardCard(
-                                modifier = Modifier.weight(1f),
-                                title = null,
-                                icon = Icons.Default.Schedule
-                            ) {
-                                ModernClockWidget()
-                            }
-
-                            ModernDashboardCard(
                                 modifier = Modifier.weight(1.1f),
                                 title = "APLICACIONES",
                                 icon = Icons.Default.Apps,
@@ -435,10 +425,16 @@ fun CarDashboard(
                                     }
                                 }
                             ) {
-                                // Llamada correcta a tu nueva cuadrícula interactiva de 4 accesos directos gigantes
                                 CustomApps3DGridWidget(
                                     onRequestAppSelection = { slot -> activeAppDrawerTarget = slot }
                                 )
+                            }
+                            ModernDashboardCard(
+                                modifier = Modifier.weight(1f),
+                                title = null,
+                                icon = Icons.Default.Schedule
+                            ) {
+                                ModernClockWidget()
                             }
                         }
                     }
@@ -476,26 +472,32 @@ fun CarDashboard(
             )
         }
 
-        // UNIFICADO: Lógica del Cajón de Aplicaciones
+        // ====================================================================
+        // LÓGICA CORREGIDA DEL CAJÓN DE APLICACIONES PARA TODOS LOS SLOTS (101-120)
+        // ====================================================================
         if (activeAppDrawerTarget != 0) {
             FullscreenAppDrawerWidget(
                 title = if (activeAppDrawerTarget == 99) "TODAS LAS APLICACIONES" else "SELECCIONAR APP PARA SLOT",
+                selectedSlotId = if (activeAppDrawerTarget != 99) activeAppDrawerTarget else null,
                 onClose = { activeAppDrawerTarget = 0 },
                 onAppSelected = { selectedPackage: String ->
                     when (activeAppDrawerTarget) {
                         in 1..2 -> {
-                            // Guarda para el velocímetro
+                            // Guarda para los accesos del Velocímetro
                             val prefs = context.getSharedPreferences("speedometer_apps_prefs", Context.MODE_PRIVATE)
                             prefs.edit().putString("slot_$activeAppDrawerTarget", selectedPackage).apply()
                         }
-                        in 101..104 -> {
-                            // Guarda para la nueva cuadrícula 3D (Espacios 1 al 4)
+                        in 101..120 -> {
+                            // ✅ AHORA GUARDA PARA CUALQUIER RANURA DE LA CUADRÍCULA (101 A 120+)
                             val slotNum = activeAppDrawerTarget - 100
                             val prefs = context.getSharedPreferences("custom_grid_apps_prefs", Context.MODE_PRIVATE)
-                            prefs.edit().putString("grid_slot_$slotNum", selectedPackage).apply()
+                            prefs.edit()
+                                .putString("grid_slot_$activeAppDrawerTarget", selectedPackage)
+                                .putString("grid_slot_$slotNum", selectedPackage)
+                                .apply()
                         }
                         else -> {
-                            // Abre directo la aplicación de la cuadrícula general
+                            // Abrir app directamente cuando se entra desde "Ver Todas" (slot 99)
                             val launchIntent = context.packageManager.getLaunchIntentForPackage(selectedPackage)
                             if (launchIntent != null) context.startActivity(launchIntent)
                         }
@@ -512,18 +514,10 @@ fun CarDashboard(
                 currentIsBold = currentIsBold,
                 currentButtonScale = currentButtonScale,
                 onDismiss = { showThemeModal = false },
-                onThemeSelected = { newTheme: DashboardTheme ->
-                    onThemeChanged(newTheme)
-                },
-                onTextScaleChanged = { newScale: Float ->
-                    onTextScaleChanged(newScale)
-                },
-                onIsBoldChanged = { newIsBold: Boolean ->
-                    onIsBoldChanged(newIsBold)
-                },
-                onButtonScaleChanged = { newButtonScale: Float ->
-                    onButtonScaleChanged(newButtonScale)
-                }
+                onThemeSelected = { newTheme: DashboardTheme -> onThemeChanged(newTheme) },
+                onTextScaleChanged = { newScale: Float -> onTextScaleChanged(newScale) },
+                onIsBoldChanged = { newIsBold: Boolean -> onIsBoldChanged(newIsBold) },
+                onButtonScaleChanged = { newButtonScale: Float -> onButtonScaleChanged(newButtonScale) }
             )
         }
     }

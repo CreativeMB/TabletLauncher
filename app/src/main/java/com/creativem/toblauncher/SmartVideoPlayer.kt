@@ -1,10 +1,14 @@
 package com.creativem.toblauncher
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
-import android.media.session.MediaSession // Importación nativa
-import android.media.session.PlaybackState // Importación nativa
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.net.Uri
+import android.os.Build
 import android.provider.MediaStore
 import androidx.compose.runtime.*
 import kotlinx.coroutines.*
@@ -26,6 +30,12 @@ class SmartVideoPlayer private constructor(private val context: Context) {
     }
 
     private val prefs = context.getSharedPreferences("smart_video_prefs", Context.MODE_PRIVATE)
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var audioFocusRequest: AudioFocusRequest? = null
+
+    // --- ALGORITMO INTELIGENTE DE SHUFFLE PARA MILES DE VIDEOS ---
+    private val shuffledDeck = mutableListOf<Int>()  // Mazo de videos barajados sin repetir
+    private val historyStack = mutableListOf<Int>()   // Historial para el botón "Anterior"
 
     // Modo Shuffle persistente
     var isShuffleMode by mutableStateOf(prefs.getBoolean("is_shuffle_mode", false))
@@ -34,7 +44,10 @@ class SmartVideoPlayer private constructor(private val context: Context) {
     fun toggleShuffle() {
         isShuffleMode = !isShuffleMode
         prefs.edit().putBoolean("is_shuffle_mode", isShuffleMode).apply()
-        playedVideoHistory.clear()
+        historyStack.clear()
+        if (isShuffleMode) {
+            rebuildShuffledDeck()
+        }
     }
 
     var mediaPlayer: MediaPlayer? = null
@@ -48,25 +61,25 @@ class SmartVideoPlayer private constructor(private val context: Context) {
 
     var savedPlaybackPosition: Long = 0L
 
-    // Historial para control anti-repeticiones en modo aleatorio
-    private val playedVideoHistory = mutableSetOf<Int>()
-
     // Sesión de medios nativa para el reproductor de video
     private var mediaSession: MediaSession? = null
 
     private val _isPlaying = mutableStateOf(false)
 
-    // Setter tradicional que sincroniza el estado de reproducción con Compose, el rastreador y la MediaSession
+    // Setter sincronizado con Compose, el foco de audio y la MediaSession
     var isPlaying: Boolean
         get() = _isPlaying.value
         set(value) {
             _isPlaying.value = value
             if (value) {
-                mediaSession?.isActive = true // Activa la sesión de video sobre la de música
+                requestAudioFocus()
+                mediaSession?.isActive = true
                 updatePlaybackState(PlaybackState.STATE_PLAYING)
                 startProgressTracker()
             } else {
                 updatePlaybackState(PlaybackState.STATE_PAUSED)
+                mediaSession?.isActive = false
+                abandonAudioFocus()
                 progressJob?.cancel()
             }
         }
@@ -102,7 +115,20 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         }
     }
 
-    // --- CONFIGURACIÓN DE LA SESIÓN DE MEDIOS PARA VIDEOS (Para mandos del timón y gestos) ---
+    // --- RECONSTRUCCIÓN INTELIGENTE DEL MAZO DE VIDEOS ---
+    private fun rebuildShuffledDeck() {
+        shuffledDeck.clear()
+        if (playlist.isEmpty()) return
+
+        val indices = playlist.indices.toMutableList()
+        if (currentTrackIndex in indices) {
+            indices.remove(currentTrackIndex)
+        }
+        indices.shuffle()
+        shuffledDeck.addAll(indices)
+    }
+
+    // --- CONFIGURACIÓN DE LA SESIÓN DE MEDIOS PARA VIDEOS ---
     private fun setupMediaSession() {
         try {
             mediaSession = MediaSession(context, "SmartVideoPlayer").apply {
@@ -115,8 +141,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                     }
 
                     override fun onPause() {
-                        val currentVideo = playlist.getOrNull(currentTrackIndex)
-                        togglePlayPause(currentVideo?.uri?.toString() ?: "")
+                        pausePlayback()
                     }
 
                     override fun onSkipToNext() {
@@ -127,7 +152,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                         playPreviousVideo()
                     }
                 })
-                isActive = true
+                isActive = false
             }
             updatePlaybackState(PlaybackState.STATE_NONE)
         } catch (e: Exception) {
@@ -135,7 +160,6 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         }
     }
 
-    // Informar a Android del estado del reproductor de video
     private fun updatePlaybackState(state: Int) {
         try {
             val stateBuilder = PlaybackState.Builder()
@@ -186,6 +210,8 @@ class SmartVideoPlayer private constructor(private val context: Context) {
             withContext(Dispatchers.Main) {
                 playlist.clear()
                 playlist.addAll(tracks)
+                historyStack.clear()
+                rebuildShuffledDeck()
                 isScanning = false
 
                 if (playlist.isNotEmpty()) {
@@ -262,6 +288,8 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                     playlist.clear()
                     playlist.addAll(tracks)
                     selectedFolderName = "Memoria USB"
+                    historyStack.clear()
+                    rebuildShuffledDeck()
 
                     val lastVideoUri = prefs.getString("last_video_uri", null)
                     val savedIndex = playlist.indexOfFirst { it.uri.toString() == lastVideoUri }
@@ -321,6 +349,22 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         return ext in listOf("mp4", "mkv", "avi", "webm", "3gp", "mov", "m4v", "ts", "mpg", "flv")
     }
 
+    fun pausePlayback() {
+        try {
+            if (mediaPlayer?.isPlaying == true) {
+                mediaPlayer?.pause()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        _isPlaying.value = false
+        updatePlaybackState(PlaybackState.STATE_PAUSED)
+        mediaSession?.isActive = false
+        abandonAudioFocus()
+        progressJob?.cancel()
+        saveCurrentState()
+    }
+
     fun togglePlayPause(videoUrl: String) {
         try {
             if (mediaPlayer == null) {
@@ -329,11 +373,14 @@ class SmartVideoPlayer private constructor(private val context: Context) {
             }
 
             if (mediaPlayer?.isPlaying == true) {
-                mediaPlayer?.pause()
-                isPlaying = false
+                pausePlayback()
             } else {
+                requestAudioFocus()
+                mediaSession?.isActive = true
                 mediaPlayer?.start()
-                isPlaying = true
+                _isPlaying.value = true
+                updatePlaybackState(PlaybackState.STATE_PLAYING)
+                startProgressTracker()
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -343,6 +390,8 @@ class SmartVideoPlayer private constructor(private val context: Context) {
 
     fun prepareAndPlay(videoUrl: String) {
         try {
+            requestAudioFocus()
+            mediaSession?.isActive = true
             mediaPlayer?.reset()
             mediaPlayer?.setDataSource(videoUrl)
             mediaPlayer?.prepareAsync()
@@ -350,45 +399,50 @@ class SmartVideoPlayer private constructor(private val context: Context) {
             mediaPlayer?.setOnPreparedListener { mp ->
                 bindMediaPlayer(mp)
                 mp.start()
-                isPlaying = true
+                _isPlaying.value = true
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    // Siguiente video con algoritmo Shuffle de no-repetición estricta
+    // --- NAVEGACIÓN INTELIGENTE DE VIDEOS (SIN REPETICIONES) ---
     fun playNextVideo() {
         if (playlist.isEmpty()) return
 
-        val nextIndex = if (isShuffleMode) {
-            playedVideoHistory.add(currentTrackIndex)
+        // Guardamos el video actual en la pila del historial
+        if (currentTrackIndex in playlist.indices) {
+            historyStack.add(currentTrackIndex)
+            if (historyStack.size > 100) historyStack.removeAt(0)
+        }
 
-            if (playedVideoHistory.size >= playlist.size) {
-                playedVideoHistory.clear()
+        val nextIndex = if (isShuffleMode) {
+            // Si el mazo se agotó (se vieron TODOS los videos de la carpeta) -> Rebarajamos
+            if (shuffledDeck.isEmpty()) {
+                rebuildShuffledDeck()
             }
 
-            val unplayedIndices = playlist.indices.filter { it !in playedVideoHistory }
-            if (unplayedIndices.isNotEmpty()) {
-                unplayedIndices.random()
+            if (shuffledDeck.isNotEmpty()) {
+                shuffledDeck.removeAt(0)
             } else {
-                playlist.indices.random()
+                0
             }
         } else {
+            // MODO NORMAL DE CORRIDO (Secuencial: 0, 1, 2... N-1, 0)
             (currentTrackIndex + 1) % playlist.size
         }
 
         playVideoAtIndex(nextIndex, 0L)
     }
 
-    // Video anterior
     fun playPreviousVideo() {
         if (playlist.isEmpty()) return
 
-        val prevIndex = if (isShuffleMode) {
-            val unplayedIndices = playlist.indices.filter { it != currentTrackIndex }
-            if (unplayedIndices.isNotEmpty()) unplayedIndices.random() else 0
+        val prevIndex = if (isShuffleMode && historyStack.isNotEmpty()) {
+            // Regresa al video exacto que acabas de ver
+            historyStack.removeAt(historyStack.size - 1)
         } else {
+            // MODO NORMAL DE CORRIDO EN REVERSA
             if (currentTrackIndex - 1 < 0) playlist.size - 1 else currentTrackIndex - 1
         }
 
@@ -399,6 +453,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         if (index !in playlist.indices) return
         currentTrackIndex = index
         currentPositionMs = startPosMs
+        mediaSession?.isActive = false
         updatePlaybackState(PlaybackState.STATE_PAUSED)
     }
 
@@ -408,6 +463,8 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         val video = playlist[currentTrackIndex]
 
         try {
+            requestAudioFocus()
+            mediaSession?.isActive = true
             mediaPlayer?.reset()
             mediaPlayer?.setDataSource(video.uri.toString())
             mediaPlayer?.prepareAsync()
@@ -415,7 +472,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                 bindMediaPlayer(mp)
                 mp.seekTo(position.toInt())
                 mp.start()
-                isPlaying = true
+                _isPlaying.value = true
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -424,12 +481,54 @@ class SmartVideoPlayer private constructor(private val context: Context) {
 
     fun bindMediaPlayer(player: MediaPlayer) {
         this.mediaPlayer = player
-        this.isPlaying = player.isPlaying
+        this._isPlaying.value = player.isPlaying
+        if (player.isPlaying) {
+            requestAudioFocus()
+            mediaSession?.isActive = true
+            updatePlaybackState(PlaybackState.STATE_PLAYING)
+        } else {
+            mediaSession?.isActive = false
+            updatePlaybackState(PlaybackState.STATE_PAUSED)
+        }
         this.totalDurationMs = player.duration.toLong().coerceAtLeast(1L)
         startProgressTracker()
 
         player.setOnCompletionListener {
             playNextVideo()
+        }
+    }
+
+    private fun requestAudioFocus() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val builder = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                            .build()
+                    )
+                audioFocusRequest = builder.build()
+                audioManager.requestAudioFocus(audioFocusRequest!!)
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.abandonAudioFocus(null)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -470,6 +569,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         mediaPlayer?.release()
         mediaPlayer = null
 
+        abandonAudioFocus()
         mediaSession?.isActive = false
         mediaSession?.release()
         mediaSession = null
