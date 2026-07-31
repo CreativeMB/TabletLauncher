@@ -258,92 +258,99 @@ fun MusicPlayerView(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // --- 3. BOTONES GIGANTES DE CONDUCCIÓN ---
+            // DENTRO DE MusicPlayerView en MediaPlayerWidget.kt:
+            val buttonScale = LocalButtonScale.current // ESCALA DINÁMICA (0.8x a 1.8x)
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Shuffle
                 IconButton(
                     onClick = { musicPlayer.toggleShuffle() },
-                    modifier = Modifier.size(38.dp)
+                    modifier = Modifier.size((38 * buttonScale).dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Shuffle,
                         contentDescription = "Aleatorio",
                         tint = if (musicPlayer.isShuffle) theme.accentCyan else Color.DarkGray,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size((20 * buttonScale).dp)
                     )
                 }
 
+                // Anterior
                 IconButton(
                     onClick = { musicPlayer.playPreviousTrack() },
                     modifier = Modifier
-                        .size(44.dp)
+                        .size((44 * buttonScale).dp)
                         .background(Color(0xFF22222E), CircleShape)
                 ) {
                     Icon(
                         imageVector = Icons.Default.SkipPrevious,
                         contentDescription = "Anterior",
                         tint = theme.accentOrange,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size((28 * buttonScale).dp)
                     )
                 }
 
+                // Play / Pausa (GIGANTE CENTRAL)
                 IconButton(
                     onClick = { musicPlayer.togglePlayPause() },
                     modifier = Modifier
-                        .size(54.dp)
+                        .size((54 * buttonScale).dp)
                         .background(theme.accentCyan, CircleShape)
                 ) {
                     Icon(
                         imageVector = if (musicPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = "Play/Pausa",
                         tint = Color.Black,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size((32 * buttonScale).dp)
                     )
                 }
 
+                // Siguiente
                 IconButton(
                     onClick = { musicPlayer.playNextTrack(userTriggered = true) },
                     modifier = Modifier
-                        .size(44.dp)
+                        .size((44 * buttonScale).dp)
                         .background(Color(0xFF22222E), CircleShape)
                 ) {
                     Icon(
                         imageVector = Icons.Default.SkipNext,
                         contentDescription = "Siguiente",
                         tint = theme.accentOrange,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size((28 * buttonScale).dp)
                     )
                 }
 
+                // Repetir
                 IconButton(
                     onClick = { musicPlayer.toggleRepeatMode() },
-                    modifier = Modifier.size(38.dp)
+                    modifier = Modifier.size((38 * buttonScale).dp)
                 ) {
                     Icon(
                         imageVector = if (musicPlayer.repeatMode == RepeatMode.ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
                         contentDescription = "Repetir",
                         tint = if (musicPlayer.repeatMode == RepeatMode.ONE) theme.accentOrange else Color.DarkGray,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size((20 * buttonScale).dp)
                     )
                 }
 
+                // AutoStart
                 IconButton(
                     onClick = { musicPlayer.toggleAutoPlay() },
-                    modifier = Modifier.size(38.dp)
+                    modifier = Modifier.size((38 * buttonScale).dp)
                 ) {
                     Icon(
                         imageVector = if (musicPlayer.isAutoPlayEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
                         contentDescription = "AutoStart",
                         tint = if (musicPlayer.isAutoPlayEnabled) theme.accentOrange else Color.DarkGray,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size((20 * buttonScale).dp)
                     )
                 }
             }
         }
-
         // --- VENTANA EMERGENTE: EXPLORADOR CON BOTÓN "SELECCIONAR ESTA CARPETA" ---
         if (showFolderModal) {
             FolderPickerModal(

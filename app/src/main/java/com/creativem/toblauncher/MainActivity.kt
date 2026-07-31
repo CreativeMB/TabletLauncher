@@ -37,12 +37,6 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.gms.location.*
 import org.mapsforge.map.android.graphics.AndroidGraphicFactory
 
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.Tv
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,14 +58,13 @@ class MainActivity : ComponentActivity() {
 
         promptDefaultLauncherSelection(this)
 
-        // LEER EL TEMA GUARDADO ANTES DE INICIAR COMPOSE (SOLUCIONA EL ERROR DashBackground)
         val initialTheme = ThemeManager.getSavedTheme(this)
 
         setContent {
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = initialTheme.dashBackground // Usa el color del tema guardado
+                    color = initialTheme.dashBackground
                 ) {
                     MainScreen()
                 }
@@ -102,21 +95,20 @@ class MainActivity : ComponentActivity() {
 fun MainScreen() {
     val context = LocalContext.current
 
-    // 1. ESTADOS DEL TEMA DE COLORES Y ESCALA DE TEXTOS
+    // ESTADOS DEL TEMA DE COLORES, ESCALA DE TEXTO Y BOTONES
     var currentTheme by remember { mutableStateOf(ThemeManager.getSavedTheme(context)) }
     var currentTextScale by remember { mutableFloatStateOf(ThemeManager.getSavedTextScale(context)) }
     var currentIsBold by remember { mutableStateOf(ThemeManager.getSavedIsBold(context)) }
+    var currentButtonScale by remember { mutableFloatStateOf(ThemeManager.getSavedButtonScale(context)) }
 
-    // DENSIDAD PERSONALIZADA PARA ESCALAR TODA LA ESCRITURA Y NÚMEROS DE LA TABLET
     val currentDensity = LocalDensity.current
     val customDensity = remember(currentDensity, currentTextScale) {
         Density(
             density = currentDensity.density,
-            fontScale = currentTextScale // Aplica el multiplicador (80% al 280%)
+            fontScale = currentTextScale
         )
     }
 
-    // ESTILO DE TEXTO GLOBAL: CAMBIA EL GROSOR DE TODA LA APP EN TIEMPO REAL
     val defaultTextStyle = LocalTextStyle.current
     val customTextStyle = remember(defaultTextStyle, currentIsBold) {
         defaultTextStyle.copy(
@@ -124,7 +116,6 @@ fun MainScreen() {
         )
     }
 
-    // 2. DETERMINACIÓN SÍNCRONA DEL PASO DE PERMISOS
     val initialStep = remember {
         val hasLocation = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val hasStorage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -144,11 +135,11 @@ fun MainScreen() {
 
     var currentStep by remember { mutableStateOf(initialStep) }
 
-    // 3. INYECCIÓN DOBLE DE TEMA Y ESCALA DE DENSIDAD DE TEXTO
     CompositionLocalProvider(
         LocalDensity provides customDensity,
         LocalDashboardTheme provides currentTheme,
         LocalIsBoldText provides currentIsBold,
+        LocalButtonScale provides currentButtonScale,
         LocalTextStyle provides customTextStyle
     ) {
         when (currentStep) {
@@ -185,9 +176,11 @@ fun MainScreen() {
                 currentTheme = currentTheme,
                 currentTextScale = currentTextScale,
                 currentIsBold = currentIsBold,
+                currentButtonScale = currentButtonScale,
                 onThemeChanged = { newTheme -> currentTheme = newTheme },
                 onTextScaleChanged = { newScale -> currentTextScale = newScale },
-                onIsBoldChanged = { newIsBold -> currentIsBold = newIsBold }
+                onIsBoldChanged = { newIsBold -> currentIsBold = newIsBold },
+                onButtonScaleChanged = { newButtonScale -> currentButtonScale = newButtonScale }
             )
         }
     }
@@ -237,16 +230,18 @@ fun CarDashboard(
     currentTheme: DashboardTheme,
     currentTextScale: Float,
     currentIsBold: Boolean,
+    currentButtonScale: Float,
     onThemeChanged: (DashboardTheme) -> Unit,
     onTextScaleChanged: (Float) -> Unit,
-    onIsBoldChanged: (Boolean) -> Unit
+    onIsBoldChanged: (Boolean) -> Unit,
+    onButtonScaleChanged: (Float) -> Unit
 ) {
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
 
     var isMapExpanded by remember { mutableStateOf(false) }
     var showThemeModal by remember { mutableStateOf(false) }
-    var showFullscreenMusic by remember { mutableStateOf(false) } // <--- ESTADO DE PANTALLA COMPLETA DE MÚSICA
+    var showFullscreenMusic by remember { mutableStateOf(false) }
 
     var activeAppDrawerTarget by remember { mutableIntStateOf(0) }
 
@@ -275,10 +270,8 @@ fun CarDashboard(
         onDispose { fusedClient.removeLocationUpdates(callback) }
     }
 
-    // --- BOX RAÍZ DE TODA LA PANTALLA ---
     Box(modifier = Modifier.fillMaxSize()) {
         if (isMapExpanded) {
-            // PANTALLA COMPLETA DEL MAPA
             Box(modifier = Modifier.fillMaxSize()) {
                 MapContainerWidget(
                     onExpandClicked = { isMapExpanded = false }
@@ -301,7 +294,6 @@ fun CarDashboard(
                 }
             }
         } else {
-            // DASHBOARD PRINCIPAL (COLUMNAS)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -355,7 +347,6 @@ fun CarDashboard(
                             .fillMaxHeight(),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        // Tarjeta del Reproductor Multimedia
                         ModernDashboardCard(
                             modifier = Modifier.weight(1.2f),
                             title = null
@@ -367,7 +358,6 @@ fun CarDashboard(
                             )
                         }
 
-                        // Fila Inferior (Reloj + Apps)
                         Row(
                             modifier = Modifier.weight(1f),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -403,7 +393,6 @@ fun CarDashboard(
                     }
                 }
 
-                // BOTÓN FLOTANTE MUNDO DE COLORES
                 FloatingActionButton(
                     onClick = { showThemeModal = true },
                     containerColor = theme.cardBackground,
@@ -422,18 +411,14 @@ fun CarDashboard(
             }
         }
 
-        // =========================================================================
-        // CAPAS SUPERPUESTAS A PANTALLA COMPLETA TOTAL (NIVEL RAÍZ)
-        // =========================================================================
+        // --- CAPAS SUPERPUESTAS A PANTALLA COMPLETA ---
 
-        // 🎵 1. REPRODUCTOR A PANTALLA COMPLETA TOTAL (CUBRE EL 100% DE LA TABLET)
         if (showFullscreenMusic) {
             FullscreenMusicPlayerWidget(
                 onClose = { showFullscreenMusic = false }
             )
         }
 
-        // 📱 2. CAJÓN DE APLICACIONES A PANTALLA COMPLETA
         if (activeAppDrawerTarget != 0) {
             FullscreenAppDrawerWidget(
                 title = if (activeAppDrawerTarget == 99) "TODAS LAS APLICACIONES" else "SELECCIONAR APP PARA SLOT $activeAppDrawerTarget",
@@ -451,12 +436,12 @@ fun CarDashboard(
             )
         }
 
-        // 🎨 3. MODAL DE TEMAS Y TEXTO
         if (showThemeModal) {
             ThemeSelectorModal(
                 currentTheme = currentTheme,
                 currentTextScale = currentTextScale,
                 currentIsBold = currentIsBold,
+                currentButtonScale = currentButtonScale,
                 onDismiss = { showThemeModal = false },
                 onThemeSelected = { newTheme: DashboardTheme ->
                     onThemeChanged(newTheme)
@@ -466,6 +451,9 @@ fun CarDashboard(
                 },
                 onIsBoldChanged = { newIsBold: Boolean ->
                     onIsBoldChanged(newIsBold)
+                },
+                onButtonScaleChanged = { newButtonScale: Float ->
+                    onButtonScaleChanged(newButtonScale)
                 }
             )
         }

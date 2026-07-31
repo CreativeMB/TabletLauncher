@@ -11,10 +11,10 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.SmartButton
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,7 +40,8 @@ data class DashboardTheme(
 )
 
 val LocalDashboardTheme = compositionLocalOf { ThemeManager.themes[0] }
-val LocalIsBoldText = compositionLocalOf { true } // INYECCIÓN LOCAL DE NEGRITA
+val LocalIsBoldText = compositionLocalOf { true }
+val LocalButtonScale = compositionLocalOf { 1.0f } // INYECCIÓN LOCAL DE ESCALA DE BOTONES
 
 object ThemeManager {
     val themes = listOf(
@@ -75,15 +76,25 @@ object ThemeManager {
         prefs.edit().putFloat("text_scale_factor", scale).apply()
     }
 
-    // PERSISTENCIA DE TEXTO EN NEGRITA (BOLD)
     fun getSavedIsBold(context: Context): Boolean {
         val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        return prefs.getBoolean("text_is_bold", true) // Por defecto activado en negrita
+        return prefs.getBoolean("text_is_bold", true)
     }
 
     fun saveIsBold(context: Context, isBold: Boolean) {
         val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
         prefs.edit().putBoolean("text_is_bold", isBold).apply()
+    }
+
+    // PERSISTENCIA DEL TAMAÑO DE BOTONES DE REPRODUCCIÓN
+    fun getSavedButtonScale(context: Context): Float {
+        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
+        return prefs.getFloat("button_scale_factor", 1.0f) // 1.0f = 100% por defecto
+    }
+
+    fun saveButtonScale(context: Context, scale: Float) {
+        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putFloat("button_scale_factor", scale).apply()
     }
 }
 
@@ -95,13 +106,16 @@ fun ThemeSelectorModal(
     currentTheme: DashboardTheme,
     currentTextScale: Float,
     currentIsBold: Boolean,
+    currentButtonScale: Float = 1.0f,
     onDismiss: () -> Unit,
     onThemeSelected: (DashboardTheme) -> Unit,
     onTextScaleChanged: (Float) -> Unit,
-    onIsBoldChanged: (Boolean) -> Unit
+    onIsBoldChanged: (Boolean) -> Unit,
+    onButtonScaleChanged: (Float) -> Unit = {}
 ) {
     val context = LocalContext.current
     var sliderValue by remember { mutableFloatStateOf(currentTextScale) }
+    var buttonScaleValue by remember { mutableFloatStateOf(currentButtonScale) }
     var isBoldState by remember { mutableStateOf(currentIsBold) }
 
     val previewWeight = if (isBoldState) FontWeight.ExtraBold else FontWeight.Normal
@@ -158,7 +172,7 @@ fun ThemeSelectorModal(
                         .weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // COLUMNA IZQUIERDA: SLIDER DE TAMAÑO Y INTERRUPTOR DE NEGRITA
+                    // COLUMNA IZQUIERDA: SLIDERS Y NEGRITA
                     Surface(
                         color = currentTheme.cardBackground,
                         shape = RoundedCornerShape(18.dp),
@@ -170,24 +184,24 @@ fun ThemeSelectorModal(
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(16.dp),
+                                .padding(14.dp),
                             verticalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.FormatSize, contentDescription = null, tint = currentTheme.accentCyan)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Tamaño y Grosor de Letra", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    Text("Ajustes Visuales del Tablero", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                 }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text("Personaliza legibilidad para alta resolución.", color = Color.Gray, fontSize = 11.sp)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text("Ajusta letras y botones para tu pantalla.", color = Color.Gray, fontSize = 11.sp)
                             }
 
-                            // VISTA PREVIA CON TAMAÑO Y BOLD EN TIEMPO REAL
+                            // VISTA PREVIA
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(85.dp)
+                                    .height(65.dp)
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(currentTheme.dashBackground),
                                 contentAlignment = Alignment.Center
@@ -196,14 +210,14 @@ fun ThemeSelectorModal(
                                     Text(
                                         text = "${(sliderValue * 100).toInt()}% - 120 KM/H",
                                         color = Color.White,
-                                        fontSize = 17.sp,
+                                        fontSize = 15.sp,
                                         fontWeight = previewWeight
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "Navegación GPS y Sistema",
+                                        text = "Botones Reproductor: ${(buttonScaleValue * 100).toInt()}%",
                                         color = currentTheme.accentCyan,
-                                        fontSize = 12.sp,
+                                        fontSize = 11.sp,
                                         fontWeight = previewWeight
                                     )
                                 }
@@ -215,21 +229,12 @@ fun ThemeSelectorModal(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.FormatSize, // ICONO INTEGRADO (SIN DEPENDENCIAS EXTRA)
-                                        contentDescription = null,
-                                        tint = currentTheme.accentCyan,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Texto en Negrita (Bold)",
-                                        color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                                Text(
+                                    text = "Texto en Negrita",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                                 Switch(
                                     checked = isBoldState,
                                     onCheckedChange = {
@@ -244,9 +249,9 @@ fun ThemeSelectorModal(
                                 )
                             }
 
-                            // SLIDER DESLIZABLE
+                            // 1. SLIDER ESCALA DE TEXTO
                             Column {
-                                Text("Escala Actual: ${(sliderValue * 100).toInt()}%", color = currentTheme.accentCyan, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("Escala Letras: ${(sliderValue * 100).toInt()}%", color = Color.LightGray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 Slider(
                                     value = sliderValue,
                                     onValueChange = {
@@ -262,10 +267,29 @@ fun ThemeSelectorModal(
                                     )
                                 )
                             }
+
+                            // 2. SLIDER ESCALA DE BOTONES DEL REPRODUCTOR
+                            Column {
+                                Text("Tamaño Botones Reproductor: ${(buttonScaleValue * 100).toInt()}%", color = currentTheme.accentCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Slider(
+                                    value = buttonScaleValue,
+                                    onValueChange = {
+                                        buttonScaleValue = it
+                                        onButtonScaleChanged(it)
+                                        ThemeManager.saveButtonScale(context, it)
+                                    },
+                                    valueRange = 0.8f..2.5f,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = currentTheme.accentCyan,
+                                        activeTrackColor = currentTheme.accentCyan,
+                                        inactiveTrackColor = currentTheme.cardBorder
+                                    )
+                                )
+                            }
                         }
                     }
 
-                    // COLUMNA DERECHA: PALETAS MUNDO DE COLORES (MOSTRANDO LOS 3 COLORES)
+                    // COLUMNA DERECHA: PALETAS MUNDO DE COLORES
                     Surface(
                         color = currentTheme.cardBackground,
                         shape = RoundedCornerShape(18.dp),
@@ -312,7 +336,6 @@ fun ThemeSelectorModal(
                                         ) {
                                             Text(theme.name, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
 
-                                            // AQUÍ ESTÁN CORREGIDOS LOS 3 CÍRCULOS DE COLORES POR PALETA
                                             Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                                                 Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(theme.accentCyan))
                                                 Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(theme.accentPurple))
