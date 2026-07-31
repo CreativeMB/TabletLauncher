@@ -58,16 +58,9 @@ class MainActivity : ComponentActivity() {
 
         promptDefaultLauncherSelection(this)
 
-        val initialTheme = ThemeManager.getSavedTheme(this)
-
         setContent {
             MaterialTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = initialTheme.dashBackground
-                ) {
-                    MainScreen()
-                }
+                MainScreen()
             }
         }
     }
@@ -119,13 +112,11 @@ fun MainScreen() {
     val initialStep = remember {
         val hasLocation = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-        // --- CAMBIO AQUÍ ---
         val hasStorage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             android.os.Environment.isExternalStorageManager()
         } else {
             ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
         }
-        // -------------------
 
         val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
@@ -146,76 +137,79 @@ fun MainScreen() {
         LocalButtonScale provides currentButtonScale,
         LocalTextStyle provides customTextStyle
     ) {
-        when (currentStep) {
-            1 -> PermissionStepScreen(
-                title = "Permiso de GPS",
-                description = "Necesitamos tu ubicación exacta para el mapa y velocímetro.",
-                icon = Icons.Default.LocationOn,
-                permissionsToRequest = arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-                onPermissionGranted = { currentStep = 2 }
-            )
-            2 -> {
-                val isAndroid11OrAbove = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = currentTheme.dashBackground
+        ) {
+            when (currentStep) {
+                1 -> PermissionStepScreen(
+                    title = "Permiso de GPS",
+                    description = "Necesitamos tu ubicación exacta para el mapa y velocímetro.",
+                    icon = Icons.Default.LocationOn,
+                    permissionsToRequest = arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                    onPermissionGranted = { currentStep = 2 }
+                )
+                2 -> {
+                    val isAndroid11OrAbove = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
-                // Lanzador especial para la pantalla de Ajustes de Android 11+
-                val manageStorageLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.StartActivityForResult()
-                ) {
-                    if (isAndroid11OrAbove && android.os.Environment.isExternalStorageManager()) {
-                        currentStep = 3
+                    val manageStorageLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.StartActivityForResult()
+                    ) {
+                        if (isAndroid11OrAbove && android.os.Environment.isExternalStorageManager()) {
+                            currentStep = 3
+                        }
                     }
-                }
 
-                if (isAndroid11OrAbove) {
-                    PermissionStepScreen(
-                        title = "Acceso Total a USB",
-                        description = "Para leer videos y música desde memorias USB, Android requiere acceso a todos los archivos.",
-                        icon = Icons.Default.Folder, // Puedes usar Icons.Default.LibraryMusic si prefieres
-                        permissionsToRequest = emptyArray(),
-                        onPermissionGranted = { /* Se maneja en customAction */ },
-                        customAction = {
-                            if (android.os.Environment.isExternalStorageManager()) {
-                                currentStep = 3
-                            } else {
-                                try {
-                                    val intent = Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                                    intent.data = android.net.Uri.parse("package:${context.packageName}")
-                                    manageStorageLauncher.launch(intent)
-                                } catch (e: Exception) {
-                                    val intent = Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                                    manageStorageLauncher.launch(intent)
+                    if (isAndroid11OrAbove) {
+                        PermissionStepScreen(
+                            title = "Acceso Total a USB",
+                            description = "Para leer videos y música desde memorias USB, Android requiere acceso a todos los archivos.",
+                            icon = Icons.Default.Folder,
+                            permissionsToRequest = emptyArray(),
+                            onPermissionGranted = { currentStep = 3 },
+                            customAction = {
+                                if (android.os.Environment.isExternalStorageManager()) {
+                                    currentStep = 3
+                                } else {
+                                    try {
+                                        val intent = Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                                        intent.data = android.net.Uri.parse("package:${context.packageName}")
+                                        manageStorageLauncher.launch(intent)
+                                    } catch (e: Exception) {
+                                        val intent = Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                        manageStorageLauncher.launch(intent)
+                                    }
                                 }
                             }
-                        }
-                    )
-                } else {
-                    // Para Android 10 o inferior (Radios más antiguas)
-                    PermissionStepScreen(
-                        title = "Acceso a Multimedia",
-                        description = "Permite acceso a tu música, videos y mapas.",
-                        icon = Icons.Default.LibraryMusic,
-                        permissionsToRequest = arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE),
-                        onPermissionGranted = { currentStep = 3 }
-                    )
+                        )
+                    } else {
+                        PermissionStepScreen(
+                            title = "Acceso a Multimedia",
+                            description = "Permite acceso a tu música, videos y mapas.",
+                            icon = Icons.Default.LibraryMusic,
+                            permissionsToRequest = arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                            onPermissionGranted = { currentStep = 3 }
+                        )
+                    }
                 }
+                3 -> PermissionStepScreen(
+                    title = "Permiso de Micrófono",
+                    description = "Necesario para comandos de voz mientras conduces.",
+                    icon = Icons.Default.Mic,
+                    permissionsToRequest = arrayOf(Manifest.permission.RECORD_AUDIO),
+                    onPermissionGranted = { currentStep = 0 }
+                )
+                0 -> CarDashboard(
+                    currentTheme = currentTheme,
+                    currentTextScale = currentTextScale,
+                    currentIsBold = currentIsBold,
+                    currentButtonScale = currentButtonScale,
+                    onThemeChanged = { newTheme -> currentTheme = newTheme },
+                    onTextScaleChanged = { newScale -> currentTextScale = newScale },
+                    onIsBoldChanged = { newIsBold -> currentIsBold = newIsBold },
+                    onButtonScaleChanged = { newButtonScale -> currentButtonScale = newButtonScale }
+                )
             }
-            3 -> PermissionStepScreen(
-                title = "Permiso de Micrófono",
-                description = "Necesario para comandos de voz mientras conduces.",
-                icon = Icons.Default.Mic,
-                permissionsToRequest = arrayOf(Manifest.permission.RECORD_AUDIO),
-                onPermissionGranted = { currentStep = 0 }
-            )
-            0 -> CarDashboard(
-                currentTheme = currentTheme,
-                currentTextScale = currentTextScale,
-                currentIsBold = currentIsBold,
-                currentButtonScale = currentButtonScale,
-                onThemeChanged = { newTheme -> currentTheme = newTheme },
-                onTextScaleChanged = { newScale -> currentTextScale = newScale },
-                onIsBoldChanged = { newIsBold -> currentIsBold = newIsBold },
-                onButtonScaleChanged = { newButtonScale -> currentButtonScale = newButtonScale }
-            )
         }
     }
 }
@@ -226,7 +220,8 @@ fun PermissionStepScreen(
     description: String,
     icon: ImageVector,
     permissionsToRequest: Array<String>,
-    onPermissionGranted: () -> Unit
+    onPermissionGranted: () -> Unit,
+    customAction: (() -> Unit)? = null
 ) {
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -248,9 +243,18 @@ fun PermissionStepScreen(
         Text(text = description, style = MaterialTheme.typography.bodyLarge, color = Color.LightGray, textAlign = TextAlign.Center)
         Spacer(modifier = Modifier.height(36.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            OutlinedButton(onClick = onPermissionGranted) { Text("Omitir", color = Color.White) }
+            OutlinedButton(onClick = {
+                onPermissionGranted()
+            }) { Text("Omitir", color = Color.White) }
+
             Button(
-                onClick = { permissionLauncher.launch(permissionsToRequest) },
+                onClick = {
+                    if (customAction != null) {
+                        customAction()
+                    } else {
+                        permissionLauncher.launch(permissionsToRequest)
+                    }
+                },
                 colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan)
             ) {
                 Text("Conceder Permiso", color = Color.Black, fontWeight = FontWeight.Bold)
@@ -422,7 +426,10 @@ fun CarDashboard(
                                     }
                                 }
                             ) {
-                                ModernAppShortcutsWidget(context)
+                                // Llamada correcta a tu nueva cuadrícula interactiva de 4 accesos directos gigantes
+                                CustomApps3DGridWidget(
+                                    onRequestAppSelection = { slot -> activeAppDrawerTarget = slot }
+                                )
                             }
                         }
                     }
@@ -454,23 +461,35 @@ fun CarDashboard(
             )
         }
 
-// ... al final de CarDashboard en el Box raíz ...
         if (showFullscreenVideo) {
             FullscreenVideoPlayerWidget(
                 onClose = { showFullscreenVideo = false }
             )
         }
+
+        // UNIFICADO: Lógica del Cajón de Aplicaciones
         if (activeAppDrawerTarget != 0) {
             FullscreenAppDrawerWidget(
-                title = if (activeAppDrawerTarget == 99) "TODAS LAS APLICACIONES" else "SELECCIONAR APP PARA SLOT $activeAppDrawerTarget",
+                title = if (activeAppDrawerTarget == 99) "TODAS LAS APLICACIONES" else "SELECCIONAR APP PARA SLOT",
                 onClose = { activeAppDrawerTarget = 0 },
                 onAppSelected = { selectedPackage: String ->
-                    if (activeAppDrawerTarget in 1..2) {
-                        val prefs = context.getSharedPreferences("speedometer_apps_prefs", Context.MODE_PRIVATE)
-                        prefs.edit().putString("slot_$activeAppDrawerTarget", selectedPackage).apply()
-                    } else {
-                        val launchIntent = context.packageManager.getLaunchIntentForPackage(selectedPackage)
-                        if (launchIntent != null) context.startActivity(launchIntent)
+                    when (activeAppDrawerTarget) {
+                        in 1..2 -> {
+                            // Guarda para el velocímetro
+                            val prefs = context.getSharedPreferences("speedometer_apps_prefs", Context.MODE_PRIVATE)
+                            prefs.edit().putString("slot_$activeAppDrawerTarget", selectedPackage).apply()
+                        }
+                        in 101..104 -> {
+                            // Guarda para la nueva cuadrícula 3D (Espacios 1 al 4)
+                            val slotNum = activeAppDrawerTarget - 100
+                            val prefs = context.getSharedPreferences("custom_grid_apps_prefs", Context.MODE_PRIVATE)
+                            prefs.edit().putString("grid_slot_$slotNum", selectedPackage).apply()
+                        }
+                        else -> {
+                            // Abre directo la aplicación de la cuadrícula general
+                            val launchIntent = context.packageManager.getLaunchIntentForPackage(selectedPackage)
+                            if (launchIntent != null) context.startActivity(launchIntent)
+                        }
                     }
                     activeAppDrawerTarget = 0
                 }
@@ -497,57 +516,6 @@ fun CarDashboard(
                     onButtonScaleChanged(newButtonScale)
                 }
             )
-        }
-    }
-}
-@Composable
-fun PermissionStepScreen(
-    title: String,
-    description: String,
-    icon: ImageVector,
-    permissionsToRequest: Array<String>,
-    onPermissionGranted: () -> Unit,
-    customAction: (() -> Unit)? = null // <-- AGREGAR ESTO
-) {
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { onPermissionGranted() }
-
-    val theme = LocalDashboardTheme.current
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(90.dp), tint = theme.accentCyan)
-        Spacer(modifier = Modifier.height(20.dp))
-        Text(text = title, style = MaterialTheme.typography.headlineLarge, color = Color.White)
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(text = description, style = MaterialTheme.typography.bodyLarge, color = Color.LightGray, textAlign = TextAlign.Center)
-        Spacer(modifier = Modifier.height(36.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            OutlinedButton(onClick = {
-                // Si omiten el paso de almacenamiento, pasamos al paso 3 forzosamente
-                onPermissionGranted()
-            }) { Text("Omitir", color = Color.White) }
-
-            Button(
-                onClick = {
-                    // --- CAMBIO AQUÍ ---
-                    if (customAction != null) {
-                        customAction() // Ejecuta el Intent de Android 11+
-                    } else {
-                        permissionLauncher.launch(permissionsToRequest) // Ejecuta el permiso normal
-                    }
-                    // -------------------
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan)
-            ) {
-                Text("Conceder Permiso", color = Color.Black, fontWeight = FontWeight.Bold)
-            }
         }
     }
 }

@@ -55,6 +55,8 @@ import java.io.File
 import java.io.FileOutputStream
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 
 // ==========================================
 // CLASE CONTENEDORA DE REFERENCIAS
@@ -74,7 +76,7 @@ fun createStaticGpsBitmap(): Bitmap {
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val center = size / 2f
-    val innerDotRadius = 28f
+    val innerDotRadius = 18f
 
     val pulsePaint = Paint().apply {
         color = android.graphics.Color.argb(70, 66, 133, 244)
@@ -123,7 +125,8 @@ fun MapsforgeWidget(
     targetMapFile: File,
     onLocationUpdated: (LatLong) -> Unit,
     mapPickerLauncher: ActivityResultLauncher<String>,
-    onNoFileManagerError: () -> Unit
+    onNoFileManagerError: () -> Unit,
+    onMapLoadError: (String) -> Unit // Callback para reportar fallos de lectura del .map
 ) {
     val context = LocalContext.current
     val currentAutoCenterEnabled by rememberUpdatedState(isAutoCenterEnabled)
@@ -202,26 +205,35 @@ fun MapsforgeWidget(
                         e.printStackTrace()
                     }
 
-                    val mapFile = org.mapsforge.map.reader.MapFile(targetMapFile)
-
-                    val tileCache = AndroidUtil.createTileCache(
-                        ctx,
-                        "mapcache",
-                        mapView.model.displayModel.tileSize,
-                        1f,
-                        1.3
-                    )
-
-                    val rendererLayer = org.mapsforge.map.layer.renderer.TileRendererLayer(
-                        tileCache,
-                        mapFile,
-                        mapView.model.mapViewPosition,
-                        AndroidGraphicFactory.INSTANCE
-                    ).apply {
-                        setXmlRenderTheme(org.mapsforge.map.rendertheme.InternalRenderTheme.DEFAULT)
+                    // Se realiza una carga segura para prevenir cierres inesperados (Magic Byte check)
+                    val mapFile = try {
+                        org.mapsforge.map.reader.MapFile(targetMapFile)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        onMapLoadError("El archivo seleccionado no es válido (¿es un .zip comprimido o está dañado?)")
+                        null
                     }
 
-                    mapView.layerManager.layers.add(rendererLayer)
+                    if (mapFile != null) {
+                        val tileCache = AndroidUtil.createTileCache(
+                            ctx,
+                            "mapcache",
+                            mapView.model.displayModel.tileSize,
+                            1f,
+                            1.3
+                        )
+
+                        val rendererLayer = org.mapsforge.map.layer.renderer.TileRendererLayer(
+                            tileCache,
+                            mapFile,
+                            mapView.model.mapViewPosition,
+                            AndroidGraphicFactory.INSTANCE
+                        ).apply {
+                            setXmlRenderTheme(org.mapsforge.map.rendertheme.InternalRenderTheme.DEFAULT)
+                        }
+
+                        mapView.layerManager.layers.add(rendererLayer)
+                    }
 
                     val staticGpsBitmap = createStaticGpsBitmap()
                     val mapsforgeDrawable = AndroidBitmap(staticGpsBitmap)
@@ -337,6 +349,9 @@ fun MapContainerWidget(
     var loadingMessage by remember { mutableStateOf("") }
     var showNoFileManagerError by remember { mutableStateOf(false) }
 
+    // Almacena un mensaje legible sobre el fallo de inicialización
+    var mapLoadError by remember { mutableStateOf<String?>(null) }
+
     var lastKnownLocation by remember { mutableStateOf<LatLong?>(null) }
     val mapRefs = remember { MapRefs() }
 
@@ -357,6 +372,7 @@ fun MapContainerWidget(
     val mapPickerLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { selectedUri ->
             isLoadingFile = true
+            mapLoadError = null // Reseteamos errores previos al cargar un nuevo archivo
             loadingMessage = "Cargando mapa en la memoria del auto..."
             coroutineScope.launch(Dispatchers.IO) {
                 try {
@@ -366,7 +382,9 @@ fun MapContainerWidget(
                     FileOutputStream(targetMapFile).use { output -> input.copyTo(output) }
                 }
                 withContext(Dispatchers.Main) {
-                    if (OfflineMapManager.isMapDownloaded(context)) isMapAvailable = true
+                    if (OfflineMapManager.isMapDownloaded(context)) {
+                        isMapAvailable = true
+                    }
                     isLoadingFile = false
                 }
             }
@@ -410,13 +428,16 @@ fun MapContainerWidget(
 
                 MapsforgeWidget(
                     mapRefs = mapRefs,
-                    isMapAvailable = isMapAvailable,
+                    isMapAvailable = isMapAvailable && (mapLoadError == null), // Se apaga si el mapa seleccionado tiene errores
                     isAutoCenterEnabled = isAutoCenterEnabled,
                     isNightMode = isNightMode,
                     targetMapFile = targetMapFile,
                     onLocationUpdated = { loc -> lastKnownLocation = loc },
                     mapPickerLauncher = mapPickerLauncher,
-                    onNoFileManagerError = { showNoFileManagerError = true }
+                    onNoFileManagerError = { showNoFileManagerError = true },
+                    onMapLoadError = { error ->
+                        mapLoadError = error
+                    }
                 )
 
                 androidx.compose.animation.AnimatedVisibility(
@@ -457,7 +478,7 @@ fun MapContainerWidget(
                         }
 
                         // 2. BOTÓN CENTRAR GPS
-                        if (isMapAvailable) {
+                        if (isMapAvailable && mapLoadError == null) {
                             FloatingActionButton(
                                 onClick = {
                                     isAutoCenterEnabled = true
@@ -505,7 +526,13 @@ fun MapContainerWidget(
                             modifier = Modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState()),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text(text = "Configuración Offline", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                            // 1. TÍTULO DEL MENÚ ("Configuración Offline")
+                            Text(
+                                text = "Configuración Offline",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontSize = 8.sp, // <--- AGREGA / CAMBIA ESTO (ej. 18.sp, 20.sp, etc.)
+                                color = Color.White
+                            )
 
                             Column(
                                 modifier = Modifier.fillMaxWidth().background(Color(0x0DFFFFFF), shape = MaterialTheme.shapes.medium).padding(12.dp),
@@ -516,7 +543,13 @@ fun MapContainerWidget(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Modo Noche", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        text = "Modo Noche",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontSize = 8.sp // <--- AGREGA / CAMBIA ESTO (ej. 14.sp, 16.sp)
+                                    )
+
                                     Switch(
                                         checked = isNightMode,
                                         onCheckedChange = {
@@ -534,7 +567,12 @@ fun MapContainerWidget(
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0x1A03DAC5), contentColor = theme.accentCyan),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text("📁 Cambiar Mapa (.map)", style = MaterialTheme.typography.bodyMedium)
+                                    // 3. TEXTO DENTRO DEL BOTÓN MAPA ("📁 Cambiar Mapa...")
+                                    Text(
+                                        text = "📁 Mapa (.map)",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontSize = 8.sp // <--- AGREGA / CAMBIA ESTO (ej. 13.sp, 15.sp)
+                                    )
                                 }
 
                                 Button(
@@ -545,7 +583,13 @@ fun MapContainerWidget(
                                     ),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(if (isPoiAvailable) "📁 Cambiar Puntos (.poi)" else "➕ Cargar Puntos (.poi)", style = MaterialTheme.typography.bodyMedium)
+
+                                    // 4. TEXTO DENTRO DEL BOTÓN POI ("📁 Cambiar Puntos...")
+                                    Text(
+                                        text = if (isPoiAvailable) "📁 Puntos (.poi)" else "➕ Cargar Puntos (.poi)",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontSize = 8.sp // <--- AGREGA / CAMBIA ESTO (ej. 13.sp, 15.sp)
+                                    )
                                 }
                             }
 
@@ -554,6 +598,37 @@ fun MapContainerWidget(
                             TextButton(onClick = { showMenu = false }, modifier = Modifier.align(Alignment.End)) {
                                 Text("Cerrar", color = Color.Gray)
                             }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // PANTALLA DE ADVERTENCIA / SELECCIÓN DE ARCHIVO DE MAPA
+                // ==========================================
+                if (mapLoadError != null) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF1E1E1E))
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(text = "⚠️ Archivo no soportado", style = MaterialTheme.typography.titleLarge, color = Color(0xFFF44336))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = mapLoadError ?: "",
+                            color = Color.LightGray,
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Button(
+                            onClick = { safeLaunchPicker(mapPickerLauncher) { showNoFileManagerError = true } },
+                            colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan)
+                        ) {
+                            Text("Seleccionar otro archivo .map", color = Color.Black, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
