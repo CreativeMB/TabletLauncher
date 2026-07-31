@@ -35,6 +35,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.gms.location.*
+import kotlinx.coroutines.isActive
 import org.mapsforge.map.android.graphics.AndroidGraphicFactory
 
 class MainActivity : ComponentActivity() {
@@ -117,6 +118,7 @@ fun MainScreen() {
         )
     }
 
+    // VERIFICACIÓN INICIAL DE PERMISOS (GPS, USB, MICRÓFONO Y BRILLO)
     val initialStep = remember {
         val hasLocation = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
@@ -128,10 +130,14 @@ fun MainScreen() {
 
         val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
+        // ✅ VERIFICA SI LA TABLET DEL AUTO YA TIENE EL PERMISO DE BRILLO
+        val hasBrightness = BrightnessManager.hasWriteSettingsPermission(context)
+
         when {
             !hasLocation -> 1
             !hasStorage -> 2
             !hasMic -> 3
+            !hasBrightness -> 4 // ✅ PASO 4: BRILLO DÍA/NOCHE
             else -> 0
         }
     }
@@ -205,8 +211,24 @@ fun MainScreen() {
                     description = "Necesario para comandos de voz mientras conduces.",
                     icon = Icons.Default.Mic,
                     permissionsToRequest = arrayOf(Manifest.permission.RECORD_AUDIO),
-                    onPermissionGranted = { currentStep = 0 }
+                    onPermissionGranted = { currentStep = 4 } // ✅ AVANZA AL PASO 4
                 )
+
+                // =========================================================================
+                // ✅ PASO 4: ASISTENTE DE PERMISO DE BRILLO PARA TABLET DE AUTO
+                // =========================================================================
+                4 -> PermissionStepScreen(
+                    title = "Control de Brillo para Tablet",
+                    description = "Permite ajustar automáticamente la pantalla para que no encandile de Noche (6 PM) y sea visible de Día (6 AM).",
+                    icon = Icons.Default.Brightness6,
+                    permissionsToRequest = emptyArray(),
+                    onPermissionGranted = { currentStep = 0 },
+                    customAction = {
+                        BrightnessManager.requestWriteSettingsPermission(context)
+                        currentStep = 0 // Entra directamente al tablero principal
+                    }
+                )
+
                 0 -> CarDashboard(
                     currentTheme = currentTheme,
                     currentTextScale = currentTextScale,
@@ -284,6 +306,7 @@ fun CarDashboard(
 ) {
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
+    val activity = context as? android.app.Activity
 
     var isMapExpanded by remember { mutableStateOf(false) }
     var showThemeModal by remember { mutableStateOf(false) }
@@ -298,6 +321,23 @@ fun CarDashboard(
 
     var currentMediaMode by remember { mutableStateOf(MediaMode.MUSIC) }
 
+    // =========================================================================
+    // 1. INICIALIZAR Y VERIFICAR BRILLO AUTOMÁTICO DÍA/NOCHE CADA 30 SEGUNDOS
+    // =========================================================================
+    LaunchedEffect(Unit) {
+        activity?.let { act ->
+            BrightnessManager.init(act)
+            while (isActive) {
+                // Aplica automáticamente el brillo de Día (06:00-18:00) o Noche (18:00-06:00)
+                BrightnessManager.applyBrightnessToActivity(act)
+                kotlinx.coroutines.delay(30000L) // Revisa cada 30 segundos
+            }
+        }
+    }
+
+    // =========================================================================
+    // 2. LECTURA GPS Y ACTUALIZACIÓN CONTINUA DE BRILLO Y VELOCIDAD
+    // =========================================================================
     DisposableEffect(Unit) {
         val fusedClient = LocationServices.getFusedLocationProviderClient(context)
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L).build()
@@ -307,6 +347,11 @@ fun CarDashboard(
                 currentSpeedKmH = (loc.speed * 3.6f).coerceAtLeast(0f)
                 if (loc.hasBearing()) {
                     currentBearing = loc.bearing
+                }
+
+                // Re-aplica la verificación de brillo con cada señal del GPS
+                activity?.let { act ->
+                    BrightnessManager.applyBrightnessToActivity(act)
                 }
             }
         }
@@ -461,7 +506,17 @@ fun CarDashboard(
                 }
             }
         }
-
+// =========================================================================
+        // ✅ CAPA NEGRA DE FILTRO DE NOCHE (PARA TABLETS CHINAS ULTRA-BRILLANTES)
+        // No interrumpe los toques táctiles del conductor.
+        // =========================================================================
+        if (BrightnessManager.nightOverlayAlpha > 0.0f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = BrightnessManager.nightOverlayAlpha))
+            )
+        }
         // --- CAPAS SUPERPUESTAS A PANTALLA COMPLETA ---
 
         if (showFullscreenMusic) {

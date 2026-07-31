@@ -57,6 +57,9 @@
     <!-- PERMISO DE ACCESO TOTAL A ARCHIVOS PARA RADIOS Y TABLETS (ANDROID 11+) -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
 
+    <!-- PERMISO OBLIGATORIO PARA CONTROLAR EL HARDWARE DE BRILLO EN TABLETS DE AUTO -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
+
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
