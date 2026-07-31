@@ -14,7 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.SmartButton
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,19 +44,21 @@ val LocalButtonScale = compositionLocalOf { 1.0f } // INYECCIÓN LOCAL DE ESCALA
 
 object ThemeManager {
     val themes = listOf(
-        DashboardTheme(0, "Cian Eléctrico", Color(0xFF070D14), Color(0xFF0F1926), Color(0xFF00838F), Color(0xFF00F2FE), Color(0xFF4FACFE), Color(0xFFFF5252)),
-        DashboardTheme(1, "Rojo Pasión", Color(0xFF0A0405), Color(0xFF1C0B0E), Color(0xFF88111A), Color(0xFFFF1744), Color(0xFFFF6100), Color(0xFFFFD600)),
-        DashboardTheme(2, "Verde Esmeralda", Color(0xFF040B08), Color(0xFF0B1C14), Color(0xFF0D6136), Color(0xFF00E676), Color(0xFF00B0FF), Color(0xFFFFAB00)),
-        DashboardTheme(3, "Azul Zafiro", Color(0xFF050A14), Color(0xFF0C1628), Color(0xFF1446A0), Color(0xFF2979FF), Color(0xFF00E5FF), Color(0xFFFF6D00)),
-        DashboardTheme(4, "Cyberpunk", Color(0xFF0A0414), Color(0xFF190C28), Color(0xFF6A1B9A), Color(0xFFF50057), Color(0xFF7C4DFF), Color(0xFF00E5FF)),
-        DashboardTheme(5, "Naranja Fuego", Color(0xFF0D0703), Color(0xFF211208), Color(0xFFA84200), Color(0xFFFF6D00), Color(0xFFFFD600), Color(0xFFFF1744)),
-        DashboardTheme(6, "Platino Titanio", Color(0xFF0D1015), Color(0xFF1E242E), Color(0xFF607D8B), Color(0xFFFFFFFF), Color(0xFF80D8FF), Color(0xFFFFD600)),
-        DashboardTheme(7, "Noche OLED Oro", Color(0xFF000000), Color(0xFF0A0A0A), Color(0xFF806A00), Color(0xFFFFD700), Color(0xFF00E5FF), Color(0xFFFF3D00))
+        // ✅ ID 0: TEMA PREDETERMINADO NEGRO OLED (FONDO NEGRO ABSOLUTO DE ARRANQUE)
+        DashboardTheme(0, "Negro OLED (Predeterminado)", Color(0xFF000000), Color(0xFF0C0E14), Color(0xFF1E2230), Color(0xFF00E5FF), Color(0xFF9D00FF), Color(0xFFFF9100)),
+        DashboardTheme(1, "Cian Eléctrico", Color(0xFF070D14), Color(0xFF0F1926), Color(0xFF00838F), Color(0xFF00F2FE), Color(0xFF4FACFE), Color(0xFFFF5252)),
+        DashboardTheme(2, "Rojo Pasión", Color(0xFF0A0405), Color(0xFF1C0B0E), Color(0xFF88111A), Color(0xFFFF1744), Color(0xFFFF6100), Color(0xFFFFD600)),
+        DashboardTheme(3, "Verde Esmeralda", Color(0xFF040B08), Color(0xFF0B1C14), Color(0xFF0D6136), Color(0xFF00E676), Color(0xFF00B0FF), Color(0xFFFFAB00)),
+        DashboardTheme(4, "Azul Zafiro", Color(0xFF050A14), Color(0xFF0C1628), Color(0xFF1446A0), Color(0xFF2979FF), Color(0xFF00E5FF), Color(0xFFFF6D00)),
+        DashboardTheme(5, "Cyberpunk", Color(0xFF0A0414), Color(0xFF190C28), Color(0xFF6A1B9A), Color(0xFFF50057), Color(0xFF7C4DFF), Color(0xFF00E5FF)),
+        DashboardTheme(6, "Naranja Fuego", Color(0xFF0D0703), Color(0xFF211208), Color(0xFFA84200), Color(0xFFFF6D00), Color(0xFFFFD600), Color(0xFFFF1744)),
+        DashboardTheme(7, "Platino Titanio", Color(0xFF0D1015), Color(0xFF1E242E), Color(0xFF607D8B), Color(0xFFFFFFFF), Color(0xFF80D8FF), Color(0xFFFFD600)),
+        DashboardTheme(8, "Noche OLED Oro", Color(0xFF000000), Color(0xFF0A0A0A), Color(0xFF806A00), Color(0xFFFFD700), Color(0xFF00E5FF), Color(0xFFFF3D00))
     )
 
     fun getSavedTheme(context: Context): DashboardTheme {
         val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        val savedId = prefs.getInt("theme_id", 0)
+        val savedId = prefs.getInt("theme_id", 0) // Retorna por defecto ID 0 (Negro OLED)
         return themes.find { it.id == savedId } ?: themes[0]
     }
 
@@ -89,7 +90,7 @@ object ThemeManager {
     // PERSISTENCIA DEL TAMAÑO DE BOTONES DE REPRODUCCIÓN
     fun getSavedButtonScale(context: Context): Float {
         val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        return prefs.getFloat("button_scale_factor", 1.0f) // 1.0f = 100% por defecto
+        return prefs.getFloat("button_scale_factor", 1.0f)
     }
 
     fun saveButtonScale(context: Context, scale: Float) {

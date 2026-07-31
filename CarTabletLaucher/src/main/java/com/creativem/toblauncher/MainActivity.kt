@@ -40,7 +40,8 @@ import org.mapsforge.map.android.graphics.AndroidGraphicFactory
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+        // ✅ FONDO NEGRO ABSOLUTO DESDE EL PRIMER MILISEGUNDO DE ARRANQUE (Evita destellos)
+        window.decorView.setBackgroundColor(android.graphics.Color.BLACK)
         // PANTALLA SIEMPRE ENCENDIDA
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
