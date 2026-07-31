@@ -2,6 +2,8 @@ package com.creativem.toblauncher
 
 import android.content.Context
 import android.media.MediaPlayer
+import android.media.session.MediaSession // Importación nativa
+import android.media.session.PlaybackState // Importación nativa
 import android.net.Uri
 import android.provider.MediaStore
 import androidx.compose.runtime.*
@@ -22,13 +24,19 @@ class SmartVideoPlayer private constructor(private val context: Context) {
             }
         }
     }
-    var isShuffleMode by mutableStateOf(false)
+
+    private val prefs = context.getSharedPreferences("smart_video_prefs", Context.MODE_PRIVATE)
+
+    // Modo Shuffle persistente
+    var isShuffleMode by mutableStateOf(prefs.getBoolean("is_shuffle_mode", false))
         private set
 
     fun toggleShuffle() {
         isShuffleMode = !isShuffleMode
+        prefs.edit().putBoolean("is_shuffle_mode", isShuffleMode).apply()
+        playedVideoHistory.clear()
     }
-    private val prefs = context.getSharedPreferences("smart_video_prefs", Context.MODE_PRIVATE)
+
     var mediaPlayer: MediaPlayer? = null
         private set
 
@@ -37,10 +45,31 @@ class SmartVideoPlayer private constructor(private val context: Context) {
 
     var currentTrackIndex by mutableStateOf(-1)
         private set
-    // Dentro de la clase SmartVideoPlayer:
+
     var savedPlaybackPosition: Long = 0L
-    var isPlaying by mutableStateOf(false)
-        private set
+
+    // Historial para control anti-repeticiones en modo aleatorio
+    private val playedVideoHistory = mutableSetOf<Int>()
+
+    // Sesión de medios nativa para el reproductor de video
+    private var mediaSession: MediaSession? = null
+
+    private val _isPlaying = mutableStateOf(false)
+
+    // Setter tradicional que sincroniza el estado de reproducción con Compose, el rastreador y la MediaSession
+    var isPlaying: Boolean
+        get() = _isPlaying.value
+        set(value) {
+            _isPlaying.value = value
+            if (value) {
+                mediaSession?.isActive = true // Activa la sesión de video sobre la de música
+                updatePlaybackState(PlaybackState.STATE_PLAYING)
+                startProgressTracker()
+            } else {
+                updatePlaybackState(PlaybackState.STATE_PAUSED)
+                progressJob?.cancel()
+            }
+        }
 
     var currentPositionMs by mutableLongStateOf(0L)
         private set
@@ -58,6 +87,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
     init {
+        setupMediaSession()
         autoStartVideoOnBoot()
     }
 
@@ -72,7 +102,58 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         }
     }
 
-    // --- ESCANEAR CARPETA Y SUBCARPETAS DE VIDEO (UNIVERSAL PROFUNDO) ---
+    // --- CONFIGURACIÓN DE LA SESIÓN DE MEDIOS PARA VIDEOS (Para mandos del timón y gestos) ---
+    private fun setupMediaSession() {
+        try {
+            mediaSession = MediaSession(context, "SmartVideoPlayer").apply {
+                setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
+
+                setCallback(object : MediaSession.Callback() {
+                    override fun onPlay() {
+                        val currentVideo = playlist.getOrNull(currentTrackIndex)
+                        togglePlayPause(currentVideo?.uri?.toString() ?: "")
+                    }
+
+                    override fun onPause() {
+                        val currentVideo = playlist.getOrNull(currentTrackIndex)
+                        togglePlayPause(currentVideo?.uri?.toString() ?: "")
+                    }
+
+                    override fun onSkipToNext() {
+                        playNextVideo()
+                    }
+
+                    override fun onSkipToPrevious() {
+                        playPreviousVideo()
+                    }
+                })
+                isActive = true
+            }
+            updatePlaybackState(PlaybackState.STATE_NONE)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    // Informar a Android del estado del reproductor de video
+    private fun updatePlaybackState(state: Int) {
+        try {
+            val stateBuilder = PlaybackState.Builder()
+                .setActions(
+                    PlaybackState.ACTION_PLAY or
+                            PlaybackState.ACTION_PAUSE or
+                            PlaybackState.ACTION_SKIP_TO_NEXT or
+                            PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                )
+                .setState(state, currentPositionMs, 1.0f)
+
+            mediaSession?.setPlaybackState(stateBuilder.build())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    // Escaneo de carpetas de video
     fun scanVideoFolderPath(folderFile: File) {
         isScanning = true
         selectedFolderName = folderFile.name.ifEmpty { "Memoria USB" }
@@ -82,7 +163,6 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         scope.launch(Dispatchers.IO) {
             val tracks = mutableListOf<VideoTrack>()
 
-            // 1. Escaneo por recorrido directo de archivos Java
             try {
                 if (folderFile.exists()) {
                     folderFile.walkTopDown()
@@ -95,12 +175,10 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                 e.printStackTrace()
             }
 
-            // 2. Si Java devolvió 0 videos (por Scoped Storage de Android en USB), filtra vía MediaStore
             if (tracks.isEmpty()) {
                 scanVideoViaMediaStoreUniversal(folderFile.absolutePath, folderFile.name, tracks)
             }
 
-            // 3. Respaldo total: Carga todos los videos detectados en la memoria externa/USB
             if (tracks.isEmpty()) {
                 scanAllVideosUniversal(tracks)
             }
@@ -112,17 +190,15 @@ class SmartVideoPlayer private constructor(private val context: Context) {
 
                 if (playlist.isNotEmpty()) {
                     val lastVideoUri = prefs.getString("last_video_uri", null)
-                    val lastPos = prefs.getLong("last_position_ms", 0L)
                     val savedIndex = playlist.indexOfFirst { it.uri.toString() == lastVideoUri }
                     val indexToPlay = if (savedIndex != -1) savedIndex else 0
 
-                    prepareVideoAtIndex(indexToPlay, lastPos)
+                    prepareVideoAtIndex(indexToPlay, 0L)
                 }
             }
         }
     }
 
-    // ESCÁNER UNIVERSAL EN MEMORIA (EVITA BLOQUEOS SQL DE ANDROID 10/11/12)
     private fun scanVideoViaMediaStoreUniversal(folderPath: String, folderName: String, tracksList: MutableList<VideoTrack>) {
         val projection = arrayOf(
             MediaStore.Video.Media._ID,
@@ -141,7 +217,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                 context.contentResolver.query(
                     contentUri,
                     projection,
-                    null, // Sin filtro SQL restringido
+                    null,
                     null,
                     "${MediaStore.Video.Media.DISPLAY_NAME} ASC"
                 )?.use { cursor ->
@@ -158,7 +234,6 @@ class SmartVideoPlayer private constructor(private val context: Context) {
 
                         val videoName = title ?: name ?: "Video"
 
-                        // Filtra si la ruta de la subcarpeta coincide o contiene el nombre de la carpeta
                         val matchesFolder = filePath.isEmpty() ||
                                 filePath.contains(folderPath, ignoreCase = true) ||
                                 filePath.contains(folderName, ignoreCase = true)
@@ -189,11 +264,10 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                     selectedFolderName = "Memoria USB"
 
                     val lastVideoUri = prefs.getString("last_video_uri", null)
-                    val lastPos = prefs.getLong("last_position_ms", 0L)
                     val savedIndex = playlist.indexOfFirst { it.uri.toString() == lastVideoUri }
                     val indexToPlay = if (savedIndex != -1) savedIndex else 0
 
-                    prepareVideoAtIndex(indexToPlay, lastPos)
+                    prepareVideoAtIndex(indexToPlay, 0L)
                 }
             }
         }
@@ -247,71 +321,85 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         return ext in listOf("mp4", "mkv", "avi", "webm", "3gp", "mov", "m4v", "ts", "mpg", "flv")
     }
 
-    // --- CONTROLES DE REPRODUCCIÓN ---
     fun togglePlayPause(videoUrl: String) {
         try {
             if (mediaPlayer == null) {
-                // Si la instancia se destruyó por completo, la creamos de nuevo
                 prepareAndPlay(videoUrl)
                 return
             }
 
             if (mediaPlayer?.isPlaying == true) {
                 mediaPlayer?.pause()
+                isPlaying = false
             } else {
-                // Si no está reproduciéndose, intentamos iniciar.
-                // Si el reproductor está en estado Idle/Stopped, esto fallará o no hará nada,
-                // por lo que evaluamos si necesitamos llamar a prepare() nuevamente.
                 mediaPlayer?.start()
+                isPlaying = true
             }
-        } catch (e: IllegalStateException) {
+        } catch (e: Exception) {
             e.printStackTrace()
-            // Si el estado no es válido, reintentamos preparar el video
             prepareAndPlay(videoUrl)
         }
     }
+
     fun prepareAndPlay(videoUrl: String) {
         try {
-            mediaPlayer?.reset() // Limpia cualquier estado anterior inválido
-            mediaPlayer?.setDataSource(videoUrl) // Vuelve a asignar la fuente
-            mediaPlayer?.prepareAsync() // Prepara el video de forma asíncrona
+            mediaPlayer?.reset()
+            mediaPlayer?.setDataSource(videoUrl)
+            mediaPlayer?.prepareAsync()
 
             mediaPlayer?.setOnPreparedListener { mp ->
-                // Una vez que está listo, ahora sí puede reproducir sin problemas
+                bindMediaPlayer(mp)
                 mp.start()
+                isPlaying = true
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
+
+    // Siguiente video con algoritmo Shuffle de no-repetición estricta
     fun playNextVideo() {
         if (playlist.isEmpty()) return
-        val nextIndex = if (isShuffleMode && playlist.size > 1) {
-            var randomIndex = playlist.indices.random()
-            while (randomIndex == currentTrackIndex) {
-                randomIndex = playlist.indices.random()
+
+        val nextIndex = if (isShuffleMode) {
+            playedVideoHistory.add(currentTrackIndex)
+
+            if (playedVideoHistory.size >= playlist.size) {
+                playedVideoHistory.clear()
             }
-            randomIndex
+
+            val unplayedIndices = playlist.indices.filter { it !in playedVideoHistory }
+            if (unplayedIndices.isNotEmpty()) {
+                unplayedIndices.random()
+            } else {
+                playlist.indices.random()
+            }
         } else {
             (currentTrackIndex + 1) % playlist.size
         }
-        playVideoAtIndex(nextIndex, 0L) // Fuerza siempre a iniciar desde el inicio (0)
+
+        playVideoAtIndex(nextIndex, 0L)
     }
 
+    // Video anterior
     fun playPreviousVideo() {
         if (playlist.isEmpty()) return
-        val prevIndex = if (isShuffleMode && playlist.size > 1) {
-            playlist.indices.random()
+
+        val prevIndex = if (isShuffleMode) {
+            val unplayedIndices = playlist.indices.filter { it != currentTrackIndex }
+            if (unplayedIndices.isNotEmpty()) unplayedIndices.random() else 0
         } else {
             if (currentTrackIndex - 1 < 0) playlist.size - 1 else currentTrackIndex - 1
         }
-        playVideoAtIndex(prevIndex, 0L) // Fuerza siempre a iniciar desde el inicio (0)
+
+        playVideoAtIndex(prevIndex, 0L)
     }
 
     fun prepareVideoAtIndex(index: Int, startPosMs: Long = 0L) {
         if (index !in playlist.indices) return
         currentTrackIndex = index
         currentPositionMs = startPosMs
+        updatePlaybackState(PlaybackState.STATE_PAUSED)
     }
 
     fun playVideoAtIndex(index: Int, position: Long = 0L) {
@@ -325,7 +413,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
             mediaPlayer?.prepareAsync()
             mediaPlayer?.setOnPreparedListener { mp ->
                 bindMediaPlayer(mp)
-                mp.seekTo(0) // Siempre empieza desde el principio (0)
+                mp.seekTo(position.toInt())
                 mp.start()
                 isPlaying = true
             }
@@ -336,6 +424,10 @@ class SmartVideoPlayer private constructor(private val context: Context) {
 
     fun bindMediaPlayer(player: MediaPlayer) {
         this.mediaPlayer = player
+        this.isPlaying = player.isPlaying
+        this.totalDurationMs = player.duration.toLong().coerceAtLeast(1L)
+        startProgressTracker()
+
         player.setOnCompletionListener {
             playNextVideo()
         }
@@ -344,19 +436,16 @@ class SmartVideoPlayer private constructor(private val context: Context) {
     private fun startProgressTracker() {
         progressJob?.cancel()
         progressJob = scope.launch {
-            while (isActive && isPlaying) {
+            while (isActive) {
                 mediaPlayer?.let { player ->
                     try {
-                        // Intentamos consultar el estado del reproductor
                         if (player.isPlaying) {
                             currentPositionMs = player.currentPosition.toLong()
                             totalDurationMs = player.duration.toLong().coerceAtLeast(1L)
                             saveCurrentState()
                         }
                     } catch (e: IllegalStateException) {
-                        // El reproductor fue liberado, reiniciado o está en un estado inválido.
-                        // Apagamos el estado de reproducción para salir del ciclo (while).
-                        isPlaying = false
+                        // Reproductor inestable
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
@@ -368,11 +457,21 @@ class SmartVideoPlayer private constructor(private val context: Context) {
 
     fun saveCurrentState() {
         if (currentTrackIndex in playlist.indices) {
-            val trackUri = prefs.getString("last_video_uri", null) ?: playlist[currentTrackIndex].uri.toString()
+            val trackUri = playlist[currentTrackIndex].uri.toString()
             prefs.edit()
                 .putString("last_video_uri", trackUri)
                 .putLong("last_position_ms", currentPositionMs)
                 .apply()
         }
+    }
+
+    fun release() {
+        progressJob?.cancel()
+        mediaPlayer?.release()
+        mediaPlayer = null
+
+        mediaSession?.isActive = false
+        mediaSession?.release()
+        mediaSession = null
     }
 }

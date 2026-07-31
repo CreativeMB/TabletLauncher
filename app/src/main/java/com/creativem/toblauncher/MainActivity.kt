@@ -64,6 +64,15 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            // Liberamos de forma segura el reproductor y la sesión de medios al destruir la actividad
+            SmartMusicPlayer.getInstance(this).release()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
     private fun promptDefaultLauncherSelection(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
