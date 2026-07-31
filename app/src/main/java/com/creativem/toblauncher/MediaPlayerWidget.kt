@@ -169,8 +169,8 @@ fun MusicPlayerView(
                     )
                 )
             )
+            // Corregido: Ahora solo abre la pantalla completa de música al tocar el fondo
             .clickable { onExpandFullscreen() }
-            .clickable { onExpandVideoFullscreen() }// AL TOCAR EL REPRODUCTOR SE ABRE A PANTALLA COMPLETA
             .padding(10.dp)
     ) {
         Column(
@@ -271,7 +271,6 @@ fun MusicPlayerView(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // DENTRO DE MusicPlayerView en MediaPlayerWidget.kt:
             val buttonScale = LocalButtonScale.current // ESCALA DINÁMICA (0.8x a 1.8x)
 
             Row(
@@ -337,16 +336,16 @@ fun MusicPlayerView(
                     )
                 }
 
-                // Repetir
+                // BOTÓN CAMBIADO: Reemplazado "Repetir" por "Expandir Pantalla"
                 IconButton(
-                    onClick = { musicPlayer.toggleRepeatMode() },
+                    onClick = { onExpandFullscreen() },
                     modifier = Modifier.size((38 * buttonScale).dp)
                 ) {
                     Icon(
-                        imageVector = if (musicPlayer.repeatMode == RepeatMode.ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                        contentDescription = "Repetir",
-                        tint = if (musicPlayer.repeatMode == RepeatMode.ONE) theme.accentOrange else Color.DarkGray,
-                        modifier = Modifier.size((20 * buttonScale).dp)
+                        imageVector = Icons.Default.Fullscreen,
+                        contentDescription = "Pantalla Completa",
+                        tint = theme.accentOrange,
+                        modifier = Modifier.size((22 * buttonScale).dp)
                     )
                 }
 
@@ -384,6 +383,7 @@ private fun formatMs(ms: Long): String {
     val seconds = totalSeconds % 60
     return String.format("%02d:%02d", minutes, seconds)
 }
+
 @Composable
 fun VideoPlayerView(
     theme: DashboardTheme,
@@ -399,8 +399,10 @@ fun VideoPlayerView(
     var showUI by remember { mutableStateOf(true) }
     val interactionSource = remember { MutableInteractionSource() }
 
-    // TEMPORIZADOR DE 5 SEGUNDOS (Solo cuenta si el video está en Play)
-    LaunchedEffect(showUI, videoPlayer.isPlaying, videoPlayer.currentTrackIndex) {
+    val buttonScale = LocalButtonScale.current
+
+    // TEMPORIZADOR ESTRICTO DE 5 SEGUNDOS (Oculta controles automáticamente si está reproduciendo)
+    LaunchedEffect(showUI, videoPlayer.isPlaying) {
         if (showUI && videoPlayer.isPlaying) {
             kotlinx.coroutines.delay(5000L)
             showUI = false
@@ -433,7 +435,7 @@ fun VideoPlayerView(
                         setVideoURI(currentVideo.uri)
                         setOnPreparedListener { mp ->
                             videoPlayer.bindMediaPlayer(mp)
-                            mp.seekTo(0) // SIEMPRE EMPIEZA DESDE EL INICIO
+                            mp.seekTo(0) // Fuerza siempre inicio desde cero
                             mp.start()
                         }
                         setOnCompletionListener {
@@ -445,7 +447,6 @@ fun VideoPlayerView(
                     val currentPlayingUri = view.tag as? String
                     val newUri = currentVideo.uri.toString()
 
-                    // Si cambiamos de video, actualiza la URI y arranca desde cero
                     if (currentPlayingUri != newUri) {
                         view.tag = newUri
                         view.setVideoURI(currentVideo.uri)
@@ -507,8 +508,29 @@ fun VideoPlayerView(
                     }
                 }
 
-                // BARRA INFERIOR DE CONTROLES
+                // BARRA INFERIOR DE CONTROLES E INDICADORES DE TIEMPO
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    // Contadores de reproducción (Transcurrido vs Duración Total)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 2.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = formatMs(videoPlayer.currentPositionMs),
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = formatMs(videoPlayer.totalDurationMs),
+                            color = Color.Gray,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
                     val progressPercent: Float = if (videoPlayer.totalDurationMs > 0L) {
                         (videoPlayer.currentPositionMs.toFloat() / videoPlayer.totalDurationMs.toFloat()).coerceIn(0f, 1f)
                     } else 0f
@@ -530,73 +552,106 @@ fun VideoPlayerView(
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // BOTÓN ALEATORIO (SHUFFLE)
+                        // 1. BOTÓN ALEATORIO (SHUFFLE PERSISTENTE)
                         IconButton(
                             onClick = {
                                 videoPlayer.toggleShuffle()
                                 showUI = true
                             },
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size((36 * buttonScale).dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Shuffle,
                                 contentDescription = "Aleatorio",
                                 tint = if (videoPlayer.isShuffleMode) theme.accentCyan else Color.Gray,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size((20 * buttonScale).dp)
                             )
                         }
 
-                        // ANTERIOR
+                        // 2. ANTERIOR
                         IconButton(
                             onClick = {
                                 videoPlayer.playPreviousVideo()
                                 showUI = true
                             },
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier
+                                .size((40 * buttonScale).dp)
+                                .background(Color(0xFF22222E), CircleShape)
                         ) {
-                            Icon(Icons.Default.SkipPrevious, null, tint = theme.accentOrange, modifier = Modifier.size(24.dp))
+                            Icon(
+                                imageVector = Icons.Default.SkipPrevious,
+                                contentDescription = "Anterior",
+                                tint = theme.accentOrange,
+                                modifier = Modifier.size((24 * buttonScale).dp)
+                            )
                         }
 
-                        // PLAY / PAUSA
+                        // 3. PLAY / PAUSA
                         IconButton(
                             onClick = {
                                 videoPlayer.togglePlayPause(currentVideo?.uri?.toString() ?: "")
                                 showUI = true
                             },
                             modifier = Modifier
-                                .size(42.dp)
+                                .size((46 * buttonScale).dp)
                                 .background(theme.accentCyan, CircleShape)
                         ) {
                             Icon(
                                 imageVector = if (videoPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = "Play/Pausa",
                                 tint = Color.Black,
-                                modifier = Modifier.size(26.dp)
+                                modifier = Modifier.size((28 * buttonScale).dp)
                             )
                         }
 
-                        // SIGUIENTE
+                        // 4. SIGUIENTE
                         IconButton(
                             onClick = {
                                 videoPlayer.playNextVideo()
                                 showUI = true
                             },
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier
+                                .size((40 * buttonScale).dp)
+                                .background(Color(0xFF22222E), CircleShape)
                         ) {
-                            Icon(Icons.Default.SkipNext, null, tint = theme.accentOrange, modifier = Modifier.size(24.dp))
+                            Icon(
+                                imageVector = Icons.Default.SkipNext,
+                                contentDescription = "Siguiente",
+                                tint = theme.accentOrange,
+                                modifier = Modifier.size((24 * buttonScale).dp)
+                            )
                         }
 
-                        // BOTÓN PANTALLA COMPLETA (Guarda la posición antes de salir)
+                        // BOTÓN PANTALLA COMPLETA (VideoPlayerView.kt)
                         IconButton(
                             onClick = {
                                 showUI = false
-                                videoPlayer.savedPlaybackPosition = videoPlayer.mediaPlayer?.currentPosition?.toLong() ?: 0L
-                                videoPlayer.mediaPlayer?.pause()
+
+                                // Consulta segura de la posición para evitar cierres (crashes)
+                                val safePosition = try {
+                                    videoPlayer.mediaPlayer?.currentPosition?.toLong() ?: 0L
+                                } catch (e: Exception) {
+                                    0L
+                                }
+                                videoPlayer.savedPlaybackPosition = safePosition
+
+                                // Pausa segura
+                                try {
+                                    videoPlayer.mediaPlayer?.pause()
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+
                                 onExpandFullscreen()
                             },
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size((36 * buttonScale).dp)
                         ) {
-                            Icon(Icons.Default.Fullscreen, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                            Icon(
+                                imageVector = Icons.Default.Fullscreen,
+                                contentDescription = "Expandir",
+                                tint = theme.accentOrange,
+                                modifier = Modifier.size((22 * buttonScale).dp)
+                            )
                         }
                     }
                 }
