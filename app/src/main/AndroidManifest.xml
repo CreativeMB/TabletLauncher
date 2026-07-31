@@ -46,6 +46,17 @@
     <!-- ===================================================================== -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
+    <!-- PERMISOS OBLIGATORIOS PARA LEER VIDEOS Y MÚSICA DE USB Y TABLET -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" tools:ignore="ScopedStorage" />
+
+    <!-- PERMISOS ESPECÍFICOS DE MULTIMEDIA Y VIDEO (ANDROID 13+) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+
+    <!-- PERMISO DE ACCESO TOTAL A ARCHIVOS PARA RADIOS Y TABLETS (ANDROID 11+) -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
+
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -63,6 +74,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.TabletLauncher"
+        android:requestLegacyExternalStorage="true"
         tools:targetApi="31">
 
         <!-- IMPORTANTE: Revisa que el 'theme' de arriba coincida con el nombre que te dio Android Studio -->

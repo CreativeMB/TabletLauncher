@@ -24,6 +24,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
+import android.widget.VideoView
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.viewinterop.AndroidView
 
 // 1. ENUM PARA LOS 3 MODOS
 enum class MediaMode {
@@ -35,7 +41,8 @@ enum class MediaMode {
 fun ModernMediaPlayerWidget(
     currentMode: MediaMode = MediaMode.MUSIC,
     onModeChange: (MediaMode) -> Unit = {},
-    onExpandMusicFullscreen: () -> Unit = {}
+    onExpandMusicFullscreen: () -> Unit = {},
+    onExpandVideoFullscreen: () -> Unit = {}
 ) {
     val theme = LocalDashboardTheme.current
 
@@ -63,7 +70,11 @@ fun ModernMediaPlayerWidget(
                         theme = theme,
                         onExpandFullscreen = onExpandMusicFullscreen
                     )
-                    MediaMode.VIDEO -> VideoPlayerView(theme)
+
+                    MediaMode.VIDEO -> VideoPlayerView(
+                    theme = theme,
+                    onExpandFullscreen = onExpandVideoFullscreen // <--- CONECTADO AQUÍ
+                )
                     MediaMode.IPTV -> IptvPlayerView(theme)
                 }
             }
@@ -136,7 +147,8 @@ private fun VerticalIconButton(
 @Composable
 fun MusicPlayerView(
     theme: DashboardTheme,
-    onExpandFullscreen: () -> Unit = {}
+    onExpandFullscreen: () -> Unit = {},
+    onExpandVideoFullscreen: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val musicPlayer = remember { SmartMusicPlayer.getInstance(context) }
@@ -157,7 +169,8 @@ fun MusicPlayerView(
                     )
                 )
             )
-            .clickable { onExpandFullscreen() } // AL TOCAR EL REPRODUCTOR SE ABRE A PANTALLA COMPLETA
+            .clickable { onExpandFullscreen() }
+            .clickable { onExpandVideoFullscreen() }// AL TOCAR EL REPRODUCTOR SE ABRE A PANTALLA COMPLETA
             .padding(10.dp)
     ) {
         Column(
@@ -371,24 +384,237 @@ private fun formatMs(ms: Long): String {
     val seconds = totalSeconds % 60
     return String.format("%02d:%02d", minutes, seconds)
 }
-
 @Composable
-private fun VideoPlayerView(theme: DashboardTheme) {
+fun VideoPlayerView(
+    theme: DashboardTheme,
+    onExpandFullscreen: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val videoPlayer = remember { SmartVideoPlayer.getInstance(context) }
+    var showFolderModal by remember { mutableStateOf(false) }
+
+    val currentVideo = videoPlayer.playlist.getOrNull(videoPlayer.currentTrackIndex)
+
+    // ESTADOS PARA OCULTAR INTERFAZ
+    var showUI by remember { mutableStateOf(true) }
+    val interactionSource = remember { MutableInteractionSource() }
+
+    // TEMPORIZADOR DE 5 SEGUNDOS (Solo cuenta si el video está en Play)
+    LaunchedEffect(showUI, videoPlayer.isPlaying, videoPlayer.currentTrackIndex) {
+        if (showUI && videoPlayer.isPlaying) {
+            kotlinx.coroutines.delay(5000L)
+            showUI = false
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.Black),
-        contentAlignment = Alignment.Center
+            .background(Color.Black)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) {
+                showUI = !showUI
+            }
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+        // 1. RENDERIZADOR NATIVO DE VIDEO
+        if (currentVideo != null) {
+            AndroidView(
+                factory = { ctx ->
+                    object : VideoView(ctx) {
+                        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                            val width = MeasureSpec.getSize(widthMeasureSpec)
+                            val height = MeasureSpec.getSize(heightMeasureSpec)
+                            setMeasuredDimension(width, height)
+                        }
+                    }.apply {
+                        setVideoURI(currentVideo.uri)
+                        setOnPreparedListener { mp ->
+                            videoPlayer.bindMediaPlayer(mp)
+                            mp.seekTo(0) // SIEMPRE EMPIEZA DESDE EL INICIO
+                            mp.start()
+                        }
+                        setOnCompletionListener {
+                            videoPlayer.playNextVideo()
+                        }
+                    }
+                },
+                update = { view ->
+                    val currentPlayingUri = view.tag as? String
+                    val newUri = currentVideo.uri.toString()
+
+                    // Si cambiamos de video, actualiza la URI y arranca desde cero
+                    if (currentPlayingUri != newUri) {
+                        view.tag = newUri
+                        view.setVideoURI(currentVideo.uri)
+                        view.start()
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+        } else {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No hay videos cargados", color = Color.Gray, fontSize = 12.sp)
+            }
+        }
+
+        // 2. CAPA SUPERPUESTA DE CONTROLES (ANIMADA)
+        AnimatedVisibility(
+            visible = showUI,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize()
         ) {
-            Icon(Icons.Default.PlayCircle, contentDescription = null, tint = theme.accentOrange, modifier = Modifier.size(36.dp))
-            Spacer(modifier = Modifier.height(2.dp))
-            Text("Reproductor de Video", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            Text("Pausado • 01:24 / 03:45", color = Color.Gray, fontSize = 9.sp)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Brush.verticalGradient(listOf(Color(0xAA000000), Color.Transparent, Color(0xCC000000))))
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // CABECERA
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = currentVideo?.title ?: "Reproductor de Video",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                        Text(
+                            text = "📂 ${videoPlayer.selectedFolderName} (${videoPlayer.playlist.size} videos)",
+                            color = theme.accentCyan,
+                            fontSize = 9.sp
+                        )
+                    }
+
+                    IconButton(
+                        onClick = {
+                            showFolderModal = true
+                            showUI = true
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.FolderOpen, contentDescription = "USB", tint = theme.accentOrange, modifier = Modifier.size(20.dp))
+                    }
+                }
+
+                // BARRA INFERIOR DE CONTROLES
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    val progressPercent: Float = if (videoPlayer.totalDurationMs > 0L) {
+                        (videoPlayer.currentPositionMs.toFloat() / videoPlayer.totalDurationMs.toFloat()).coerceIn(0f, 1f)
+                    } else 0f
+
+                    LinearProgressIndicator(
+                        progress = progressPercent,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(CircleShape),
+                        color = theme.accentOrange,
+                        trackColor = Color.DarkGray
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // BOTÓN ALEATORIO (SHUFFLE)
+                        IconButton(
+                            onClick = {
+                                videoPlayer.toggleShuffle()
+                                showUI = true
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Shuffle,
+                                contentDescription = "Aleatorio",
+                                tint = if (videoPlayer.isShuffleMode) theme.accentCyan else Color.Gray,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        // ANTERIOR
+                        IconButton(
+                            onClick = {
+                                videoPlayer.playPreviousVideo()
+                                showUI = true
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.SkipPrevious, null, tint = theme.accentOrange, modifier = Modifier.size(24.dp))
+                        }
+
+                        // PLAY / PAUSA
+                        IconButton(
+                            onClick = {
+                                videoPlayer.togglePlayPause(currentVideo?.uri?.toString() ?: "")
+                                showUI = true
+                            },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .background(theme.accentCyan, CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = if (videoPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = "Play/Pausa",
+                                tint = Color.Black,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+
+                        // SIGUIENTE
+                        IconButton(
+                            onClick = {
+                                videoPlayer.playNextVideo()
+                                showUI = true
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.SkipNext, null, tint = theme.accentOrange, modifier = Modifier.size(24.dp))
+                        }
+
+                        // BOTÓN PANTALLA COMPLETA (Guarda la posición antes de salir)
+                        IconButton(
+                            onClick = {
+                                showUI = false
+                                videoPlayer.savedPlaybackPosition = videoPlayer.mediaPlayer?.currentPosition?.toLong() ?: 0L
+                                videoPlayer.mediaPlayer?.pause()
+                                onExpandFullscreen()
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.Fullscreen, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                        }
+                    }
+                }
+            }
+        }
+
+        // EXPLORADOR DE CARPETAS
+        if (showFolderModal) {
+            FolderPickerModal(
+                onDismiss = {
+                    showFolderModal = false
+                    showUI = true
+                },
+                onFolderSelected = { selectedFolder ->
+                    videoPlayer.scanVideoFolderPath(selectedFolder)
+                    showFolderModal = false
+                }
+            )
         }
     }
 }
