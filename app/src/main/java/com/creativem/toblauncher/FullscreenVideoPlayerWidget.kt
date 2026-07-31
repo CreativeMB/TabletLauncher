@@ -58,7 +58,12 @@ fun FullscreenVideoPlayerWidget(
             showUIState = false
         }
     }
-
+    DisposableEffect(Unit) {
+        videoPlayer.isFullscreenActive = true
+        onDispose {
+            videoPlayer.isFullscreenActive = false
+        }
+    }
     // El ancho físico que ocupará la lista lateral derecha
     val sidebarWidth = 320.dp
 

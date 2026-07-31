@@ -42,7 +42,8 @@ fun ModernMediaPlayerWidget(
     currentMode: MediaMode = MediaMode.MUSIC,
     onModeChange: (MediaMode) -> Unit = {},
     onExpandMusicFullscreen: () -> Unit = {},
-    onExpandVideoFullscreen: () -> Unit = {}
+    onExpandVideoFullscreen: () -> Unit = {},
+    onExpandIptvFullscreen: () -> Unit = {}
 ) {
     val theme = LocalDashboardTheme.current
     val context = LocalContext.current
@@ -50,6 +51,7 @@ fun ModernMediaPlayerWidget(
     // Instancias singleton de los reproductores
     val musicPlayer = remember { SmartMusicPlayer.getInstance(context) }
     val videoPlayer = remember { SmartVideoPlayer.getInstance(context) }
+    val iptvPlayer = remember { SmartIptvPlayer.getInstance(context) }
 
     // =========================================================================
     // CONTROLADOR DE EXCLUSIVIDAD: PAUSA AUTOMÁTICAMENTE EL REPRODUCTOR ANTERIOR
@@ -78,20 +80,11 @@ fun ModernMediaPlayerWidget(
                 }
             }
             MediaMode.IPTV -> {
-                // Al entrar a IPTV: Pausar Música y Video
-                try {
-                    if (musicPlayer.isPlaying) {
-                        musicPlayer.togglePlayPause()
-                    }
-                    if (videoPlayer.isPlaying) {
-                        videoPlayer.mediaPlayer?.pause()
-                        videoPlayer.isPlaying = false
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+                try { musicPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
+                try { videoPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
             }
         }
+
     }
 
     Row(
@@ -158,7 +151,10 @@ fun ModernMediaPlayerWidget(
                         theme = theme,
                         onExpandFullscreen = onExpandVideoFullscreen
                     )
-                    MediaMode.IPTV -> IptvPlayerView(theme)
+                    MediaMode.IPTV -> IptvPlayerView(
+                        theme = theme,
+                        onExpandFullscreen = onExpandIptvFullscreen
+                    )
                 }
             }
         }
@@ -456,21 +452,21 @@ fun VideoPlayerView(
 
     var showUI by remember { mutableStateOf(true) }
     val interactionSource = remember { MutableInteractionSource() }
-
     val buttonScale = LocalButtonScale.current
 
     // =========================================================================
-    // AUTO-DISPARO: SIEMPRE INICIA EL VIDEO DESDE EL PRINCIPIO (00:00)
+    // RECONEXIÓN AUTOMÁTICA AL REGRESAR DE PANTALLA COMPLETA
     // =========================================================================
-    LaunchedEffect(videoPlayer.playlist.isNotEmpty()) {
-        if (!videoPlayer.isPlaying && videoPlayer.playlist.isNotEmpty()) {
-            val indexToPlay = if (videoPlayer.currentTrackIndex in videoPlayer.playlist.indices) {
+    LaunchedEffect(videoPlayer.playlist.isNotEmpty(), videoPlayer.isFullscreenActive) {
+        if (!videoPlayer.isFullscreenActive && videoPlayer.playlist.isNotEmpty()) {
+            val targetIndex = if (videoPlayer.currentTrackIndex in videoPlayer.playlist.indices) {
                 videoPlayer.currentTrackIndex
-            } else {
-                0
+            } else 0
+
+            // Si no está reproduciendo al regresar de pantalla completa, reconecta desde el principio
+            if (!videoPlayer.isPlaying) {
+                videoPlayer.playVideoAtIndex(targetIndex, 0L)
             }
-            // Forzado a 0L para que NUNCA guarde ni restaure la posición intermedia
-            videoPlayer.playVideoAtIndex(indexToPlay, 0L)
         }
     }
 
@@ -504,16 +500,18 @@ fun VideoPlayerView(
                             setMeasuredDimension(width, height)
                         }
                     }.apply {
-                        setVideoURI(currentVideo.uri)
-                        tag = currentVideo.uri.toString()
-                        setOnPreparedListener { mp ->
-                            videoPlayer.bindMediaPlayer(mp)
-                            mp.seekTo(0) // SIEMPRE FUERZA INICIO DESDE EL PRINCIPIO (00:00)
-                            mp.start()
-                            videoPlayer.isPlaying = true
-                        }
-                        setOnCompletionListener {
-                            videoPlayer.playNextVideo()
+                        if (!videoPlayer.isFullscreenActive) {
+                            setVideoURI(currentVideo.uri)
+                            tag = currentVideo.uri.toString()
+                            setOnPreparedListener { mp ->
+                                videoPlayer.bindMediaPlayer(mp)
+                                mp.seekTo(0)
+                                mp.start()
+                                videoPlayer.isPlaying = true
+                            }
+                            setOnCompletionListener {
+                                videoPlayer.playNextVideo()
+                            }
                         }
                     }
                 },
@@ -521,14 +519,22 @@ fun VideoPlayerView(
                     val currentPlayingUri = view.tag as? String
                     val newUri = currentVideo.uri.toString()
 
-                    if (currentPlayingUri != newUri) {
-                        view.tag = newUri
-                        view.setVideoURI(currentVideo.uri)
-                        view.seekTo(0) // SIEMPRE FUERZA INICIO DESDE EL PRINCIPIO (00:00)
-                        view.start()
-                        videoPlayer.isPlaying = true
-                    } else if (!view.isPlaying && videoPlayer.isPlaying) {
-                        view.start()
+                    // ✅ RECONEXIÓN DINÁMICA: Solo actualiza el VideoView si la pantalla completa NO está activa
+                    if (!videoPlayer.isFullscreenActive) {
+                        if (currentPlayingUri != newUri || !view.isPlaying) {
+                            view.tag = newUri
+                            view.setVideoURI(currentVideo.uri)
+                            view.setOnPreparedListener { mp ->
+                                videoPlayer.bindMediaPlayer(mp)
+                                mp.seekTo(0)
+                                mp.start()
+                                videoPlayer.isPlaying = true
+                            }
+                        }
+                    } else {
+                        // Limpia el estado mientras la pantalla completa esté abierta para evitar congelamientos
+                        view.tag = null
+                        view.stopPlayback()
                     }
                 },
                 modifier = Modifier.fillMaxSize()
@@ -701,7 +707,7 @@ fun VideoPlayerView(
                             onClick = {
                                 showUI = false
                                 try {
-                                    videoPlayer.mediaPlayer?.pause()
+                                    videoPlayer.pausePlayback()
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                 }
@@ -735,70 +741,274 @@ fun VideoPlayerView(
         }
     }
 }
+
+// --- VISTA IPTV CON CONTROLES TÁCTILES DESAPARECIBLES Y SEÑAL COMPLETA AJUSTADA ---
 @Composable
-private fun IptvPlayerView(theme: DashboardTheme) {
-    Row(
+fun IptvPlayerView(
+    theme: DashboardTheme,
+    onExpandFullscreen: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val iptvPlayer = remember { SmartIptvPlayer.getInstance(context) }
+    var showFolderModal by remember { mutableStateOf(false) }
+
+    val currentChannel = iptvPlayer.playlist.getOrNull(iptvPlayer.currentChannelIndex)
+    val buttonScale = LocalButtonScale.current
+
+    var showUI by remember { mutableStateOf(true) }
+    val interactionSource = remember { MutableInteractionSource() }
+
+    val isOnline = remember(iptvPlayer.currentChannelIndex) { iptvPlayer.isConnectedToInternet() }
+
+    // =========================================================================
+    // AUTO-CARGA Y RECONEXIÓN AUTOMÁTICA AL REGRESAR DE PANTALLA COMPLETA
+    // =========================================================================
+    LaunchedEffect(iptvPlayer.playlist.isNotEmpty(), iptvPlayer.isFullscreenActive) {
+        if (!iptvPlayer.isFullscreenActive && iptvPlayer.playlist.isNotEmpty()) {
+            val targetIndex = if (iptvPlayer.currentChannelIndex in iptvPlayer.playlist.indices) {
+                iptvPlayer.currentChannelIndex
+            } else 0
+
+            // Si el reproductor no está sonando al regresar de pantalla completa, reconecta
+            if (!iptvPlayer.isPlaying) {
+                iptvPlayer.playChannelAtIndex(targetIndex)
+            }
+        }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF0D0D0D))
-            .padding(4.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .background(Color.Black)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) {
+                showUI = !showUI
+            }
     ) {
-        Box(
-            modifier = Modifier
-                .width(75.dp)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(8.dp))
-                .background(Brush.verticalGradient(listOf(Color(0xFF1E1E1E), Color(0xFF000000)))),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color.Red)
-                        .padding(horizontal = 4.dp, vertical = 1.dp)
-                ) {
-                    Text("EN VIVO", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
-                }
+        if (!isOnline) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF0F0F14)),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(Icons.Default.WifiOff, contentDescription = null, tint = Color.Red, modifier = Modifier.size(36.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+                Text("Se requiere Internet para ver IPTV", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(2.dp))
-                Icon(Icons.Default.LiveTv, contentDescription = null, tint = theme.accentPurple, modifier = Modifier.size(24.dp))
+                Text("Conecta la tablet a Wi-Fi o datos móviles", color = Color.Gray, fontSize = 10.sp)
+            }
+        } else if (currentChannel != null) {
+            AndroidView(
+                factory = { ctx ->
+                    object : VideoView(ctx) {
+                        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                            val width = MeasureSpec.getSize(widthMeasureSpec)
+                            val height = MeasureSpec.getSize(heightMeasureSpec)
+                            setMeasuredDimension(width, height)
+                        }
+                    }.apply {
+                        if (!iptvPlayer.isFullscreenActive) {
+                            setVideoPath(currentChannel.streamUrl)
+                            tag = currentChannel.streamUrl
+                            setOnPreparedListener { mp ->
+                                iptvPlayer.bindMediaPlayer(mp)
+                                mp.start()
+                                iptvPlayer.isPlaying = true
+                            }
+                        }
+                    }
+                },
+                update = { view ->
+                    val currentPlayingUri = view.tag as? String
+                    val newUrl = currentChannel.streamUrl
+
+                    // ✅ RECONEXIÓN DINÁMICA: Solo procesa señal si la pantalla completa NO está activa
+                    if (!iptvPlayer.isFullscreenActive) {
+                        if (currentPlayingUri != newUrl || !view.isPlaying) {
+                            view.tag = newUrl
+                            view.setVideoPath(newUrl)
+                            view.setOnPreparedListener { mp ->
+                                iptvPlayer.bindMediaPlayer(mp)
+                                mp.start()
+                                iptvPlayer.isPlaying = true
+                            }
+                        }
+                    } else {
+                        // Limpia el estado en el fondo mientras esté abierta la pantalla completa
+                        view.tag = null
+                        view.stopPlayback()
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(Icons.Default.Tv, contentDescription = null, tint = theme.accentPurple, modifier = Modifier.size(40.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+                Text("Carga una lista .m3u desde tu USB", color = Color.Gray, fontSize = 11.sp)
             }
         }
 
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Text("Canal 05 HD", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Text("Noticias & Deportes", color = Color.Gray, fontSize = 10.sp)
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        AnimatedVisibility(
+            visible = showUI,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Brush.verticalGradient(listOf(Color(0xAA000000), Color.Transparent, Color(0xCC000000))))
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
-                OutlinedButton(
-                    onClick = { },
-                    modifier = Modifier.height(26.dp),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    shape = RoundedCornerShape(6.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("CH -", color = theme.accentPurple, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color.Red)
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text("EN VIVO", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        ChannelLogoImage(
+                            logoUrl = currentChannel?.logoUrl,
+                            modifier = Modifier.size(24.dp),
+                            tint = theme.accentPurple
+                        )
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        Column {
+                            Text(
+                                text = currentChannel?.name ?: if (iptvPlayer.isScanning) "Cargando M3U..." else "Sin Lista IPTV",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "📺 ${iptvPlayer.selectedFileName} (${iptvPlayer.playlist.size} canales)",
+                                color = theme.accentPurple,
+                                fontSize = 9.sp
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = {
+                            showFolderModal = true
+                            showUI = true
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.FolderOpen, contentDescription = "USB", tint = theme.accentOrange, modifier = Modifier.size(20.dp))
+                    }
                 }
 
-                Button(
-                    onClick = { },
-                    modifier = Modifier.height(26.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = theme.accentPurple),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    shape = RoundedCornerShape(6.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("CH +", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Button(
+                        onClick = {
+                            iptvPlayer.playPreviousChannel()
+                            showUI = true
+                        },
+                        modifier = Modifier.height((34 * buttonScale).dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E28)),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("CH -", color = theme.accentPurple, fontSize = (11 * buttonScale).sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    IconButton(
+                        onClick = {
+                            iptvPlayer.togglePlayPause()
+                            showUI = true
+                        },
+                        modifier = Modifier
+                            .size((42 * buttonScale).dp)
+                            .background(theme.accentPurple, CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = if (iptvPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = "Play/Pausa",
+                            tint = Color.White,
+                            modifier = Modifier.size((24 * buttonScale).dp)
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            iptvPlayer.playNextChannel()
+                            showUI = true
+                        },
+                        modifier = Modifier.height((34 * buttonScale).dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E28)),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("CH +", color = Color.White, fontSize = (11 * buttonScale).sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    IconButton(
+                        onClick = {
+                            try {
+                                iptvPlayer.pausePlayback()
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                            onExpandFullscreen()
+                        },
+                        modifier = Modifier.size((34 * buttonScale).dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Fullscreen,
+                            contentDescription = "Pantalla Completa",
+                            tint = theme.accentOrange,
+                            modifier = Modifier.size((22 * buttonScale).dp)
+                        )
+                    }
                 }
             }
+        }
+
+        if (showFolderModal) {
+            FolderPickerModal(
+                onDismiss = {
+                    showFolderModal = false
+                    showUI = true
+                },
+                onFolderSelected = { selectedFolder ->
+                    val m3uFile = selectedFolder.listFiles()?.firstOrNull {
+                        it.extension.lowercase() in listOf("m3u", "m3u8")
+                    }
+                    if (m3uFile != null) {
+                        iptvPlayer.parseAndLoadM3uFile(m3uFile)
+                    }
+                    showFolderModal = false
+                }
+            )
         }
     }
 }

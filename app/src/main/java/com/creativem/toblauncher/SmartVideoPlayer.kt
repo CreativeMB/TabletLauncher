@@ -95,7 +95,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
 
     var isScanning by mutableStateOf(false)
         private set
-
+    var isFullscreenActive by mutableStateOf(false)
     private var progressJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 

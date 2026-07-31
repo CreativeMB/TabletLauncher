@@ -288,6 +288,8 @@ fun CarDashboard(
     var showThemeModal by remember { mutableStateOf(false) }
     var showFullscreenMusic by remember { mutableStateOf(false) }
     var showFullscreenVideo by remember { mutableStateOf(false) }
+    var showFullscreenIptv by remember { mutableStateOf(false) }
+
     var activeAppDrawerTarget by remember { mutableIntStateOf(0) }
 
     var currentSpeedKmH by remember { mutableFloatStateOf(0f) }
@@ -400,7 +402,8 @@ fun CarDashboard(
                                 currentMode = currentMediaMode,
                                 onModeChange = { newMode: MediaMode -> currentMediaMode = newMode },
                                 onExpandMusicFullscreen = { showFullscreenMusic = true },
-                                onExpandVideoFullscreen = { showFullscreenVideo = true }
+                                onExpandVideoFullscreen = { showFullscreenVideo = true },
+                                onExpandIptvFullscreen = { showFullscreenIptv = true }
                             )
                         }
 
@@ -471,7 +474,12 @@ fun CarDashboard(
                 onClose = { showFullscreenVideo = false }
             )
         }
-
+// 3. Renderizado de la Pantalla Completa sobre el Tablero
+        if (showFullscreenIptv) {
+            FullscreenIptvPlayerWidget(
+                onClose = { showFullscreenIptv = false }
+            )
+        }
         // ====================================================================
         // LÓGICA CORREGIDA DEL CAJÓN DE APLICACIONES PARA TODOS LOS SLOTS (101-120)
         // ====================================================================
