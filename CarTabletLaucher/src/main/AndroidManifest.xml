@@ -59,7 +59,7 @@
 
     <!-- PERMISO OBLIGATORIO PARA CONTROLAR EL HARDWARE DE BRILLO EN TABLETS DE AUTO -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
-
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />

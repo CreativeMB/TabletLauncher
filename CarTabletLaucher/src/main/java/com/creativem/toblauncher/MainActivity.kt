@@ -38,6 +38,15 @@ import com.google.android.gms.location.*
 import kotlinx.coroutines.isActive
 import org.mapsforge.map.android.graphics.AndroidGraphicFactory
 
+import android.net.Uri
+import android.os.Environment
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,12 +68,23 @@ class MainActivity : ComponentActivity() {
         }
 
         promptDefaultLauncherSelection(this)
+        // Solo solicitar launcher por defecto si NO es el launcher actual
+        if (!isCurrentlyDefaultLauncher(this)) {
+            promptDefaultLauncherSelection(this)
+        }
 
         setContent {
             MaterialTheme {
                 MainScreen()
             }
         }
+    }
+
+    // ✅ CRUCIAL: Captura cuando el usuario presiona "HOME" estando la app ya abierta
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // No recrea nada, simplemente regresa a la vista en vivo
     }
     override fun onDestroy() {
         super.onDestroy()
@@ -74,7 +94,13 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
     }
-
+    private fun isCurrentlyDefaultLauncher(context: Context): Boolean {
+        val intent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+        }
+        val resolveInfo = context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        return resolveInfo?.activityInfo?.packageName == context.packageName
+    }
     private fun promptDefaultLauncherSelection(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val roleManager = context.getSystemService(RoleManager::class.java)
@@ -93,10 +119,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-
+// Función helper pura en Kotlin para verificar el estado de energía
+fun isIgnoringBatteryOptimizations(context: Context): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true
+    } else {
+        true
+    }
+}
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     var currentTheme by remember { mutableStateOf(ThemeManager.getSavedTheme(context)) }
     var currentTextScale by remember { mutableFloatStateOf(ThemeManager.getSavedTextScale(context)) }
@@ -118,31 +153,50 @@ fun MainScreen() {
         )
     }
 
-    // VERIFICACIÓN INICIAL DE PERMISOS (GPS, USB, MICRÓFONO Y BRILLO)
-    val initialStep = remember {
+    // Cálculo inicial de paso
+    fun calculateInitialStep(): Int {
         val hasLocation = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-
         val hasStorage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            android.os.Environment.isExternalStorageManager()
+            Environment.isExternalStorageManager()
         } else {
             ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
         }
-
         val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-
-        // ✅ VERIFICA SI LA TABLET DEL AUTO YA TIENE EL PERMISO DE BRILLO
         val hasBrightness = BrightnessManager.hasWriteSettingsPermission(context)
+        val hasBatteryExemption = isIgnoringBatteryOptimizations(context)
 
-        when {
+        return when {
             !hasLocation -> 1
             !hasStorage -> 2
             !hasMic -> 3
-            !hasBrightness -> 4 // ✅ PASO 4: BRILLO DÍA/NOCHE
+            !hasBrightness -> 4
+            !hasBatteryExemption -> 5 // ✅ PASO 5: BATERÍA SIN RESTRICCIONES
             else -> 0
         }
     }
 
-    var currentStep by remember { mutableStateOf(initialStep) }
+    var currentStep by remember { mutableIntStateOf(calculateInitialStep()) }
+
+    // Launcher de Compose para manejar la respuesta del Intent del sistema
+    val systemSettingsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        currentStep = calculateInitialStep()
+    }
+
+    // ✅ EFECTO COMPOSE: Detecta cuando el usuario vuelve de la configuración del sistema
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                // Al volver a primer plano, se recalcula si falta algún permiso
+                currentStep = calculateInitialStep()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     CompositionLocalProvider(
         LocalDensity provides customDensity,
@@ -161,71 +215,84 @@ fun MainScreen() {
                     description = "Necesitamos tu ubicación exacta para el mapa y velocímetro.",
                     icon = Icons.Default.LocationOn,
                     permissionsToRequest = arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-                    onPermissionGranted = { currentStep = 2 }
+                    onPermissionGranted = { currentStep = calculateInitialStep() }
                 )
+
                 2 -> {
                     val isAndroid11OrAbove = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
-                    val manageStorageLauncher = rememberLauncherForActivityResult(
-                        contract = ActivityResultContracts.StartActivityForResult()
-                    ) {
-                        if (isAndroid11OrAbove && android.os.Environment.isExternalStorageManager()) {
-                            currentStep = 3
-                        }
-                    }
-
-                    if (isAndroid11OrAbove) {
-                        PermissionStepScreen(
-                            title = "Acceso Total a USB",
-                            description = "Para leer videos y música desde memorias USB, Android requiere acceso a todos los archivos.",
-                            icon = Icons.Default.Folder,
-                            permissionsToRequest = emptyArray(),
-                            onPermissionGranted = { currentStep = 3 },
-                            customAction = {
-                                if (android.os.Environment.isExternalStorageManager()) {
-                                    currentStep = 3
-                                } else {
-                                    try {
-                                        val intent = Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                                        intent.data = android.net.Uri.parse("package:${context.packageName}")
-                                        manageStorageLauncher.launch(intent)
-                                    } catch (e: Exception) {
-                                        val intent = Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                                        manageStorageLauncher.launch(intent)
+                    PermissionStepScreen(
+                        title = if (isAndroid11OrAbove) "Acceso Total a USB" else "Acceso a Multimedia",
+                        description = if (isAndroid11OrAbove)
+                            "Para leer videos y música desde memorias USB, Android requiere acceso a todos los archivos."
+                        else
+                            "Permite acceso a tu música, videos y mapas.",
+                        icon = if (isAndroid11OrAbove) Icons.Default.Folder else Icons.Default.LibraryMusic,
+                        permissionsToRequest = if (isAndroid11OrAbove) emptyArray() else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                        onPermissionGranted = { currentStep = calculateInitialStep() },
+                        customAction = if (isAndroid11OrAbove) {
+                            {
+                                try {
+                                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                        data = Uri.parse("package:${context.packageName}")
                                     }
+                                    systemSettingsLauncher.launch(intent)
+                                } catch (e: Exception) {
+                                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                    systemSettingsLauncher.launch(intent)
                                 }
                             }
-                        )
-                    } else {
-                        PermissionStepScreen(
-                            title = "Acceso a Multimedia",
-                            description = "Permite acceso a tu música, videos y mapas.",
-                            icon = Icons.Default.LibraryMusic,
-                            permissionsToRequest = arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE),
-                            onPermissionGranted = { currentStep = 3 }
-                        )
-                    }
+                        } else null
+                    )
                 }
+
                 3 -> PermissionStepScreen(
                     title = "Permiso de Micrófono",
                     description = "Necesario para comandos de voz mientras conduces.",
                     icon = Icons.Default.Mic,
                     permissionsToRequest = arrayOf(Manifest.permission.RECORD_AUDIO),
-                    onPermissionGranted = { currentStep = 4 } // ✅ AVANZA AL PASO 4
+                    onPermissionGranted = { currentStep = calculateInitialStep() }
                 )
 
-                // =========================================================================
-                // ✅ PASO 4: ASISTENTE DE PERMISO DE BRILLO PARA TABLET DE AUTO
-                // =========================================================================
                 4 -> PermissionStepScreen(
                     title = "Control de Brillo para Tablet",
                     description = "Permite ajustar automáticamente la pantalla para que no encandile de Noche (6 PM) y sea visible de Día (6 AM).",
                     icon = Icons.Default.Brightness6,
                     permissionsToRequest = emptyArray(),
-                    onPermissionGranted = { currentStep = 0 },
+                    onPermissionGranted = { currentStep = calculateInitialStep() },
                     customAction = {
                         BrightnessManager.requestWriteSettingsPermission(context)
-                        currentStep = 0 // Entra directamente al tablero principal
+                    }
+                )
+
+                // =========================================================================
+                // ✅ PASO 5: MODO ALTO RENDIMIENTO (COMPOSE NATIVO)
+                // =========================================================================
+                5 -> PermissionStepScreen(
+                    title = "Modo Alto Rendimiento Auto",
+                    description = "Como la tablet funciona con la energía del vehículo, quita los límites de energía para que el Launcher, la Radio y los Mapas NUNCA se detengan.",
+                    icon = Icons.Default.FlashOn,
+                    permissionsToRequest = emptyArray(),
+                    onPermissionGranted = { currentStep = 0 },
+                    customAction = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            try {
+                                // Solicita directamente la excepción de batería en un Intent
+                                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                }
+                                systemSettingsLauncher.launch(intent)
+                            } catch (e: Exception) {
+                                try {
+                                    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                    systemSettingsLauncher.launch(intent)
+                                } catch (ex: Exception) {
+                                    currentStep = 0
+                                }
+                            }
+                        } else {
+                            currentStep = 0
+                        }
                     }
                 )
 
