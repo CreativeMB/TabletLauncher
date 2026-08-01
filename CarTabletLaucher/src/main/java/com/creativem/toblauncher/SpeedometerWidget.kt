@@ -20,6 +20,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
@@ -66,60 +67,133 @@ fun ModernSpeedometerWidget(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // ==========================================
-        // 1. RELOJ ANALÓGICO 3D REALISTA CON AGUJA LARGA PRECISA
+        // 1. RELOJ ANÁLOGO ENMARCADO EN CUADRO 3D TECH WITH LINE GRADIENT
         // ==========================================
         Box(
             modifier = Modifier
-                .weight(1.3f)
+                .weight(1.35f)
                 .fillMaxHeight()
-                .shadow(12.dp, CircleShape, spotColor = Color.Black)
-                .clip(CircleShape)
+                .shadow(16.dp, RoundedCornerShape(26.dp), spotColor = Color.Black)
+                .clip(RoundedCornerShape(26.dp))
                 .background(
-                    Brush.radialGradient(
-                        listOf(Color(0xFF2E384D), Color(0xFF181F2C), Color(0xFF0D1017))
+                    Brush.verticalGradient(
+                        listOf(Color(0xFF222B3D), Color(0xFF111722), Color(0xFF07090E))
                     )
                 )
                 .border(
-                    2.5.dp,
-                    Brush.sweepGradient(
-                        listOf(theme.accentCyan, theme.accentPurple, theme.accentOrange, theme.accentCyan)
+                    1.8.dp,
+                    Brush.linearGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.3f),
+                            theme.accentCyan.copy(alpha = 0.6f),
+                            theme.accentPurple.copy(alpha = 0.6f),
+                            Color.Black
+                        )
                     ),
-                    CircleShape
+                    RoundedCornerShape(26.dp)
                 )
-                .padding(4.dp),
+                .padding(6.dp),
             contentAlignment = Alignment.Center
         ) {
+            // Fondo cóncavo base
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(CircleShape)
+                    .clip(RoundedCornerShape(20.dp))
                     .background(
                         Brush.radialGradient(
-                            listOf(Color.Transparent, Color.Black.copy(0.75f))
+                            colors = listOf(Color(0xFF1A2232), Color(0xFF0A0E16)),
+                            radius = 450f
                         )
                     )
             )
 
-            Canvas(modifier = Modifier.fillMaxSize()) {
+            Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
                 val center = Offset(size.width / 2f, size.height / 2f)
-                val maxRadius = (size.minDimension / 2f) - 2.dp.toPx()
-                val strokeWidthPx = 18.dp.toPx() // Franja gorda exterior
+                val maxRadius = (size.minDimension / 2f) - 4.dp.toPx()
+                val strokeWidthPx = 12.dp.toPx()
 
                 val arcRadius = maxRadius - (strokeWidthPx / 2f)
-                val innerArcEdge = arcRadius - (strokeWidthPx / 2f) // Borde interno exacto de la franja gorda
+                val innerArcEdge = arcRadius - (strokeWidthPx / 2f)
+                val ticksRadius = innerArcEdge - 2.dp.toPx()
+                val textRadius = ticksRadius - 26.dp.toPx()
+                val needleLength = innerArcEdge - 14.dp.toPx()
 
-                val ticksRadius = innerArcEdge - 1.dp.toPx()
-                val textRadius = ticksRadius - 32.dp.toPx() // Números separados de las rayas
+                val totalSpeed = 150
 
-                // AGUJA REALISTA: Se extiende casi hasta la franja gorda sin llegar a tocarla (justo sobre las rayas)
-                val needleLength = innerArcEdge - 30.dp.toPx()
+                // =========================================================================
+                // 🌌 LÍNEAS EN GRADIENTE DESDE EL CÍRCULO HASTA EL BORDE DEL CUADRO (EFECTO 3D/HUD)
+                // =========================================================================
+                val rayCount = 36
+                val rayStartRadius = arcRadius + (strokeWidthPx / 2f) + 2.dp.toPx()
+                val outerBoxExtent = size.maxDimension // Extensión hacia bordes del cuadro
 
-                // 1. ARCO DE FONDO BASE GRUESO (2do Color del Tema)
+                for (i in 0 until rayCount) {
+                    val rayAngleDeg = i * (360f / rayCount)
+                    val rayAngleRad = Math.toRadians(rayAngleDeg.toDouble())
+
+                    val rayStart = Offset(
+                        x = center.x + rayStartRadius * cos(rayAngleRad).toFloat(),
+                        y = center.y + rayStartRadius * sin(rayAngleRad).toFloat()
+                    )
+                    val rayEnd = Offset(
+                        x = center.x + outerBoxExtent * cos(rayAngleRad).toFloat(),
+                        y = center.y + outerBoxExtent * sin(rayAngleRad).toFloat()
+                    )
+
+                    // Opacidad de rayo según cercanía a la zona activa de velocidad
+                    val currentSpeedAngle = 135f + (270f * (animatedSpeed / totalSpeed.toFloat()).coerceIn(0f, 1f))
+                    val angleDiff = Math.abs(rayAngleDeg - currentSpeedAngle)
+                    val isNearNeedle = angleDiff < 30f || (360f - angleDiff) < 30f
+
+                    val rayAlpha = if (isNearNeedle) 0.35f else 0.12f
+
+                    drawLine(
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                if (isNearNeedle) dynamicSpeedColor.copy(alpha = rayAlpha) else theme.accentCyan.copy(alpha = rayAlpha),
+                                theme.accentPurple.copy(alpha = rayAlpha * 0.5f),
+                                Color.Transparent
+                            ),
+                            start = rayStart,
+                            end = rayEnd
+                        ),
+                        start = rayStart,
+                        end = rayEnd,
+                        strokeWidth = if (isNearNeedle) 1.8.dp.toPx() else 1.0.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+
+                // ANILLOS CONCÉNTRICOS DE PROFUNDIDAD ENTRE EL DIAL Y EL MARCO
+                for (rOffset in listOf(8.dp.toPx(), 18.dp.toPx(), 28.dp.toPx())) {
+                    val ringRadius = arcRadius + (strokeWidthPx / 2f) + rOffset
+                    drawCircle(
+                        brush = Brush.sweepGradient(
+                            listOf(
+                                theme.accentCyan.copy(alpha = 0.12f),
+                                theme.accentPurple.copy(alpha = 0.18f),
+                                theme.accentOrange.copy(alpha = 0.08f),
+                                theme.accentCyan.copy(alpha = 0.12f)
+                            )
+                        ),
+                        radius = ringRadius,
+                        center = center,
+                        style = Stroke(
+                            width = 1.2.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 12f), 0f)
+                        )
+                    )
+                }
+
+                // =========================================================================
+                // 1. ARCO DE FONDO BASE
+                // =========================================================================
                 drawArc(
                     brush = Brush.sweepGradient(
                         listOf(
-                            theme.accentPurple.copy(alpha = 0.4f),
-                            theme.accentCyan.copy(alpha = 0.4f)
+                            theme.accentPurple.copy(alpha = 0.25f),
+                            theme.accentCyan.copy(alpha = 0.25f)
                         )
                     ),
                     startAngle = 135f,
@@ -130,13 +204,12 @@ fun ModernSpeedometerWidget(
                     topLeft = Offset(center.x - arcRadius, center.y - arcRadius)
                 )
 
-                // 2. ARCO DE FRANJA ALTA VELOCIDAD (3er Color del Tema)
-                val totalSpeed = 150
+                // 2. ARCO DE ALTA VELOCIDAD
                 val redZoneStartAngle = 135f + (120f / totalSpeed.toFloat()) * 270f
                 val redZoneSweepAngle = (30f / totalSpeed.toFloat()) * 270f
 
                 drawArc(
-                    color = theme.accentOrange,
+                    color = theme.accentOrange.copy(alpha = 0.8f),
                     startAngle = redZoneStartAngle,
                     sweepAngle = redZoneSweepAngle,
                     useCenter = false,
@@ -147,45 +220,47 @@ fun ModernSpeedometerWidget(
 
                 val speedProgress = (animatedSpeed / totalSpeed.toFloat()).coerceIn(0f, 1f)
 
-                // 3. BARRA DE VELOCIDAD ACTIVA
-                drawArc(
-                    color = dynamicSpeedColor.copy(alpha = 0.4f),
-                    startAngle = 135f,
-                    sweepAngle = 270f * speedProgress,
-                    useCenter = false,
-                    style = Stroke(width = strokeWidthPx * 1.4f, cap = StrokeCap.Round),
-                    size = Size(arcRadius * 2, arcRadius * 2),
-                    topLeft = Offset(center.x - arcRadius, center.y - arcRadius)
-                )
+                // 3. BARRA DE VELOCIDAD DINÁMICA ACTIVA
+                if (speedProgress > 0f) {
+                    drawArc(
+                        color = dynamicSpeedColor.copy(alpha = 0.35f),
+                        startAngle = 135f,
+                        sweepAngle = 270f * speedProgress,
+                        useCenter = false,
+                        style = Stroke(width = strokeWidthPx * 1.5f, cap = StrokeCap.Round),
+                        size = Size(arcRadius * 2, arcRadius * 2),
+                        topLeft = Offset(center.x - arcRadius, center.y - arcRadius)
+                    )
 
-                drawArc(
-                    color = dynamicSpeedColor,
-                    startAngle = 135f,
-                    sweepAngle = 270f * speedProgress,
-                    useCenter = false,
-                    style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round),
-                    size = Size(arcRadius * 2, arcRadius * 2),
-                    topLeft = Offset(center.x - arcRadius, center.y - arcRadius)
-                )
+                    drawArc(
+                        color = dynamicSpeedColor,
+                        startAngle = 135f,
+                        sweepAngle = 270f * speedProgress,
+                        useCenter = false,
+                        style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round),
+                        size = Size(arcRadius * 2, arcRadius * 2),
+                        topLeft = Offset(center.x - arcRadius, center.y - arcRadius)
+                    )
+                }
 
-                // 4. CONFIGURACIÓN DE NÚMEROS
+                // 4. ESTILOS DE NÚMEROS
                 val textPaintDimmed = AndroidPaint().apply {
-                    color = android.graphics.Color.LTGRAY
-                    textSize = 12.sp.toPx()
-                    typeface = Typeface.DEFAULT_BOLD
+                    color = android.graphics.Color.argb(180, 180, 195, 210)
+                    textSize = 10.5.sp.toPx()
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textAlign = AndroidPaint.Align.CENTER
                     isAntiAlias = true
                 }
 
                 val textPaintActive = AndroidPaint().apply {
                     color = android.graphics.Color.WHITE
-                    textSize = 14.sp.toPx()
-                    typeface = Typeface.DEFAULT_BOLD
+                    textSize = 12.sp.toPx()
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textAlign = AndroidPaint.Align.CENTER
                     isAntiAlias = true
                 }
 
-                // 5. RAYAS INDICADORAS GORDAS Y LARGAS
+                // 5. TICKS Y NÚMEROS
                 for (s in 0..totalSpeed step 5) {
                     val angleDeg = 135f + (s.toFloat() / totalSpeed.toFloat()) * 270f
                     val angleRad = Math.toRadians(angleDeg.toDouble())
@@ -194,9 +269,9 @@ fun ModernSpeedometerWidget(
                     val isMediumTick = (s % 10 == 0 && !isMainTick)
 
                     val tickLength = when {
-                        isMainTick -> 14.dp.toPx()
-                        isMediumTick -> 8.dp.toPx()
-                        else -> 4.5.dp.toPx()
+                        isMainTick -> 10.dp.toPx()
+                        isMediumTick -> 6.dp.toPx()
+                        else -> 3.5.dp.toPx()
                     }
 
                     val tickStartR = ticksRadius
@@ -213,31 +288,28 @@ fun ModernSpeedometerWidget(
                         s >= 120 -> theme.accentOrange
                         isPassed -> dynamicSpeedColor
                         isMainTick -> Color.White
-                        else -> theme.accentPurple.copy(alpha = 0.85f)
+                        else -> Color.Gray.copy(alpha = 0.5f)
                     }
 
-                    // Sombra anti-reflejo bajo las rayas
                     drawLine(
-                        color = Color.Black.copy(alpha = 0.85f),
-                        start = Offset(startX + 1.2f, startY + 1.2f),
-                        end = Offset(endX + 1.2f, endY + 1.2f),
-                        strokeWidth = if (isMainTick) 5.dp.toPx() else 2.5.dp.toPx(),
+                        color = Color.Black.copy(alpha = 0.7f),
+                        start = Offset(startX + 1f, startY + 1f),
+                        end = Offset(endX + 1f, endY + 1f),
+                        strokeWidth = if (isMainTick) 3.5.dp.toPx() else 1.8.dp.toPx(),
                         cap = StrokeCap.Round
                     )
 
-                    // Raya
                     drawLine(
                         color = tickColor,
                         start = Offset(startX, startY),
                         end = Offset(endX, endY),
-                        strokeWidth = if (isMainTick) 4.2.dp.toPx() else if (isMediumTick) 2.5.dp.toPx() else 1.5.dp.toPx(),
+                        strokeWidth = if (isMainTick) 3.dp.toPx() else if (isMediumTick) 1.8.dp.toPx() else 1.dp.toPx(),
                         cap = StrokeCap.Round
                     )
 
-                    // Números cada 20 km/h (Ubicados en la zona interna limpia)
                     if (isMainTick) {
                         val numX = center.x + textRadius * cos(angleRad).toFloat()
-                        val numY = center.y + textRadius * sin(angleRad).toFloat() + 4.5.dp.toPx()
+                        val numY = center.y + textRadius * sin(angleRad).toFloat() + 3.5.dp.toPx()
 
                         drawContext.canvas.nativeCanvas.drawText(
                             s.toString(),
@@ -248,51 +320,49 @@ fun ModernSpeedometerWidget(
                     }
                 }
 
-                // 6. AGUJA DE GRAN ALCANCE REALISTA (Punta rozando la franja gorda)
+                // 6. AGUJA Y PIVOTE 3D
                 val needleAngleRad = Math.toRadians((135f + (270f * speedProgress)).toDouble())
                 val needleEnd = Offset(
                     x = center.x + (needleLength * cos(needleAngleRad)).toFloat(),
                     y = center.y + (needleLength * sin(needleAngleRad)).toFloat()
                 )
 
-                // Sombra de la aguja para profundidad 3D
                 drawLine(
-                    color = Color.Black.copy(0.85f),
-                    start = Offset(center.x + 2f, center.y + 2f),
-                    end = Offset(needleEnd.x + 2f, needleEnd.y + 2f),
-                    strokeWidth = 5.dp.toPx(),
+                    color = Color.Black.copy(0.7f),
+                    start = Offset(center.x + 3f, center.y + 3f),
+                    end = Offset(needleEnd.x + 3f, needleEnd.y + 3f),
+                    strokeWidth = 4.dp.toPx(),
                     cap = StrokeCap.Round
                 )
 
-                // Cuerpo Principal de la Aguja
                 drawLine(
                     color = dynamicSpeedColor,
                     start = center,
                     end = needleEnd,
-                    strokeWidth = 3.5.dp.toPx(),
+                    strokeWidth = 3.dp.toPx(),
                     cap = StrokeCap.Round
                 )
 
-                // Centro Pivot Estilizado
-                drawCircle(color = theme.accentCyan, radius = 6.5.dp.toPx(), center = center)
-                drawCircle(color = dynamicSpeedColor, radius = 3.2.dp.toPx(), center = center)
+                drawCircle(color = Color.Black, radius = 7.dp.toPx(), center = center)
+                drawCircle(color = theme.accentCyan, radius = 5.dp.toPx(), center = center)
+                drawCircle(color = Color.White, radius = 2.dp.toPx(), center = center)
             }
         }
 
         // ==========================================
-        // 2. VELOCIDAD DIGITAL UNIFICADA EXPANDIDA
+        // 2. VELOCIDAD DIGITAL
         // ==========================================
         Box(
             modifier = Modifier
                 .weight(1.0f)
                 .fillMaxHeight()
-                .shadow(10.dp, RoundedCornerShape(24.dp), spotColor = Color.Black)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Brush.verticalGradient(listOf(Color(0xFF222A3A), Color(0xFF0F131C))))
+                .shadow(12.dp, RoundedCornerShape(26.dp), spotColor = Color.Black)
+                .clip(RoundedCornerShape(26.dp))
+                .background(Brush.verticalGradient(listOf(Color(0xFF222B3D), Color(0xFF07090E))))
                 .border(
                     1.5.dp,
                     Brush.linearGradient(listOf(theme.accentCyan, Color.Transparent, theme.accentPurple)),
-                    RoundedCornerShape(24.dp)
+                    RoundedCornerShape(26.dp)
                 ),
             contentAlignment = Alignment.Center
         ) {
@@ -302,7 +372,7 @@ fun ModernSpeedometerWidget(
             ) {
                 Text(
                     text = "${animatedSpeed.toInt()}",
-                    fontSize = 72.sp,
+                    fontSize = 68.sp,
                     fontWeight = activeFontWeight,
                     fontFamily = FontFamily.Monospace,
                     color = Color.White,
@@ -310,7 +380,7 @@ fun ModernSpeedometerWidget(
                 )
                 Text(
                     text = "KM / H",
-                    fontSize = 22.sp,
+                    fontSize = 20.sp,
                     fontWeight = activeFontWeight,
                     color = dynamicSpeedColor,
                     letterSpacing = 2.0.sp

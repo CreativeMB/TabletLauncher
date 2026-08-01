@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -58,17 +59,18 @@ fun ModernClockWidget() {
 
             digitalTimeDigits = SimpleDateFormat("hh:mm", Locale.getDefault()).format(cal.time)
             amPmText = SimpleDateFormat("a", Locale.getDefault()).format(cal.time).uppercase()
-            currentDateText = SimpleDateFormat("EEE, dd MMM", Locale.getDefault()).format(cal.time).uppercase()
+
+            // ✅ FECHA COMPLETA CON EL DÍA COMPLETO (Ej: "MIÉRCOLES, 05 AGOSTO")
+            currentDateText = SimpleDateFormat("EEEE, dd MMMM", Locale.getDefault()).format(cal.time).uppercase()
 
             delay(1000L)
         }
     }
 
-    // El tamaño usa "sp" en lugar de "dp" para poder crecer según la escala del deslizador
     val numberPaint = remember(theme, isBold, density) {
         AndroidPaint().apply {
             color = theme.accentCyan.toArgb()
-            textSize = with(density) { 13.sp.toPx() } // Escala de manera fluida con el deslizador
+            textSize = with(density) { 13.sp.toPx() }
             typeface = if (isBold) {
                 Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
             } else {
@@ -136,15 +138,12 @@ fun ModernClockWidget() {
                     )
                 }
 
-                // B) NÚMEROS DINÁMICOS CON ALINEACIÓN AJUSTADA EN TIEMPO REAL
-                // El radio del texto se adapta un poco para que no colisione con el borde al crecer
+                // B) NÚMEROS DINÁMICOS CON ALINEACIÓN AJUSTADA
                 val textRadius = radius - 15.dp.toPx()
                 for (i in 1..12) {
                     val angleDeg = i * 30f - 90f
                     val angleRad = Math.toRadians(angleDeg.toDouble())
                     val x = center.x + textRadius * cos(angleRad).toFloat()
-
-                    // Cálculo matemático dinámico para mantener los números perfectamente centrados sin importar su tamaño
                     val y = center.y + textRadius * sin(angleRad).toFloat() + (numberPaint.textSize * 0.35f)
 
                     drawContext.canvas.nativeCanvas.drawText(
@@ -221,7 +220,7 @@ fun ModernClockWidget() {
         }
 
         // ==========================================
-        // 2. RELOJ DIGITAL EN "CUADRITO" 3D (DEBAJO)
+        // 2. RELOJ DIGITAL EN CUADRO 3D
         // ==========================================
         Box(
             modifier = Modifier
@@ -235,7 +234,7 @@ fun ModernClockWidget() {
                     Brush.linearGradient(listOf(Color.White.copy(0.18f), Color.Black)),
                     RoundedCornerShape(16.dp)
                 )
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -267,13 +266,15 @@ fun ModernClockWidget() {
 
                 Spacer(modifier = Modifier.height(1.dp))
 
-                // 2. FECHA PEQUEÑA DEBAJO
+                // 2. FECHA COMPLETA DEBAJO (Ej: "MIÉRCOLES, 05 AGOSTO")
                 Text(
                     text = currentDateText,
-                    fontSize = 9.sp,
+                    fontSize = 10.sp,
                     fontWeight = dateWeight,
                     color = theme.accentOrange,
-                    letterSpacing = 0.5.sp
+                    letterSpacing = 0.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

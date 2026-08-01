@@ -48,16 +48,59 @@ val LocalButtonScale = compositionLocalOf { 1.0f }
 
 object ThemeManager {
     val themes = listOf(
-        // ✅ ID 0: TEMA PREDETERMINADO NEGRO OLED
+        // =========================================================================
+        // 🏁 1. CLÁSICOS Y OLED PURO (ALTO CONTRASTE)
+        // =========================================================================
         DashboardTheme(0, "Negro OLED (Predeterminado)", Color(0xFF000000), Color(0xFF0C0E14), Color(0xFF1E2230), Color(0xFF00E5FF), Color(0xFF9D00FF), Color(0xFFFF9100)),
         DashboardTheme(1, "Cian Eléctrico", Color(0xFF070D14), Color(0xFF0F1926), Color(0xFF00838F), Color(0xFF00F2FE), Color(0xFF4FACFE), Color(0xFFFF5252)),
-        DashboardTheme(2, "Rojo Pasión", Color(0xFF0A0405), Color(0xFF1C0B0E), Color(0xFF88111A), Color(0xFFFF1744), Color(0xFFFF6100), Color(0xFFFFD600)),
+        DashboardTheme(2, "Rojo Pasión Sport", Color(0xFF0A0405), Color(0xFF1C0B0E), Color(0xFF88111A), Color(0xFFFF1744), Color(0xFFFF6100), Color(0xFFFFD600)),
         DashboardTheme(3, "Verde Esmeralda", Color(0xFF040B08), Color(0xFF0B1C14), Color(0xFF0D6136), Color(0xFF00E676), Color(0xFF00B0FF), Color(0xFFFFAB00)),
         DashboardTheme(4, "Azul Zafiro", Color(0xFF050A14), Color(0xFF0C1628), Color(0xFF1446A0), Color(0xFF2979FF), Color(0xFF00E5FF), Color(0xFFFF6D00)),
-        DashboardTheme(5, "Cyberpunk", Color(0xFF0A0414), Color(0xFF190C28), Color(0xFF6A1B9A), Color(0xFFF50057), Color(0xFF7C4DFF), Color(0xFF00E5FF)),
-        DashboardTheme(6, "Naranja Fuego", Color(0xFF0D0703), Color(0xFF211208), Color(0xFFA84200), Color(0xFFFF6D00), Color(0xFFFFD600), Color(0xFFFF1744)),
-        DashboardTheme(7, "Platino Titanio", Color(0xFF0D1015), Color(0xFF1E242E), Color(0xFF607D8B), Color(0xFFFFFFFF), Color(0xFF80D8FF), Color(0xFFFFD600)),
-        DashboardTheme(8, "Noche OLED Oro", Color(0xFF000000), Color(0xFF0A0A0A), Color(0xFF806A00), Color(0xFFFFD700), Color(0xFF00E5FF), Color(0xFFFF3D00))
+
+        // =========================================================================
+        // 🎆 2. NEÓN VIVOS Y CYBERPUNK (GRADIENTES FUERTES)
+        // =========================================================================
+        DashboardTheme(5, "Cyberpunk Synthwave", Color(0xFF0A0414), Color(0xFF190C28), Color(0xFF6A1B9A), Color(0xFFF50057), Color(0xFF7C4DFF), Color(0xFF00E5FF)),
+        DashboardTheme(6, "Tokyo Drift Pink", Color(0xFF0D030A), Color(0xFF1F0818), Color(0xFF880E4F), Color(0xFFFF007F), Color(0xFF00F5FF), Color(0xFFCCFF00)),
+        DashboardTheme(7, "Naranja Fuego Volcánico", Color(0xFF0D0703), Color(0xFF211208), Color(0xFFA84200), Color(0xFFFF6D00), Color(0xFFFFD600), Color(0xFFFF1744)),
+        DashboardTheme(8, "Verde Neón Tóxico", Color(0xFF030D05), Color(0xFF0A240F), Color(0xFF1B5E20), Color(0xFF00FF66), Color(0xFFB2FF59), Color(0xFFFF3D00)),
+        DashboardTheme(9, "Hyper Violeta", Color(0xFF080312), Color(0xFF160A2D), Color(0xFF4A148C), Color(0xFFD500F9), Color(0xFF29B6F6), Color(0xFFFFEE58)),
+
+        // =========================================================================
+        // 🌸 3. TONOS SUAVES Y PASTELES (ELEGANTES Y RELAJANTES)
+        // =========================================================================
+        DashboardTheme(10, "Menta Suave Pastel", Color(0xFF0A1210), Color(0xFF142420), Color(0xFF2E5A4C), Color(0xFF80CBC4), Color(0xFFA5D6A7), Color(0xFFFFAB91)),
+        DashboardTheme(11, "Lavanda Nocturna", Color(0xFF0F0C1B), Color(0xFF1C1830), Color(0xFF453A68), Color(0xFFCE93D8), Color(0xFF9FA8DA), Color(0xFFFFCC80)),
+        DashboardTheme(12, "Turquesa Brisa Marina", Color(0xFF06141B), Color(0xFF11252D), Color(0xFF254B5A), Color(0xFF80DEEA), Color(0xFF80CBC4), Color(0xFFFF8A80)),
+        DashboardTheme(13, "Rosa Pastel & Cyan", Color(0xFF140A10), Color(0xFF261420), Color(0xFF5E2B4E), Color(0xFFF48FB1), Color(0xFF80DEEA), Color(0xFFFFE082)),
+        DashboardTheme(14, "Crema & Albaricoque", Color(0xFF140E0A), Color(0xFF261D16), Color(0xFF594130), Color(0xFFFFCC80), Color(0xFFBCAAA4), Color(0xFF80CBC4)),
+
+        // =========================================================================
+        // 🏆 4. LUJO, METÁLICOS Y EDICIONES VIP
+        // =========================================================================
+        DashboardTheme(15, "Oro Imperial Luxury", Color(0xFF000000), Color(0xFF0F0D05), Color(0xFF5E4E0A), Color(0xFFFFD700), Color(0xFFFFF59D), Color(0xFFFF3D00)),
+        DashboardTheme(16, "Platino Titanio", Color(0xFF0D1015), Color(0xFF1E242E), Color(0xFF607D8B), Color(0xFFFFFFFF), Color(0xFF80D8FF), Color(0xFFFFD600)),
+        DashboardTheme(17, "Cobre Ejecutivo", Color(0xFF0E0B08), Color(0xFF211812), Color(0xFF5C3A21), Color(0xFFFF8A65), Color(0xFFD7CCC8), Color(0xFFFFD54F)),
+        DashboardTheme(18, "Calamar Carbón & Plata", Color(0xFF08090A), Color(0xFF14171A), Color(0xFF363B42), Color(0xFFE0E0E0), Color(0xFF90A4AE), Color(0xFFFF5252)),
+        DashboardTheme(19, "Noche Zafiro & Oro", Color(0xFF04060F), Color(0xFF0D1326), Color(0xFF1D2D59), Color(0xFF448AFF), Color(0xFFFFD700), Color(0xFFFF5252)),
+
+        // =========================================================================
+        // 🏎️ 5. DEPORTIVOS Y RACING HERITAGE
+        // =========================================================================
+        DashboardTheme(20, "Gulf Racing Classic", Color(0xFF081018), Color(0xFF112030), Color(0xFF214468), Color(0xFF81D4FA), Color(0xFFFF8A65), Color(0xFFFFFFFF)),
+        DashboardTheme(21, "Scuderia Monza", Color(0xFF0A0202), Color(0xFF1F0808), Color(0xFF6B0F0F), Color(0xFFFF1744), Color(0xFFFFEA00), Color(0xFFFFFFFF)),
+        DashboardTheme(22, "Carbono M Performance", Color(0xFF000000), Color(0xFF0F1218), Color(0xFF1F2838), Color(0xFF2979FF), Color(0xFFFF1744), Color(0xFF00E5FF)),
+        DashboardTheme(23, "Amarillo Speed GT", Color(0xFF0A0A02), Color(0xFF1A1A05), Color(0xFF52520B), Color(0xFFFFEA00), Color(0xFF00E5FF), Color(0xFFFF3D00)),
+        DashboardTheme(24, "Verde Británico Racing", Color(0xFF020A05), Color(0xFF081C0F), Color(0xFF114223), Color(0xFF00C853), Color(0xFFFFD700), Color(0xFF00E5FF)),
+
+        // =========================================================================
+        // 🌌 6. AMBIENTALES, DEVANECIDOS Y NATURALEZA
+        // =========================================================================
+        DashboardTheme(25, "Aurora Boreal", Color(0xFF030D12), Color(0xFF091E26), Color(0xFF144552), Color(0xFF00E676), Color(0xFF00B0FF), Color(0xFFD500F9)),
+        DashboardTheme(26, "Puesta de Sol Acapulco", Color(0xFF0F050C), Color(0xFF240D1D), Color(0xFF5E1A48), Color(0xFFFF4081), Color(0xFFFF6D00), Color(0xFFFFD600)),
+        DashboardTheme(27, "Océano Profundo", Color(0xFF020B14), Color(0xFF06182B), Color(0xFF0E3860), Color(0xFF00B8D4), Color(0xFF004D40), Color(0xFFFFAB00)),
+        DashboardTheme(28, "Cielo Estrellado", Color(0xFF050510), Color(0xFF0E0E24), Color(0xFF232354), Color(0xFF7C4DFF), Color(0xFF536DFE), Color(0xFFFFD54F)),
+        DashboardTheme(29, "Coral & Turquesa", Color(0xFF041014), Color(0xFF0B222A), Color(0xFF1A4D5C), Color(0xFF1DE9B6), Color(0xFFFF5252), Color(0xFFFFD600))
     )
 
     fun getSavedTheme(context: Context): DashboardTheme {
@@ -164,7 +207,7 @@ fun ThemeSelectorModal(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "PERSONALIZACIÓN DEL TABLERO",
+                            text = "PERSONALIZACIÓN Y ESTILO DEL TABLERO",
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
@@ -193,7 +236,7 @@ fun ThemeSelectorModal(
                         color = currentTheme.cardBackground,
                         shape = RoundedCornerShape(18.dp),
                         modifier = Modifier
-                            .weight(1.1f)
+                            .weight(1.0f)
                             .fillMaxHeight()
                             .border(1.dp, currentTheme.cardBorder, RoundedCornerShape(18.dp))
                     ) {
@@ -399,17 +442,22 @@ fun ThemeSelectorModal(
                         }
                     }
 
-                    // COLUMNA DERECHA: PALETAS MUNDO DE COLORES
+                    // COLUMNA DERECHA: SELECCIÓN DE TEMAS EN GRILLA
                     Surface(
                         color = currentTheme.cardBackground,
                         shape = RoundedCornerShape(18.dp),
                         modifier = Modifier
-                            .weight(1.1f)
+                            .weight(1.3f)
                             .fillMaxHeight()
                             .border(1.dp, currentTheme.cardBorder, RoundedCornerShape(18.dp))
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
-                            Text("Estilo de Colores del Auto", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "Colección de Estilos (${ThemeManager.themes.size} Temas)",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                             Spacer(modifier = Modifier.height(10.dp))
 
                             LazyVerticalGrid(
@@ -426,9 +474,9 @@ fun ThemeSelectorModal(
                                         shape = RoundedCornerShape(14.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(60.dp)
+                                            .height(62.dp)
                                             .border(
-                                                width = if (isSelected) 2.dp else 1.dp,
+                                                width = if (isSelected) 2.5.dp else 1.dp,
                                                 color = if (isSelected) theme.accentCyan else theme.cardBorder,
                                                 shape = RoundedCornerShape(14.dp)
                                             )
@@ -444,12 +492,21 @@ fun ThemeSelectorModal(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Text(theme.name, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text(
+                                                text = theme.name,
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.weight(1f),
+                                                maxLines = 2
+                                            )
+
+                                            Spacer(modifier = Modifier.width(4.dp))
 
                                             Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                                                Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(theme.accentCyan))
-                                                Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(theme.accentPurple))
-                                                Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(theme.accentOrange))
+                                                Box(modifier = Modifier.size(11.dp).clip(CircleShape).background(theme.accentCyan))
+                                                Box(modifier = Modifier.size(11.dp).clip(CircleShape).background(theme.accentPurple))
+                                                Box(modifier = Modifier.size(11.dp).clip(CircleShape).background(theme.accentOrange))
                                             }
                                         }
                                     }
