@@ -125,7 +125,7 @@ fun ModernMediaPlayerWidget(
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(62.dp)
+                .width(120.dp)
                 .background(Color(0xFF1A1A1A))
                 .verticalScroll(sidebarScrollState)
                 .padding(vertical = 8.dp),
