@@ -44,7 +44,8 @@
     <!-- 6. PERMISO CRÍTICO PARA VER APPS INSTALADAS EN ANDROID 11, 12, 13, 14 -->
     <!-- Sin esto, Android oculta las aplicaciones por seguridad               -->
     <!-- ===================================================================== -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
 
     <!-- PERMISOS OBLIGATORIOS PARA LEER VIDEOS Y MÚSICA DE USB Y TABLET -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
@@ -57,6 +58,9 @@
     <!-- PERMISO DE ACCESO TOTAL A ARCHIVOS PARA RADIOS Y TABLETS (ANDROID 11+) -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
 
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
     <!-- PERMISO OBLIGATORIO PARA CONTROLAR EL HARDWARE DE BRILLO EN TABLETS DE AUTO -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -64,6 +68,7 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+
         </intent>
     </queries>
 
@@ -78,6 +83,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.TabletLauncher"
         android:requestLegacyExternalStorage="true"
+        android:usesCleartextTraffic="true"
         tools:targetApi="31">
 
         <!-- IMPORTANTE: Revisa que el 'theme' de arriba coincida con el nombre que te dio Android Studio -->

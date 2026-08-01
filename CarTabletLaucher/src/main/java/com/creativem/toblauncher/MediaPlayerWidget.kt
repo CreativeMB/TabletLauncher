@@ -1,14 +1,26 @@
 package com.creativem.toblauncher
 
+import android.content.Context
+import android.content.Intent
 import android.os.Environment
+import android.widget.VideoView
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -21,120 +33,129 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.io.File
-import android.widget.VideoView
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.lazy.itemsIndexed
 
-// 1. ENUM PARA LOS 3 MODOS
+// =========================================================================
+// 1. ENUM PARA LOS 4 MODOS
+// =========================================================================
 enum class MediaMode {
-    MUSIC, VIDEO, IPTV
+    MUSIC, VIDEO, RADIO, IPTV
 }
 
-// 2. WIDGET CON CONMUTACIÓN EXCLUSIVA DE REPRODUCTORES
+// =========================================================================
+// 2. WIDGET CON CONMUTACIÓN EXCLUSIVA Y AUTO-ARRANQUE EN LA POSICIÓN #1
+// =========================================================================
 @Composable
 fun ModernMediaPlayerWidget(
     currentMode: MediaMode = MediaMode.MUSIC,
     onModeChange: (MediaMode) -> Unit = {},
     onExpandMusicFullscreen: () -> Unit = {},
     onExpandVideoFullscreen: () -> Unit = {},
-    onExpandIptvFullscreen: () -> Unit = {}
+    onExpandIptvFullscreen: () -> Unit = {},
+    onExpandRadioFullscreen: () -> Unit = {}
 ) {
     val theme = LocalDashboardTheme.current
     val context = LocalContext.current
 
-    // Instancias singleton de los reproductores
+    // Carga inicial del orden de íconos guardado en la tablet
+    var tabOrder by remember { mutableStateOf(getSavedMediaTabOrder(context)) }
+    var showReorderModal by remember { mutableStateOf(false) }
+
+    // Estado de Scroll para la barra lateral
+    val sidebarScrollState = rememberScrollState()
+
+    // Instancias singleton de reproductores
     val musicPlayer = remember { SmartMusicPlayer.getInstance(context) }
     val videoPlayer = remember { SmartVideoPlayer.getInstance(context) }
+    val radioPlayer = remember { SmartRadioManager.getInstance(context) }
     val iptvPlayer = remember { SmartIptvPlayer.getInstance(context) }
 
     // =========================================================================
-    // CONTROLADOR DE EXCLUSIVIDAD: PAUSA AUTOMÁTICAMENTE EL REPRODUCTOR ANTERIOR
+    // ✅ AUTO-DISPARAR EL MODO DE LA POSICIÓN #1 AL ABRIR EL LAUNCHER
+    // =========================================================================
+    LaunchedEffect(Unit) {
+        if (tabOrder.isNotEmpty()) {
+            val firstPreferredMode = tabOrder.first()
+            if (currentMode != firstPreferredMode) {
+                onModeChange(firstPreferredMode)
+            }
+        }
+    }
+
+    // =========================================================================
+    // CONTROLADOR DE EXCLUSIVIDAD TOTAL (GARANTIZA UN SOLO AUDIO ACTIVO)
     // =========================================================================
     LaunchedEffect(currentMode) {
         when (currentMode) {
             MediaMode.MUSIC -> {
-                // Al entrar a Música: Pausar Video
-                try {
-                    if (videoPlayer.isPlaying) {
-                        videoPlayer.mediaPlayer?.pause()
-                        videoPlayer.isPlaying = false
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+                try { radioPlayer.stopPlayback() } catch (e: Exception) { e.printStackTrace() }
+                try { videoPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
+                try { iptvPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
             }
             MediaMode.VIDEO -> {
-                // Al entrar a Video: Pausar Música
-                try {
-                    if (musicPlayer.isPlaying) {
-                        musicPlayer.togglePlayPause()
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+                try { radioPlayer.stopPlayback() } catch (e: Exception) { e.printStackTrace() }
+                try { musicPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
+                try { iptvPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
+            }
+            MediaMode.RADIO -> {
+                try { musicPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
+                try { videoPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
+                try { iptvPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
             }
             MediaMode.IPTV -> {
+                try { radioPlayer.stopPlayback() } catch (e: Exception) { e.printStackTrace() }
                 try { musicPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
                 try { videoPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
             }
         }
-
     }
 
     Row(
         modifier = Modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF141414))
-            .padding(8.dp),
+            .background(Color(0xFF141414)),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // --- 1. BARRA LATERAL IZQUIERDA (MENÚ DE NAVEGACIÓN) ---
+        // BARRA LATERAL DINÁMICA CON SCROLL
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(38.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF1E1E1E))
-                .padding(vertical = 4.dp),
-            verticalArrangement = Arrangement.SpaceEvenly,
+                .width(62.dp)
+                .background(Color(0xFF1A1A1A))
+                .verticalScroll(sidebarScrollState)
+                .padding(vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            VerticalIconButton(
-                icon = Icons.Default.MusicNote,
-                isSelected = currentMode == MediaMode.MUSIC,
-                activeColor = theme.accentCyan,
-                onClick = { onModeChange(MediaMode.MUSIC) }
-            )
+            tabOrder.forEach { mode ->
+                val (icon, color) = when (mode) {
+                    MediaMode.MUSIC -> Icons.Default.MusicNote to theme.accentCyan
+                    MediaMode.VIDEO -> Icons.Default.PlayCircle to theme.accentOrange
+                    MediaMode.RADIO -> Icons.Default.Radio to Color(0xFF00E676)
+                    MediaMode.IPTV -> Icons.Default.Tv to theme.accentPurple
+                }
 
-            VerticalIconButton(
-                icon = Icons.Default.PlayCircle,
-                isSelected = currentMode == MediaMode.VIDEO,
-                activeColor = theme.accentOrange,
-                onClick = { onModeChange(MediaMode.VIDEO) }
-            )
-
-            VerticalIconButton(
-                icon = Icons.Default.Tv,
-                isSelected = currentMode == MediaMode.IPTV,
-                activeColor = theme.accentPurple,
-                onClick = { onModeChange(MediaMode.IPTV) }
-            )
+                SquareMediaTabButton(
+                    icon = icon,
+                    isSelected = currentMode == mode,
+                    activeColor = color,
+                    onClick = { onModeChange(mode) },
+                    onLongClick = { showReorderModal = true }
+                )
+            }
         }
 
-        Spacer(modifier = Modifier.width(6.dp))
-
-        // --- 2. CONTENIDO PRINCIPAL (DERECHA) ---
+        // CONTENIDO PRINCIPAL REPRODUCTOR
         Box(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxHeight(),
+                .fillMaxHeight()
+                .padding(8.dp),
             contentAlignment = Alignment.Center
         ) {
             AnimatedContent(
@@ -151,6 +172,11 @@ fun ModernMediaPlayerWidget(
                         theme = theme,
                         onExpandFullscreen = onExpandVideoFullscreen
                     )
+
+                    MediaMode.RADIO -> RadioPlayerView(
+                        theme = theme,
+                    )
+
                     MediaMode.IPTV -> IptvPlayerView(
                         theme = theme,
                         onExpandFullscreen = onExpandIptvFullscreen
@@ -159,39 +185,512 @@ fun ModernMediaPlayerWidget(
             }
         }
     }
+
+    // Modal de reorganización
+    if (showReorderModal) {
+        ReorderMediaTabsModal(
+            currentOrder = tabOrder,
+            onDismiss = { showReorderModal = false },
+            onOrderSaved = { newOrder ->
+                tabOrder = newOrder
+                saveMediaTabOrder(context, newOrder)
+
+                if (newOrder.isNotEmpty()) {
+                    onModeChange(newOrder.first())
+                }
+            }
+        )
+    }
 }
 
-// COMPONENTE DE ICONO VERTICAL
+// =========================================================================
+// 3. MODAL REORGANIZADOR
+// =========================================================================
 @Composable
-private fun VerticalIconButton(
+fun ReorderMediaTabsModal(
+    currentOrder: List<MediaMode>,
+    onDismiss: () -> Unit,
+    onOrderSaved: (List<MediaMode>) -> Unit
+) {
+    var tabsList by remember { mutableStateOf(currentOrder.toMutableList()) }
+    val theme = LocalDashboardTheme.current
+    val modalScrollState = rememberScrollState()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1E1E24),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.SwapVert, contentDescription = null, tint = theme.accentCyan)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Organizar Menú de Medios", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 260.dp)
+                    .verticalScroll(modalScrollState),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("El ícono en el puesto #1 será el que arrancarás al encender el auto:", color = Color.Gray, fontSize = 11.sp)
+
+                tabsList.forEachIndexed { index, mode ->
+                    val (title, icon, color) = when (mode) {
+                        MediaMode.MUSIC -> Triple("Música USB", Icons.Default.MusicNote, theme.accentCyan)
+                        MediaMode.VIDEO -> Triple("Videos USB", Icons.Default.PlayCircle, theme.accentOrange)
+                        MediaMode.RADIO -> Triple("Radio Online", Icons.Default.Radio, Color(0xFF00E676))
+                        MediaMode.IPTV -> Triple("Televisión IPTV", Icons.Default.Tv, theme.accentPurple)
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF282832))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "${index + 1}.",
+                                color = if (index == 0) theme.accentCyan else Color.Gray,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(imageVector = icon, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(text = title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Row {
+                            IconButton(
+                                enabled = index > 0,
+                                onClick = {
+                                    val mutable = tabsList.toMutableList()
+                                    val temp = mutable[index]
+                                    mutable[index] = mutable[index - 1]
+                                    mutable[index - 1] = temp
+                                    tabsList = mutable
+                                }
+                            ) {
+                                Icon(Icons.Default.ArrowUpward, contentDescription = "Subir", tint = if (index > 0) Color.White else Color.DarkGray)
+                            }
+
+                            IconButton(
+                                enabled = index < tabsList.size - 1,
+                                onClick = {
+                                    val mutable = tabsList.toMutableList()
+                                    val temp = mutable[index]
+                                    mutable[index] = mutable[index + 1]
+                                    mutable[index + 1] = temp
+                                    tabsList = mutable
+                                }
+                            ) {
+                                Icon(Icons.Default.ArrowDownward, contentDescription = "Bajar", tint = if (index < tabsList.size - 1) Color.White else Color.DarkGray)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onOrderSaved(tabsList)
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan)
+            ) {
+                Text("Guardar Cambios", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("Cancelar", color = Color.White)
+            }
+        }
+    )
+}
+
+// =========================================================================
+// 🔲 BOTÓN CUADRADO QUE CRECE CON EL TEMA DE LA APLICACIÓN
+// =========================================================================
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun SquareMediaTabButton(
     icon: ImageVector,
     isSelected: Boolean,
     activeColor: Color,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
 ) {
+    val buttonScale = LocalButtonScale.current
+
     Box(
         modifier = Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(if (isSelected) activeColor.copy(alpha = 0.25f) else Color.Transparent)
-            .clickable { onClick() },
+            .size((48 * buttonScale).dp)
+            .clip(RoundedCornerShape((12 * buttonScale).dp))
+            .background(
+                if (isSelected) activeColor.copy(alpha = 0.2f)
+                else Color(0xFF252525)
+            )
+            .border(
+                width = if (isSelected) 2.dp else 0.dp,
+                color = if (isSelected) activeColor else Color.Transparent,
+                shape = RoundedCornerShape((12 * buttonScale).dp)
+            )
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = if (isSelected) activeColor else Color.Gray,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size((26 * buttonScale).dp)
         )
     }
 }
 
-// --- VISTA DE MÚSICA CON EXPLORADOR INTERNO NATIVO ---
+// =========================================================================
+// 📻 VISTA DE RADIO ONLINE EN VIVO (CON CONTROL EXCLUSIVO DE AUDIO)
+// =========================================================================
+@Composable
+fun RadioPlayerView(
+    theme: DashboardTheme
+) {
+    val context = LocalContext.current
+    val buttonScale = LocalButtonScale.current
+
+    val radioManager = remember { SmartRadioManager.getInstance(context) }
+
+    // Verificación flexible de conexión
+    var isOnline by remember { mutableStateOf(radioManager.isConnectedToInternet()) }
+
+    val currentStation = radioManager.stationList.getOrNull(radioManager.currentStationIndex)
+    var favoriteIds by remember { mutableStateOf(radioManager.getSavedFavorites()) }
+
+    val isFavorite = currentStation != null && favoriteIds.contains(currentStation.id)
+
+    // ✅ REPRODUCCIÓN INICIAL LIMPIA AL ABRIR LA RADIO
+    // (Sin DisposableEffect para evitar que la animación de Compose mate la señal)
+    LaunchedEffect(Unit) {
+        isOnline = radioManager.isConnectedToInternet()
+        if (isOnline && !radioManager.isPlaying && !radioManager.isLoading) {
+            radioManager.playStationAtIndex(radioManager.currentStationIndex)
+        }
+    }
+
+    // PANTALLA DE ADVERTENCIA SOLO SI REALMENTE NO HAY INTERNET
+    if (!isOnline) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF0F0F14))
+                .padding(12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.WifiOff,
+                    contentDescription = null,
+                    tint = Color.Red,
+                    modifier = Modifier.size(36.dp)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Se requiere Internet para Radio Online",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        isOnline = true
+                        radioManager.playStationAtIndex(radioManager.currentStationIndex)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan)
+                ) {
+                    Text("Reintentar Conexión", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        return
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF0B1E16),
+                        Color(0xFF141414),
+                        theme.accentCyan.copy(alpha = 0.15f)
+                    )
+                )
+            )
+            .padding(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // --- SECCIÓN IZQUIERDA: INFORMACIÓN DE EMISORA Y CONTROLES ---
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // CABECERA
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Radio,
+                        contentDescription = "Radio",
+                        tint = Color(0xFF00E676),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Radio Online HD",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                // BOTÓN CORAZÓN (FAVORITOS)
+                IconButton(
+                    onClick = {
+                        if (currentStation != null) {
+                            val newFavs = if (isFavorite) {
+                                favoriteIds - currentStation.id
+                            } else {
+                                (favoriteIds + currentStation.id).distinct()
+                            }
+                            favoriteIds = newFavs
+                            radioManager.saveFavorites(newFavs)
+                        }
+                    },
+                    modifier = Modifier.size(30.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "Favorito",
+                        tint = if (isFavorite) Color.Red else Color.Gray,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // DATOS DE LA EMISORA ACTUAL
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = currentStation?.name ?: "Selecciona Emisora",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "${currentStation?.freqLabel} • ${currentStation?.city}",
+                        color = Color(0xFF00E676),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Text(
+                    text = currentStation?.genre ?: "",
+                    color = Color.Gray,
+                    fontSize = 10.sp
+                )
+            }
+
+            // BOTONES DE CONTROL DE STREAMING
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Emisora Anterior
+                IconButton(
+                    onClick = { radioManager.playPreviousStation() },
+                    modifier = Modifier
+                        .size((38 * buttonScale).dp)
+                        .background(Color(0xFF22222E), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SkipPrevious,
+                        contentDescription = "Anterior",
+                        tint = Color.White,
+                        modifier = Modifier.size((24 * buttonScale).dp)
+                    )
+                }
+
+                // Play / Pausa (Con indicador de Carga)
+                IconButton(
+                    onClick = { radioManager.togglePlayPause() },
+                    modifier = Modifier
+                        .size((48 * buttonScale).dp)
+                        .background(Color(0xFF00E676), CircleShape)
+                ) {
+                    if (radioManager.isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size((24 * buttonScale).dp),
+                            color = Color.Black,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = if (radioManager.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = "Play/Pausa",
+                            tint = Color.Black,
+                            modifier = Modifier.size((28 * buttonScale).dp)
+                        )
+                    }
+                }
+
+                // Emisora Siguiente
+                IconButton(
+                    onClick = { radioManager.playNextStation() },
+                    modifier = Modifier
+                        .size((38 * buttonScale).dp)
+                        .background(Color(0xFF22222E), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SkipNext,
+                        contentDescription = "Siguiente",
+                        tint = Color.White,
+                        modifier = Modifier.size((24 * buttonScale).dp)
+                    )
+                }
+            }
+        }
+
+        // --- SECCIÓN DERECHA: LISTA DE EMISORAS DISPONIBLES ---
+        Column(
+            modifier = Modifier
+                .widthIn(min = 120.dp, max = 160.dp)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF18181F))
+                .padding(6.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "EMISORAS",
+                    color = Color.Gray,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+                Icon(
+                    imageVector = Icons.Default.Radio,
+                    contentDescription = null,
+                    tint = Color(0xFF00E676),
+                    modifier = Modifier.size(12.dp)
+                )
+            }
+
+            // LISTA CON SCROLL DE TODAS LAS EMISORAS
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                itemsIndexed(radioManager.stationList) { index, station ->
+                    val isCurrentSelected = index == radioManager.currentStationIndex
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(
+                                if (isCurrentSelected) Color(0xFF00E676).copy(alpha = 0.25f)
+                                else Color(0xFF252530)
+                            )
+                            .border(
+                                width = if (isCurrentSelected) 1.dp else 0.dp,
+                                color = if (isCurrentSelected) Color(0xFF00E676) else Color.Transparent,
+                                shape = RoundedCornerShape(6.dp)
+                            )
+                            .clickable {
+                                radioManager.playStationAtIndex(index)
+                            }
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = station.name,
+                                color = if (isCurrentSelected) Color(0xFF00E676) else Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                            Text(
+                                text = station.freqLabel,
+                                color = Color.Gray,
+                                fontSize = 8.sp,
+                                maxLines = 1
+                            )
+                        }
+
+                        if (favoriteIds.contains(station.id)) {
+                            Icon(
+                                imageVector = Icons.Default.Favorite,
+                                contentDescription = null,
+                                tint = Color.Red,
+                                modifier = Modifier.size(10.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 🎵 VISTA DE MÚSICA
+// =========================================================================
 @Composable
 fun MusicPlayerView(
     theme: DashboardTheme,
-    onExpandFullscreen: () -> Unit = {},
-    onExpandVideoFullscreen: () -> Unit = {}
+    onExpandFullscreen: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val musicPlayer = remember { SmartMusicPlayer.getInstance(context) }
@@ -199,9 +698,6 @@ fun MusicPlayerView(
 
     val currentTrack = musicPlayer.playlist.getOrNull(musicPlayer.currentTrackIndex)
 
-    // =========================================================================
-    // AUTO-DISPARO INMEDIATO: REPRODUCE DE UNA AL ENTRAR AL MODO MÚSICA
-    // =========================================================================
     LaunchedEffect(musicPlayer.playlist.isNotEmpty()) {
         if (!musicPlayer.isPlaying && musicPlayer.playlist.isNotEmpty()) {
             val indexToPlay = if (musicPlayer.currentTrackIndex in musicPlayer.playlist.indices) {
@@ -209,7 +705,6 @@ fun MusicPlayerView(
             } else {
                 0
             }
-            // Reanuda desde el último milisegundo guardado o inicia la pista
             musicPlayer.playTrackAtIndex(indexToPlay, musicPlayer.currentPositionMs)
         }
     }
@@ -234,7 +729,6 @@ fun MusicPlayerView(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // CABECERA CON BOTÓN DE EXPLORADOR
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -279,7 +773,6 @@ fun MusicPlayerView(
                 }
             }
 
-            // --- CONTADORES DE TIEMPO Y BARRA DE PROGRESO ---
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -334,7 +827,6 @@ fun MusicPlayerView(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Shuffle
                 IconButton(
                     onClick = { musicPlayer.toggleShuffle() },
                     modifier = Modifier.size((38 * buttonScale).dp)
@@ -347,7 +839,6 @@ fun MusicPlayerView(
                     )
                 }
 
-                // Anterior
                 IconButton(
                     onClick = { musicPlayer.playPreviousTrack() },
                     modifier = Modifier
@@ -362,7 +853,6 @@ fun MusicPlayerView(
                     )
                 }
 
-                // Play / Pausa
                 IconButton(
                     onClick = { musicPlayer.togglePlayPause() },
                     modifier = Modifier
@@ -377,7 +867,6 @@ fun MusicPlayerView(
                     )
                 }
 
-                // Siguiente
                 IconButton(
                     onClick = { musicPlayer.playNextTrack(userTriggered = true) },
                     modifier = Modifier
@@ -392,7 +881,6 @@ fun MusicPlayerView(
                     )
                 }
 
-                // Expandir Pantalla
                 IconButton(
                     onClick = { onExpandFullscreen() },
                     modifier = Modifier.size((38 * buttonScale).dp)
@@ -405,7 +893,6 @@ fun MusicPlayerView(
                     )
                 }
 
-                // AutoStart
                 IconButton(
                     onClick = { musicPlayer.toggleAutoPlay() },
                     modifier = Modifier.size((38 * buttonScale).dp)
@@ -430,7 +917,7 @@ fun MusicPlayerView(
         }
     }
 }
-// FUNCIÓN AUXILIAR FORMATO TIEMPO
+
 private fun formatMs(ms: Long): String {
     if (ms <= 0L) return "00:00"
     val totalSeconds = ms / 1000
@@ -439,6 +926,9 @@ private fun formatMs(ms: Long): String {
     return String.format("%02d:%02d", minutes, seconds)
 }
 
+// =========================================================================
+// 🎬 VISTA DE VIDEO
+// =========================================================================
 @Composable
 fun VideoPlayerView(
     theme: DashboardTheme,
@@ -454,23 +944,18 @@ fun VideoPlayerView(
     val interactionSource = remember { MutableInteractionSource() }
     val buttonScale = LocalButtonScale.current
 
-    // =========================================================================
-    // RECONEXIÓN AUTOMÁTICA AL REGRESAR DE PANTALLA COMPLETA
-    // =========================================================================
     LaunchedEffect(videoPlayer.playlist.isNotEmpty(), videoPlayer.isFullscreenActive) {
         if (!videoPlayer.isFullscreenActive && videoPlayer.playlist.isNotEmpty()) {
             val targetIndex = if (videoPlayer.currentTrackIndex in videoPlayer.playlist.indices) {
                 videoPlayer.currentTrackIndex
             } else 0
 
-            // Si no está reproduciendo al regresar de pantalla completa, reconecta desde el principio
             if (!videoPlayer.isPlaying) {
                 videoPlayer.playVideoAtIndex(targetIndex, 0L)
             }
         }
     }
 
-    // TEMPORIZADOR DE 5 SEGUNDOS PARA OCULTAR INTERFAZ
     LaunchedEffect(showUI, videoPlayer.isPlaying) {
         if (showUI && videoPlayer.isPlaying) {
             kotlinx.coroutines.delay(5000L)
@@ -519,7 +1004,6 @@ fun VideoPlayerView(
                     val currentPlayingUri = view.tag as? String
                     val newUri = currentVideo.uri.toString()
 
-                    // ✅ RECONEXIÓN DINÁMICA: Solo actualiza el VideoView si la pantalla completa NO está activa
                     if (!videoPlayer.isFullscreenActive) {
                         if (currentPlayingUri != newUri || !view.isPlaying) {
                             view.tag = newUri
@@ -532,7 +1016,6 @@ fun VideoPlayerView(
                             }
                         }
                     } else {
-                        // Limpia el estado mientras la pantalla completa esté abierta para evitar congelamientos
                         view.tag = null
                         view.stopPlayback()
                     }
@@ -742,7 +1225,9 @@ fun VideoPlayerView(
     }
 }
 
-// --- VISTA IPTV CON CONTROLES TÁCTILES DESAPARECIBLES Y SEÑAL COMPLETA AJUSTADA ---
+// =========================================================================
+// 📺 VISTA DE IPTV
+// =========================================================================
 @Composable
 fun IptvPlayerView(
     theme: DashboardTheme,
@@ -760,16 +1245,12 @@ fun IptvPlayerView(
 
     val isOnline = remember(iptvPlayer.currentChannelIndex) { iptvPlayer.isConnectedToInternet() }
 
-    // =========================================================================
-    // AUTO-CARGA Y RECONEXIÓN AUTOMÁTICA AL REGRESAR DE PANTALLA COMPLETA
-    // =========================================================================
     LaunchedEffect(iptvPlayer.playlist.isNotEmpty(), iptvPlayer.isFullscreenActive) {
         if (!iptvPlayer.isFullscreenActive && iptvPlayer.playlist.isNotEmpty()) {
             val targetIndex = if (iptvPlayer.currentChannelIndex in iptvPlayer.playlist.indices) {
                 iptvPlayer.currentChannelIndex
             } else 0
 
-            // Si el reproductor no está sonando al regresar de pantalla completa, reconecta
             if (!iptvPlayer.isPlaying) {
                 iptvPlayer.playChannelAtIndex(targetIndex)
             }
@@ -827,7 +1308,6 @@ fun IptvPlayerView(
                     val currentPlayingUri = view.tag as? String
                     val newUrl = currentChannel.streamUrl
 
-                    // ✅ RECONEXIÓN DINÁMICA: Solo procesa señal si la pantalla completa NO está activa
                     if (!iptvPlayer.isFullscreenActive) {
                         if (currentPlayingUri != newUrl || !view.isPlaying) {
                             view.tag = newUrl
@@ -839,7 +1319,6 @@ fun IptvPlayerView(
                             }
                         }
                     } else {
-                        // Limpia el estado en el fondo mientras esté abierta la pantalla completa
                         view.tag = null
                         view.stopPlayback()
                     }
@@ -1010,5 +1489,27 @@ fun IptvPlayerView(
                 }
             )
         }
+    }
+}
+
+// =========================================================================
+// 💾 FUNCIONES DE PERSISTENCIA GENERAL
+// =========================================================================
+fun saveMediaTabOrder(context: Context, newOrder: List<MediaMode>) {
+    val prefs = context.getSharedPreferences("media_widget_prefs", Context.MODE_PRIVATE)
+    val serialized = newOrder.joinToString(",") { it.name }
+    prefs.edit().putString("tab_order_v1", serialized).apply()
+}
+
+fun getSavedMediaTabOrder(context: Context): List<MediaMode> {
+    val prefs = context.getSharedPreferences("media_widget_prefs", Context.MODE_PRIVATE)
+    val savedStr = prefs.getString("tab_order_v1", null)
+    if (savedStr.isNullOrEmpty()) {
+        return listOf(MediaMode.MUSIC, MediaMode.VIDEO, MediaMode.RADIO, MediaMode.IPTV)
+    }
+    return try {
+        savedStr.split(",").map { MediaMode.valueOf(it) }
+    } catch (e: Exception) {
+        listOf(MediaMode.MUSIC, MediaMode.VIDEO, MediaMode.RADIO, MediaMode.IPTV)
     }
 }

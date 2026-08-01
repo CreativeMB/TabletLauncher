@@ -72,11 +72,11 @@ class MapRefs {
 // DIBUJADO DEL INDICADOR GPS
 // ==========================================
 fun createStaticGpsBitmap(): Bitmap {
-    val size = 140
+    val size = 120
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val center = size / 2f
-    val innerDotRadius = 18f
+    val innerDotRadius = 14f
 
     val pulsePaint = Paint().apply {
         color = android.graphics.Color.argb(70, 66, 133, 244)
@@ -104,8 +104,8 @@ fun createStaticGpsBitmap(): Bitmap {
         strokeWidth = 6f
     }
 
-    canvas.drawCircle(center, center, 35f, pulsePaint)
-    canvas.drawCircle(center, center, 35f, pulseStrokePaint)
+    canvas.drawCircle(center, center, 30f, pulsePaint)
+    canvas.drawCircle(center, center, 30f, pulseStrokePaint)
     canvas.drawCircle(center, center, innerDotRadius, dotPaint)
     canvas.drawCircle(center, center, innerDotRadius, whiteBorderPaint)
 

@@ -5,9 +5,14 @@ import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
+import android.text.style.AlignmentSpan
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -34,23 +39,17 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.android.gms.location.*
 import kotlinx.coroutines.isActive
 import org.mapsforge.map.android.graphics.AndroidGraphicFactory
 
-import android.net.Uri
-import android.os.Environment
-import android.os.PowerManager
-import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // ✅ FONDO NEGRO ABSOLUTO DESDE EL PRIMER MILISEGUNDO DE ARRANQUE (Evita destellos)
+        // ✅ FONDO NEGRO ABSOLUTO DESDE EL PRIMER MILISEGUNDO DE ARRANQUE
         window.decorView.setBackgroundColor(android.graphics.Color.BLACK)
         // PANTALLA SIEMPRE ENCENDIDA
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -67,7 +66,6 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
 
-        promptDefaultLauncherSelection(this)
         // Solo solicitar launcher por defecto si NO es el launcher actual
         if (!isCurrentlyDefaultLauncher(this)) {
             promptDefaultLauncherSelection(this)
@@ -80,12 +78,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ✅ CRUCIAL: Captura cuando el usuario presiona "HOME" estando la app ya abierta
+    // ✅ Captura cuando el usuario presiona "HOME" estando la app ya abierta
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        // No recrea nada, simplemente regresa a la vista en vivo
     }
+
     override fun onDestroy() {
         super.onDestroy()
         try {
@@ -94,6 +92,7 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
     }
+
     private fun isCurrentlyDefaultLauncher(context: Context): Boolean {
         val intent = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_HOME)
@@ -101,6 +100,7 @@ class MainActivity : ComponentActivity() {
         val resolveInfo = context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
         return resolveInfo?.activityInfo?.packageName == context.packageName
     }
+
     private fun promptDefaultLauncherSelection(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val roleManager = context.getSystemService(RoleManager::class.java)
@@ -119,7 +119,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-// Función helper pura en Kotlin para verificar el estado de energía
+
+// Función helper para verificar el estado de energía
 fun isIgnoringBatteryOptimizations(context: Context): Boolean {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
@@ -128,6 +129,7 @@ fun isIgnoringBatteryOptimizations(context: Context): Boolean {
         true
     }
 }
+
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
@@ -153,7 +155,6 @@ fun MainScreen() {
         )
     }
 
-    // Cálculo inicial de paso
     fun calculateInitialStep(): Int {
         val hasLocation = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val hasStorage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -170,25 +171,22 @@ fun MainScreen() {
             !hasStorage -> 2
             !hasMic -> 3
             !hasBrightness -> 4
-            !hasBatteryExemption -> 5 // ✅ PASO 5: BATERÍA SIN RESTRICCIONES
+            !hasBatteryExemption -> 5
             else -> 0
         }
     }
 
     var currentStep by remember { mutableIntStateOf(calculateInitialStep()) }
 
-    // Launcher de Compose para manejar la respuesta del Intent del sistema
     val systemSettingsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
         currentStep = calculateInitialStep()
     }
 
-    // ✅ EFECTO COMPOSE: Detecta cuando el usuario vuelve de la configuración del sistema
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                // Al volver a primer plano, se recalcula si falta algún permiso
                 currentStep = calculateInitialStep()
             }
         }
@@ -265,9 +263,6 @@ fun MainScreen() {
                     }
                 )
 
-                // =========================================================================
-                // ✅ PASO 5: MODO ALTO RENDIMIENTO (COMPOSE NATIVO)
-                // =========================================================================
                 5 -> PermissionStepScreen(
                     title = "Modo Alto Rendimiento Auto",
                     description = "Como la tablet funciona con la energía del vehículo, quita los límites de energía para que el Launcher, la Radio y los Mapas NUNCA se detengan.",
@@ -277,7 +272,6 @@ fun MainScreen() {
                     customAction = {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                             try {
-                                // Solicita directamente la excepción de batería en un Intent
                                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                                     data = Uri.parse("package:${context.packageName}")
                                 }
@@ -386,25 +380,24 @@ fun CarDashboard(
     var currentSpeedKmH by remember { mutableFloatStateOf(0f) }
     var currentBearing by remember { mutableFloatStateOf(0f) }
 
-    var currentMediaMode by remember { mutableStateOf(MediaMode.MUSIC) }
+    // =========================================================================
+    // ✅ CORRECCIÓN CLAVE: INICIALIZA DINÁMICAMENTE CON EL REPRODUCTOR #1 DEL USUARIO
+    // =========================================================================
+    val initialMediaMode = remember { getSavedMediaTabOrder(context).firstOrNull() ?: MediaMode.MUSIC }
+    var currentMediaMode by remember { mutableStateOf(initialMediaMode) }
 
-    // =========================================================================
     // 1. INICIALIZAR Y VERIFICAR BRILLO AUTOMÁTICO DÍA/NOCHE CADA 30 SEGUNDOS
-    // =========================================================================
     LaunchedEffect(Unit) {
         activity?.let { act ->
             BrightnessManager.init(act)
             while (isActive) {
-                // Aplica automáticamente el brillo de Día (06:00-18:00) o Noche (18:00-06:00)
                 BrightnessManager.applyBrightnessToActivity(act)
-                kotlinx.coroutines.delay(30000L) // Revisa cada 30 segundos
+                kotlinx.coroutines.delay(30000L)
             }
         }
     }
 
-    // =========================================================================
     // 2. LECTURA GPS Y ACTUALIZACIÓN CONTINUA DE BRILLO Y VELOCIDAD
-    // =========================================================================
     DisposableEffect(Unit) {
         val fusedClient = LocationServices.getFusedLocationProviderClient(context)
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L).build()
@@ -416,7 +409,6 @@ fun CarDashboard(
                     currentBearing = loc.bearing
                 }
 
-                // Re-aplica la verificación de brillo con cada señal del GPS
                 activity?.let { act ->
                     BrightnessManager.applyBrightnessToActivity(act)
                 }
@@ -460,19 +452,19 @@ fun CarDashboard(
                     .background(theme.dashBackground)
                     .padding(16.dp)
             ) {
-                Row(
+                Column(
                     modifier = Modifier.fillMaxSize(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // --- COLUMNA IZQUIERDA ---
-                    Column(
+                    // 1. PARTE SUPERIOR: MAPA (40%) Y MULTIMEDIA (60%)
+                    Row(
                         modifier = Modifier
-                            .weight(1.1f)
-                            .fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                            .weight(1.2f)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         ModernDashboardCard(
-                            modifier = Modifier.weight(1.2f),
+                            modifier = Modifier.weight(0.4f),
                             title = null,
                             icon = Icons.Default.Map,
                             headerAction = {
@@ -487,6 +479,27 @@ fun CarDashboard(
                         }
 
                         ModernDashboardCard(
+                            modifier = Modifier.weight(0.6f),
+                            title = null
+                        ) {
+                            ModernMediaPlayerWidget(
+                                currentMode = currentMediaMode,
+                                onModeChange = { newMode: MediaMode -> currentMediaMode = newMode },
+                                onExpandMusicFullscreen = { showFullscreenMusic = true },
+                                onExpandVideoFullscreen = { showFullscreenVideo = true },
+                                onExpandIptvFullscreen = { showFullscreenIptv = true }
+                            )
+                        }
+                    }
+
+                    // 2. PARTE INFERIOR: VELOCÍMETRO (50%) Y APPS+RELOJ (50%)
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        ModernDashboardCard(
                             modifier = Modifier.weight(1f),
                             title = null
                         ) {
@@ -496,27 +509,6 @@ fun CarDashboard(
                                 onRequestAppSelection = { slot: Int ->
                                     activeAppDrawerTarget = slot
                                 }
-                            )
-                        }
-                    }
-
-                    // --- COLUMNA DERECHA ---
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        ModernDashboardCard(
-                            modifier = Modifier.weight(1.2f),
-                            title = null
-                        ) {
-                            ModernMediaPlayerWidget(
-                                currentMode = currentMediaMode,
-                                onModeChange = { newMode: MediaMode -> currentMediaMode = newMode },
-                                onExpandMusicFullscreen = { showFullscreenMusic = true },
-                                onExpandVideoFullscreen = { showFullscreenVideo = true },
-                                onExpandIptvFullscreen = { showFullscreenIptv = true }
                             )
                         }
 
@@ -545,6 +537,7 @@ fun CarDashboard(
                                     onRequestAppSelection = { slot -> activeAppDrawerTarget = slot }
                                 )
                             }
+
                             ModernDashboardCard(
                                 modifier = Modifier.weight(1f),
                                 title = null,
@@ -573,10 +566,7 @@ fun CarDashboard(
                 }
             }
         }
-// =========================================================================
-        // ✅ CAPA NEGRA DE FILTRO DE NOCHE (PARA TABLETS CHINAS ULTRA-BRILLANTES)
-        // No interrumpe los toques táctiles del conductor.
-        // =========================================================================
+
         if (BrightnessManager.nightOverlayAlpha > 0.0f) {
             Box(
                 modifier = Modifier
@@ -584,7 +574,6 @@ fun CarDashboard(
                     .background(Color.Black.copy(alpha = BrightnessManager.nightOverlayAlpha))
             )
         }
-        // --- CAPAS SUPERPUESTAS A PANTALLA COMPLETA ---
 
         if (showFullscreenMusic) {
             FullscreenMusicPlayerWidget(
@@ -597,15 +586,13 @@ fun CarDashboard(
                 onClose = { showFullscreenVideo = false }
             )
         }
-// 3. Renderizado de la Pantalla Completa sobre el Tablero
+
         if (showFullscreenIptv) {
             FullscreenIptvPlayerWidget(
                 onClose = { showFullscreenIptv = false }
             )
         }
-        // ====================================================================
-        // LÓGICA CORREGIDA DEL CAJÓN DE APLICACIONES PARA TODOS LOS SLOTS (101-120)
-        // ====================================================================
+
         if (activeAppDrawerTarget != 0) {
             FullscreenAppDrawerWidget(
                 title = if (activeAppDrawerTarget == 99) "TODAS LAS APLICACIONES" else "SELECCIONAR APP PARA SLOT",
@@ -614,12 +601,10 @@ fun CarDashboard(
                 onAppSelected = { selectedPackage: String ->
                     when (activeAppDrawerTarget) {
                         in 1..2 -> {
-                            // Guarda para los accesos del Velocímetro
                             val prefs = context.getSharedPreferences("speedometer_apps_prefs", Context.MODE_PRIVATE)
                             prefs.edit().putString("slot_$activeAppDrawerTarget", selectedPackage).apply()
                         }
                         in 101..120 -> {
-                            // ✅ AHORA GUARDA PARA CUALQUIER RANURA DE LA CUADRÍCULA (101 A 120+)
                             val slotNum = activeAppDrawerTarget - 100
                             val prefs = context.getSharedPreferences("custom_grid_apps_prefs", Context.MODE_PRIVATE)
                             prefs.edit()
@@ -628,7 +613,6 @@ fun CarDashboard(
                                 .apply()
                         }
                         else -> {
-                            // Abrir app directamente cuando se entra desde "Ver Todas" (slot 99)
                             val launchIntent = context.packageManager.getLaunchIntentForPackage(selectedPackage)
                             if (launchIntent != null) context.startActivity(launchIntent)
                         }
