@@ -45,29 +45,32 @@ interface RadioBrowserApi {
     @GET("json/stations/bycountry/{country}")
     suspend fun getStationsByCountry(
         @Path("country") country: String,
+        @Query("hidebroken") hideBroken: Boolean = true,
         @Query("order") order: String = "votes",
         @Query("reverse") reverse: Boolean = true
     ): List<ApiRadioStation>
 }
 // Cliente Retrofit Singleton
 object RetrofitClient {
-    private const val BASE_URL = "https://de1.api.radio-browser.info/"
+    private const val BASE_URL =
+        "https://de2.api.radio-browser.info/"
 
     val api: RadioBrowserApi by lazy {
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = HttpLoggingInterceptor.Level.NONE
         }
 
         val okHttpClient = OkHttpClient.Builder()
             .addInterceptor(logging)
             .addInterceptor { chain ->
                 val request = chain.request().newBuilder()
-                    .header("User-Agent", "SmartRadioLauncher/1.0") // Requerido por la API
+                    .header("User-Agent", "SmartRadioLauncher/1.0")
                     .build()
                 chain.proceed(request)
             }
-            .connectTimeout(12, TimeUnit.SECONDS)
-            .readTimeout(12, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .build()
 
         Retrofit.Builder()
@@ -76,5 +79,22 @@ object RetrofitClient {
             .client(okHttpClient)
             .build()
             .create(RadioBrowserApi::class.java)
+    }
+}
+object RadioCache {
+
+    private val countries =
+        mutableMapOf<String, List<RadioStation>>()
+
+    fun get(country: String): List<RadioStation>? {
+        return countries[country]
+    }
+
+    fun put(country: String, stations: List<RadioStation>) {
+        countries[country] = stations
+    }
+
+    fun clear() {
+        countries.clear()
     }
 }

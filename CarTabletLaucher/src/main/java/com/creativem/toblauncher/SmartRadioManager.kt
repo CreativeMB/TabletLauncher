@@ -100,7 +100,10 @@ class SmartRadioManager private constructor(private val context: Context) {
     // =========================================================================
     // 🌐 CARGA RÁPIDA DE API POR PAÍS
     // =========================================================================
-    fun fetchStationsByCountry(country: String, onComplete: (() -> Unit)? = null) {
+    fun fetchStationsByCountry(
+        country: String,
+        onComplete: (() -> Unit)? = null
+    ) {
         selectedCountry = country
 
         if (!isConnectedToInternet()) {
@@ -110,38 +113,67 @@ class SmartRadioManager private constructor(private val context: Context) {
         }
 
         scope.launch {
+
             try {
+
                 isFetchingApi = true
                 isApiError = false
 
+                // 🚀 CACHE
+                RadioCache.get(country)?.let { cachedStations ->
+
+                    _stationListState.value = cachedStations
+
+                    if (currentStationIndex >= cachedStations.size) {
+                        currentStationIndex = 0
+                    }
+
+                    isFetchingApi = false
+                    onComplete?.invoke()
+
+                    return@launch
+                }
+
                 val apiResult = withContext(Dispatchers.IO) {
-                    RetrofitClient.api.getStationsByCountry(country = country)
+                    RetrofitClient.api.getStationsByCountry(country)
                 }
 
                 if (apiResult.isNotEmpty()) {
+
                     val mapped = apiResult.map { it.toRadioStation() }
+
+                    // 🚀 GUARDAR EN CACHE
+                    RadioCache.put(country, mapped)
+
                     _stationListState.value = mapped
 
                     if (currentStationIndex >= mapped.size) {
                         currentStationIndex = 0
                     }
+
                 } else {
+
                     _stationListState.value = emptyList()
                     isApiError = true
+
                 }
+
             } catch (e: Exception) {
-                android.util.Log.e("SmartRadioManager", "Error API ($country): ${e.message}")
+
+                android.util.Log.e(
+                    "SmartRadioManager",
+                    "Error API ($country): ${e.message}"
+                )
+
                 isApiError = true
+
             } finally {
+
                 isFetchingApi = false
                 onComplete?.invoke()
+
             }
         }
-    }
-
-    // Método de retrocompatibilidad por si se llama desde otra vista
-    fun fetchSpanishStations(onComplete: (() -> Unit)? = null) {
-        fetchStationsByCountry(selectedCountryState.value, onComplete)
     }
 
     private fun setupMediaSession() {
