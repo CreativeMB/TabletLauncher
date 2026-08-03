@@ -1,6 +1,8 @@
 package com.creativem.toblauncher
 
 import android.content.Context
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.widget.Toast
@@ -31,7 +33,7 @@ data class RadioStation(
 class SmartRadioManager private constructor(private val context: Context) {
 
     // =========================================================================
-    // ✅ ESTADOS OBSERVABLES
+    // ✅ ESTADOS OBSERVABLES EN COMPOSE
     // =========================================================================
     private val isPlayingState = mutableStateOf(false)
     var isPlaying: Boolean
@@ -50,6 +52,9 @@ class SmartRadioManager private constructor(private val context: Context) {
 
     private var player: ExoPlayer? = null
 
+    // 📻 SESIÓN DE MEDIOS DEL SISTEMA (Para gestos, volante y notificación)
+    private var mediaSession: MediaSession? = null
+
     // =========================================================================
     // 🇨🇴 LISTA NATIVA DE EMISORAS DE COLOMBIA
     // =========================================================================
@@ -57,11 +62,66 @@ class SmartRadioManager private constructor(private val context: Context) {
         // PRISA RADIO
         RadioStation("1", "Caracol Radio", "100.9 FM", "Colombia", "https://playerservices.streamtheworld.com/api/livestream-redirect/CARACOL_RADIOAAC.aac", "Noticias"),
         RadioStation("2", "W Radio", "99.9 FM", "Colombia", "https://playerservices.streamtheworld.com/api/livestream-redirect/WRADIOAAC_SC", "Noticias / Opinión")
-
     )
 
     init {
         currentStationIndex = getSavedStationIndex()
+        setupMediaSession()
+    }
+
+    // =========================================================================
+    // 🎛️ CONFIGURACIÓN DE MEDIA SESSION (GESTOS / BOTONES DEL SISTEMA)
+    // =========================================================================
+    private fun setupMediaSession() {
+        try {
+            mediaSession = MediaSession(context, "SmartRadioManager").apply {
+                setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
+
+                setCallback(object : MediaSession.Callback() {
+                    override fun onPlay() {
+                        togglePlayPause()
+                    }
+
+                    override fun onPause() {
+                        togglePlayPause()
+                    }
+
+                    override fun onSkipToNext() {
+                        playNextStation()
+                    }
+
+                    override fun onSkipToPrevious() {
+                        playPreviousStation()
+                    }
+
+                    override fun onStop() {
+                        stopPlayback()
+                    }
+                })
+                isActive = false
+            }
+            updatePlaybackState(PlaybackState.STATE_NONE)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun updatePlaybackState(state: Int) {
+        try {
+            val stateBuilder = PlaybackState.Builder()
+                .setActions(
+                    PlaybackState.ACTION_PLAY or
+                            PlaybackState.ACTION_PAUSE or
+                            PlaybackState.ACTION_SKIP_TO_NEXT or
+                            PlaybackState.ACTION_SKIP_TO_PREVIOUS or
+                            PlaybackState.ACTION_STOP
+                )
+                .setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+
+            mediaSession?.setPlaybackState(stateBuilder.build())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     fun isConnectedToInternet(): Boolean {
@@ -118,20 +178,33 @@ class SmartRadioManager private constructor(private val context: Context) {
                     newPlayer.addListener(object : Player.Listener {
                         override fun onIsPlayingChanged(isPlaying: Boolean) {
                             this@SmartRadioManager.isPlaying = isPlaying
+                            if (isPlaying) {
+                                mediaSession?.isActive = true
+                                updatePlaybackState(PlaybackState.STATE_PLAYING)
+                            } else {
+                                updatePlaybackState(PlaybackState.STATE_PAUSED)
+                            }
                         }
 
                         override fun onPlaybackStateChanged(playbackState: Int) {
                             when (playbackState) {
                                 Player.STATE_BUFFERING -> {
                                     isLoading = true
+                                    updatePlaybackState(PlaybackState.STATE_BUFFERING)
                                 }
                                 Player.STATE_READY -> {
                                     isLoading = false
                                     isPlaying = newPlayer.isPlaying
+                                    if (isPlaying) {
+                                        mediaSession?.isActive = true
+                                        updatePlaybackState(PlaybackState.STATE_PLAYING)
+                                    }
                                 }
                                 Player.STATE_ENDED, Player.STATE_IDLE -> {
                                     isLoading = false
                                     isPlaying = false
+                                    mediaSession?.isActive = false
+                                    updatePlaybackState(PlaybackState.STATE_STOPPED)
                                 }
                             }
                         }
@@ -139,9 +212,10 @@ class SmartRadioManager private constructor(private val context: Context) {
                         override fun onPlayerError(error: PlaybackException) {
                             isLoading = false
                             isPlaying = false
+                            mediaSession?.isActive = false
+                            updatePlaybackState(PlaybackState.STATE_ERROR)
                             android.util.Log.e("SmartRadioManager", "Error en reproducción: ${error.message}")
                             Toast.makeText(context, "Error de conexión con la emisora", Toast.LENGTH_SHORT).show()
-                            // 🛑 NO REINTENTAMOS AQUÍ PARA EVITAR EL BUCLE REPETITIVO DE DESCONEXIÓN
                         }
                     })
                 }
@@ -162,6 +236,8 @@ class SmartRadioManager private constructor(private val context: Context) {
         if (!isConnectedToInternet()) {
             isPlaying = false
             isLoading = false
+            mediaSession?.isActive = false
+            updatePlaybackState(PlaybackState.STATE_NONE)
             Toast.makeText(context, "Sin conexión a Internet", Toast.LENGTH_SHORT).show()
             return
         }
@@ -170,7 +246,6 @@ class SmartRadioManager private constructor(private val context: Context) {
             isLoading = true
             val exoPlayer = getOrCreatePlayer()
 
-            // Cargar la URL de forma progresiva limpia (sin LiveConfiguration que dañe la transmisión)
             val mediaItem = MediaItem.fromUri(station.streamUrl)
 
             exoPlayer.stop()
@@ -178,9 +253,14 @@ class SmartRadioManager private constructor(private val context: Context) {
             exoPlayer.prepare()
             exoPlayer.play()
 
+            mediaSession?.isActive = true
+            updatePlaybackState(PlaybackState.STATE_BUFFERING)
+
         } catch (e: Exception) {
             isLoading = false
             isPlaying = false
+            mediaSession?.isActive = false
+            updatePlaybackState(PlaybackState.STATE_ERROR)
             android.util.Log.e("SmartRadioManager", "Excepción al iniciar", e)
         }
     }
@@ -194,9 +274,12 @@ class SmartRadioManager private constructor(private val context: Context) {
         if (isPlaying) {
             exoPlayer.pause()
             isPlaying = false
+            updatePlaybackState(PlaybackState.STATE_PAUSED)
         } else {
             if (exoPlayer.playbackState == Player.STATE_READY) {
                 exoPlayer.play()
+                mediaSession?.isActive = true
+                updatePlaybackState(PlaybackState.STATE_PLAYING)
             } else {
                 playStationAtIndex(currentStationIndex)
             }
@@ -222,12 +305,18 @@ class SmartRadioManager private constructor(private val context: Context) {
         }
         isPlaying = false
         isLoading = false
+        mediaSession?.isActive = false
+        updatePlaybackState(PlaybackState.STATE_STOPPED)
     }
 
     fun releasePlayer() {
         try {
             player?.release()
             player = null
+
+            mediaSession?.isActive = false
+            mediaSession?.release()
+            mediaSession = null
         } catch (e: Exception) {
             e.printStackTrace()
         }

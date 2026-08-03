@@ -316,62 +316,6 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         }
     }
 
-    fun scanFolder(selectedUri: Uri) {
-        isScanning = true
-        scope.launch(Dispatchers.IO) {
-            val tracks = mutableListOf<AudioTrack>()
-
-            try {
-                selectedFolderName = getFolderName(context, selectedUri)
-                prefs.edit().putString("folder_name", selectedFolderName).apply()
-                prefs.edit().putString("selected_folder_uri", selectedUri.toString()).apply()
-
-                val rootDocId = DocumentsContract.getTreeDocumentId(selectedUri)
-                scanDirectoryNative(context, selectedUri, rootDocId, tracks)
-            } catch (e: Exception) {
-                e.printStackTrace()
-                scanMediaStoreFallbackInternal(tracks)
-            }
-
-            withContext(Dispatchers.Main) {
-                playlist.clear()
-                playlist.addAll(tracks)
-                historyStack.clear()
-                rebuildShuffledDeck()
-                isScanning = false
-
-                if (playlist.isNotEmpty()) {
-                    val selectedIndex = playlist.indexOfFirst { it.uri == selectedUri }
-                    val indexToPlay = if (selectedIndex != -1) selectedIndex else 0
-                    playTrackAtIndex(indexToPlay, startPosMs = 0L)
-                }
-            }
-        }
-    }
-
-    fun forceAutoScanUsb() {
-        isScanning = true
-        selectedFolderName = "Memoria USB"
-        prefs.edit().putString("folder_name", selectedFolderName).apply()
-
-        scope.launch(Dispatchers.IO) {
-            val tracks = mutableListOf<AudioTrack>()
-            scanMediaStoreFallbackInternal(tracks)
-
-            withContext(Dispatchers.Main) {
-                playlist.clear()
-                playlist.addAll(tracks)
-                historyStack.clear()
-                rebuildShuffledDeck()
-                isScanning = false
-
-                if (playlist.isNotEmpty()) {
-                    playTrackAtIndex(0, startPosMs = 0L)
-                }
-            }
-        }
-    }
-
     private fun scanFolderAndAutoPlay(folderUri: Uri) {
         isScanning = true
         scope.launch(Dispatchers.IO) {
@@ -512,24 +456,6 @@ class SmartMusicPlayer private constructor(private val context: Context) {
             }
         } catch (e: Exception) {
             e.printStackTrace()
-        }
-    }
-
-    private fun getFolderName(context: Context, treeUri: Uri): String {
-        return try {
-            val docId = DocumentsContract.getTreeDocumentId(treeUri)
-            val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
-            context.contentResolver.query(
-                docUri,
-                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
-                null,
-                null,
-                null
-            )?.use { cursor ->
-                if (cursor.moveToFirst()) cursor.getString(0) else null
-            } ?: "Carpeta USB"
-        } catch (e: Exception) {
-            "Carpeta USB"
         }
     }
 

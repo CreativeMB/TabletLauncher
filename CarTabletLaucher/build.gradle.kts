@@ -36,14 +36,48 @@ android {
 }
 
 dependencies {
+    // =========================================================================
+    // 🎨 JETPACK COMPOSE (Sincronizado dinámicamente con BOM)
+    // =========================================================================
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
+
+    // Íconos extendidos completos (Hereda la versión automáticamente del BOM)
+    implementation("androidx.compose.material:material-icons-extended")
+
+    // Core & Lifecycle
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // =========================================================================
+    // 🎧 MEDIA3 EXOPLAYER (Video, Radio Online y Control del Volante - 1.3.0)
+    // =========================================================================
+    implementation("androidx.media3:media3-exoplayer:1.3.0")
+    implementation("androidx.media3:media3-extractor:1.3.0")
+    implementation("androidx.media3:media3-ui:1.3.0")
+    implementation("androidx.media3:media3-session:1.3.0")
+    implementation("androidx.media3:media3-common:1.3.0")
+
+    // =========================================================================
+    // 🗺️ MAPSFORGE OFFLINE (Todas unificadas a versión 0.25.0)
+    // =========================================================================
+    implementation("org.mapsforge:mapsforge-core:0.25.0")
+    implementation("org.mapsforge:mapsforge-map:0.25.0")
+    implementation("org.mapsforge:mapsforge-map-reader:0.25.0")
+    implementation("org.mapsforge:mapsforge-map-android:0.25.0")
+    implementation("org.mapsforge:mapsforge-themes:0.18.0") // 👈 CORREGIDO (Estaba en 0.18.0)
+
+    // Servicios de Ubicación GPS
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+
+    // =========================================================================
+    // 🧪 TESTING & DEBUGGING
+    // =========================================================================
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
@@ -51,29 +85,4 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
-
-    // 1. Íconos completos de Material Design (Soluciona el error de LibraryMusic, Mic, etc.)
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.foundation:foundation")
-    implementation("androidx.compose.animation:animation")
-
-
-    // 3. Media3 ExoPlayer (El estándar moderno de Android para Video y Música)
-    implementation("androidx.media3:media3-exoplayer:1.3.0")
-    implementation("androidx.media3:media3-ui:1.3.0")
-
-    // 4. Media3 Session (Súper importante para autos: permite que los botones del volante controlen la música)
-    implementation("androidx.media3:media3-session:1.3.0")
-
-// 2. DEPENDENCIAS DE MAPSFORGE (Para leer mapas offline locales sin internet)
-    implementation("org.mapsforge:mapsforge-core:0.25.0")
-    implementation("org.mapsforge:mapsforge-map:0.25.0")
-    implementation("org.mapsforge:mapsforge-map-reader:0.25.0")
-    implementation("org.mapsforge:mapsforge-map-android:0.25.0")
-    implementation("org.mapsforge:mapsforge-themes:0.18.0")
-    implementation("com.google.android.gms:play-services-location:21.3.0")
-
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-
 }

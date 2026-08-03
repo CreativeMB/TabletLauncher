@@ -38,6 +38,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.AspectRatioFrameLayout
+import kotlinx.coroutines.delay
+import androidx.annotation.OptIn
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.media3.ui.PlayerView
+
 
 // =========================================================================
 // 1. ENUM PARA LOS 4 MODOS
@@ -378,50 +389,91 @@ fun RadioPlayerView(
 
     val isFavorite = currentStation != null && favoriteIds.contains(currentStation.id)
 
-    // ✅ REPRODUCCIÓN INICIAL LIMPIA AL ABRIR LA RADIO
-    // (Sin DisposableEffect para evitar que la animación de Compose mate la señal)
+    // ✅ REPRODUCCIÓN INICIAL LIMPIA AL ABRIR LA RADIO Y VALIDACIÓN DE INTERNET
     LaunchedEffect(Unit) {
-        isOnline = radioManager.isConnectedToInternet()
-        if (isOnline && !radioManager.isPlaying && !radioManager.isLoading) {
+        val connected = radioManager.isConnectedToInternet()
+        isOnline = connected
+        if (connected && !radioManager.isPlaying && !radioManager.isLoading) {
             radioManager.playStationAtIndex(radioManager.currentStationIndex)
         }
     }
 
-    // PANTALLA DE ADVERTENCIA SOLO SI REALMENTE NO HAY INTERNET
+    // PANTALLA DE ADVERTENCIA MEJORADA SI NO HAY INTERNET
     if (!isOnline) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF0F0F14))
-                .padding(12.dp),
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF1F0D0D),
+                            Color(0xFF0F0F14)
+                        )
+                    )
+                )
+                .padding(16.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth(0.85f)
             ) {
-                Icon(
-                    imageVector = Icons.Default.WifiOff,
-                    contentDescription = null,
-                    tint = Color.Red,
-                    modifier = Modifier.size(36.dp)
-                )
-                Spacer(modifier = Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .background(Color(0xFF331111), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.WifiOff,
+                        contentDescription = null,
+                        tint = Color(0xFFFF5252),
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 Text(
-                    text = "Se requiere Internet para Radio Online",
+                    text = "Sin Conexión a Internet",
                     color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Las emisoras de radio online requieren una conexión activa a internet para poder reproducirse.",
+                    color = Color.Gray,
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 3
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 Button(
                     onClick = {
-                        isOnline = true
-                        radioManager.playStationAtIndex(radioManager.currentStationIndex)
+                        val connected = radioManager.isConnectedToInternet()
+                        isOnline = connected
+                        if (connected) {
+                            radioManager.playStationAtIndex(radioManager.currentStationIndex)
+                        }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan)
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan),
+                    shape = RoundedCornerShape(8.dp)
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text("Reintentar Conexión", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -929,6 +981,7 @@ private fun formatMs(ms: Long): String {
 // =========================================================================
 // 🎬 VISTA DE VIDEO
 // =========================================================================
+@OptIn(UnstableApi::class)
 @Composable
 fun VideoPlayerView(
     theme: DashboardTheme,
@@ -940,26 +993,17 @@ fun VideoPlayerView(
 
     val currentVideo = videoPlayer.playlist.getOrNull(videoPlayer.currentTrackIndex)
 
-    var showUI by remember { mutableStateOf(true) }
+    // Usamos el estado global de controles gestionado por SmartVideoPlayer (se oculta en 5s)
+    val showUI = videoPlayer.showControls
     val interactionSource = remember { MutableInteractionSource() }
     val buttonScale = LocalButtonScale.current
 
-    LaunchedEffect(videoPlayer.playlist.isNotEmpty(), videoPlayer.isFullscreenActive) {
-        if (!videoPlayer.isFullscreenActive && videoPlayer.playlist.isNotEmpty()) {
-            val targetIndex = if (videoPlayer.currentTrackIndex in videoPlayer.playlist.indices) {
-                videoPlayer.currentTrackIndex
-            } else 0
+    var isDraggingSlider by remember { mutableStateOf(false) }
+    var sliderPosition by remember { mutableFloatStateOf(0f) }
 
-            if (!videoPlayer.isPlaying) {
-                videoPlayer.playVideoAtIndex(targetIndex, 0L)
-            }
-        }
-    }
-
-    LaunchedEffect(showUI, videoPlayer.isPlaying) {
-        if (showUI && videoPlayer.isPlaying) {
-            kotlinx.coroutines.delay(5000L)
-            showUI = false
+    LaunchedEffect(videoPlayer.isFullscreenActive) {
+        if (!videoPlayer.isFullscreenActive && videoPlayer.playlist.isNotEmpty() && !videoPlayer.isPlaying) {
+            videoPlayer.togglePlayPause()
         }
     }
 
@@ -972,249 +1016,254 @@ fun VideoPlayerView(
                 interactionSource = interactionSource,
                 indication = null
             ) {
-                showUI = !showUI
+                // Alterna y resetea el temporizador de 5 segundos
+                videoPlayer.toggleControls()
             }
     ) {
+        // ==========================================
+        // 1. RENDERIZADOR DE VIDEO CON EXOPLAYER
+        // ==========================================
         if (currentVideo != null) {
             AndroidView(
                 factory = { ctx ->
-                    object : VideoView(ctx) {
-                        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                            val width = MeasureSpec.getSize(widthMeasureSpec)
-                            val height = MeasureSpec.getSize(heightMeasureSpec)
-                            setMeasuredDimension(width, height)
-                        }
-                    }.apply {
-                        if (!videoPlayer.isFullscreenActive) {
-                            setVideoURI(currentVideo.uri)
-                            tag = currentVideo.uri.toString()
-                            setOnPreparedListener { mp ->
-                                videoPlayer.bindMediaPlayer(mp)
-                                mp.seekTo(0)
-                                mp.start()
-                                videoPlayer.isPlaying = true
-                            }
-                            setOnCompletionListener {
-                                videoPlayer.playNextVideo()
-                            }
-                        }
+                    PlayerView(ctx).apply {
+                        useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+                        layoutParams = android.view.ViewGroup.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        player = if (!videoPlayer.isFullscreenActive) videoPlayer.getOrCreatePlayer() else null
                     }
                 },
-                update = { view ->
-                    val currentPlayingUri = view.tag as? String
-                    val newUri = currentVideo.uri.toString()
-
-                    if (!videoPlayer.isFullscreenActive) {
-                        if (currentPlayingUri != newUri || !view.isPlaying) {
-                            view.tag = newUri
-                            view.setVideoURI(currentVideo.uri)
-                            view.setOnPreparedListener { mp ->
-                                videoPlayer.bindMediaPlayer(mp)
-                                mp.seekTo(0)
-                                mp.start()
-                                videoPlayer.isPlaying = true
-                            }
-                        }
-                    } else {
-                        view.tag = null
-                        view.stopPlayback()
+                update = { playerView ->
+                    val player = if (!videoPlayer.isFullscreenActive) videoPlayer.getOrCreatePlayer() else null
+                    if (playerView.player != player) {
+                        playerView.player = player
                     }
                 },
                 modifier = Modifier.fillMaxSize()
             )
-
         } else {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("No hay videos cargados", color = Color.Gray, fontSize = 12.sp)
             }
         }
 
+        // ==========================================
+        // 2. BARRA SUPERIOR (TÍTULO Y BOTÓN DE CARPETA)
+        // ==========================================
         AnimatedVisibility(
             visible = showUI,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Movie,
+                        contentDescription = null,
+                        tint = theme.accentCyan,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = currentVideo?.title ?: "Reproductor de Video",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = {
+                            videoPlayer.resetControlsTimer()
+                            showFolderModal = true
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FolderOpen,
+                            contentDescription = "Elegir Carpeta USB",
+                            tint = theme.accentOrange,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                }
+            }
+        }
+
+        // ==========================================
+        // 3. BARRA INFERIOR DE CONTROLES
+        // ==========================================
+        AnimatedVisibility(
+            visible = showUI,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(Brush.verticalGradient(listOf(Color(0xAA000000), Color.Transparent, Color(0xCC000000))))
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.SpaceBetween
+                    .fillMaxWidth()
+                    .padding(8.dp)
             ) {
+                val totalMs = videoPlayer.totalDurationMs.coerceAtLeast(1L)
+                val displayPositionMs = if (isDraggingSlider) {
+                    (sliderPosition * totalMs).toLong()
+                } else {
+                    videoPlayer.currentPositionMs.coerceIn(0L, totalMs)
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = formatMs(displayPositionMs),
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = formatMs(totalMs),
+                        color = Color.Gray,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                val currentProgress = if (totalMs <= 1L) {
+                    0f // Protege la barra para que NUNCA se llene sola si no hay duración
+                } else if (isDraggingSlider) {
+                    sliderPosition
+                } else {
+                    (displayPositionMs.toFloat() / totalMs.toFloat()).coerceIn(0f, 1f)
+                }
+
+                Slider(
+                    value = currentProgress,
+                    onValueChange = { newValue ->
+                        isDraggingSlider = true
+                        sliderPosition = newValue
+                        videoPlayer.resetControlsTimer()
+                    },
+                    onValueChangeFinished = {
+                        val targetMs = (sliderPosition * totalMs).toLong()
+                        videoPlayer.seekTo(targetMs)
+                        isDraggingSlider = false
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(24.dp),
+                    colors = SliderDefaults.colors(
+                        thumbColor = theme.accentOrange,
+                        activeTrackColor = theme.accentOrange,
+                        inactiveTrackColor = theme.cardBorder.copy(alpha = 0.5f)
+                    )
+                )
+
+                // BOTONERA DE REPRODUCCIÓN
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = currentVideo?.title ?: "Reproductor de Video",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                        Text(
-                            text = "📂 ${videoPlayer.selectedFolderName} (${videoPlayer.playlist.size} videos)",
-                            color = theme.accentCyan,
-                            fontSize = 9.sp
+                    IconButton(
+                        onClick = { videoPlayer.toggleShuffle() },
+                        modifier = Modifier.size((34 * buttonScale).dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Shuffle,
+                            contentDescription = "Aleatorio",
+                            tint = if (videoPlayer.isShuffleMode) theme.accentCyan else Color.DarkGray,
+                            modifier = Modifier.size((18 * buttonScale).dp)
                         )
                     }
 
                     IconButton(
-                        onClick = {
-                            showFolderModal = true
-                            showUI = true
-                        },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(Icons.Default.FolderOpen, contentDescription = "USB", tint = theme.accentOrange, modifier = Modifier.size(20.dp))
-                    }
-                }
-
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
+                        onClick = { videoPlayer.playPreviousVideo() },
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 2.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .size((38 * buttonScale).dp)
+                            .background(Color(0xFF22222E), CircleShape)
                     ) {
-                        Text(
-                            text = formatMs(videoPlayer.currentPositionMs),
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = formatMs(videoPlayer.totalDurationMs),
-                            color = Color.Gray,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold
+                        Icon(
+                            imageVector = Icons.Default.SkipPrevious,
+                            contentDescription = "Anterior",
+                            tint = theme.accentOrange,
+                            modifier = Modifier.size((22 * buttonScale).dp)
                         )
                     }
 
-                    val progressPercent: Float = if (videoPlayer.totalDurationMs > 0L) {
-                        (videoPlayer.currentPositionMs.toFloat() / videoPlayer.totalDurationMs.toFloat()).coerceIn(0f, 1f)
-                    } else 0f
-
-                    LinearProgressIndicator(
-                        progress = progressPercent,
+                    IconButton(
+                        onClick = { videoPlayer.togglePlayPause() },
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .clip(CircleShape),
-                        color = theme.accentOrange,
-                        trackColor = Color.DarkGray
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
+                            .size((46 * buttonScale).dp)
+                            .background(theme.accentCyan, CircleShape)
                     ) {
-                        IconButton(
-                            onClick = {
-                                videoPlayer.toggleShuffle()
-                                showUI = true
-                            },
-                            modifier = Modifier.size((36 * buttonScale).dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Shuffle,
-                                contentDescription = "Aleatorio",
-                                tint = if (videoPlayer.isShuffleMode) theme.accentCyan else Color.Gray,
-                                modifier = Modifier.size((20 * buttonScale).dp)
-                            )
-                        }
+                        Icon(
+                            imageVector = if (videoPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = "Play/Pausa",
+                            tint = Color.Black,
+                            modifier = Modifier.size((26 * buttonScale).dp)
+                        )
+                    }
 
-                        IconButton(
-                            onClick = {
-                                videoPlayer.playPreviousVideo()
-                                showUI = true
-                            },
-                            modifier = Modifier
-                                .size((40 * buttonScale).dp)
-                                .background(Color(0xFF22222E), CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.SkipPrevious,
-                                contentDescription = "Anterior",
-                                tint = theme.accentOrange,
-                                modifier = Modifier.size((24 * buttonScale).dp)
-                            )
-                        }
+                    IconButton(
+                        onClick = { videoPlayer.playNextVideo() },
+                        modifier = Modifier
+                            .size((38 * buttonScale).dp)
+                            .background(Color(0xFF22222E), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipNext,
+                            contentDescription = "Siguiente",
+                            tint = theme.accentOrange,
+                            modifier = Modifier.size((22 * buttonScale).dp)
+                        )
+                    }
 
-                        IconButton(
-                            onClick = {
-                                val videoUrl = currentVideo?.uri?.toString() ?: ""
-                                if (videoPlayer.isPlaying) {
-                                    videoPlayer.pausePlayback()
-                                } else {
-                                    videoPlayer.togglePlayPause(videoUrl)
-                                }
-                                showUI = true
-                            },
-                            modifier = Modifier
-                                .size((46 * buttonScale).dp)
-                                .background(theme.accentCyan, CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = if (videoPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = "Play/Pausa",
-                                tint = Color.Black,
-                                modifier = Modifier.size((28 * buttonScale).dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                videoPlayer.playNextVideo()
-                                showUI = true
-                            },
-                            modifier = Modifier
-                                .size((40 * buttonScale).dp)
-                                .background(Color(0xFF22222E), CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.SkipNext,
-                                contentDescription = "Siguiente",
-                                tint = theme.accentOrange,
-                                modifier = Modifier.size((24 * buttonScale).dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                showUI = false
-                                try {
-                                    videoPlayer.pausePlayback()
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
-                                onExpandFullscreen()
-                            },
-                            modifier = Modifier.size((36 * buttonScale).dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Fullscreen,
-                                contentDescription = "Expandir",
-                                tint = theme.accentOrange,
-                                modifier = Modifier.size((22 * buttonScale).dp)
-                            )
-                        }
+                    IconButton(
+                        onClick = { onExpandFullscreen() },
+                        modifier = Modifier.size((34 * buttonScale).dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Fullscreen,
+                            contentDescription = "Expandir",
+                            tint = Color.White,
+                            modifier = Modifier.size((20 * buttonScale).dp)
+                        )
                     }
                 }
             }
         }
 
+        // ==========================================
+        // 4. MODAL EXPLORADOR DE CARPETAS
+        // ==========================================
         if (showFolderModal) {
             FolderPickerModal(
                 onDismiss = {
                     showFolderModal = false
-                    showUI = true
+                    videoPlayer.resetControlsTimer()
                 },
                 onFolderSelected = { selectedFolder ->
                     videoPlayer.scanVideoFolderPath(selectedFolder)
@@ -1224,7 +1273,6 @@ fun VideoPlayerView(
         }
     }
 }
-
 // =========================================================================
 // 📺 VISTA DE IPTV
 // =========================================================================
@@ -1244,6 +1292,14 @@ fun IptvPlayerView(
     val interactionSource = remember { MutableInteractionSource() }
 
     val isOnline = remember(iptvPlayer.currentChannelIndex) { iptvPlayer.isConnectedToInternet() }
+
+    // --- TEMPORIZADOR PARA OCULTAR CONTROLES A LOS 5 SEGUNDOS ---
+    LaunchedEffect(showUI, iptvPlayer.isPlaying) {
+        if (showUI && iptvPlayer.isPlaying) {
+            delay(5000L) // Espera 5 segundos
+            showUI = false // Oculta los controles automáticamente
+        }
+    }
 
     LaunchedEffect(iptvPlayer.playlist.isNotEmpty(), iptvPlayer.isFullscreenActive) {
         if (!iptvPlayer.isFullscreenActive && iptvPlayer.playlist.isNotEmpty()) {
@@ -1266,7 +1322,7 @@ fun IptvPlayerView(
                 interactionSource = interactionSource,
                 indication = null
             ) {
-                showUI = !showUI
+                showUI = !showUI // Alterna los controles al hacer clic
             }
     ) {
         if (!isOnline) {
@@ -1284,10 +1340,13 @@ fun IptvPlayerView(
                 Text("Conecta la tablet a Wi-Fi o datos móviles", color = Color.Gray, fontSize = 10.sp)
             }
         } else if (currentChannel != null) {
+            // --- VIDEOVIEW MODIFICADO PARA ESTIRARSE AL 100% ---
             AndroidView(
                 factory = { ctx ->
                     object : VideoView(ctx) {
                         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                            // Ignoramos la relación de aspecto nativa del video y forzamos
+                            // que tome exactamente todo el ancho y alto del contenedor Box.
                             val width = MeasureSpec.getSize(widthMeasureSpec)
                             val height = MeasureSpec.getSize(heightMeasureSpec)
                             setMeasuredDimension(width, height)
@@ -1298,6 +1357,26 @@ fun IptvPlayerView(
                             tag = currentChannel.streamUrl
                             setOnPreparedListener { mp ->
                                 iptvPlayer.bindMediaPlayer(mp)
+
+                                // --- TRUCO PARA FORZAR ESTIRAMIENTO DE VIDEO EN MEDIAPLAYER ---
+                                try {
+                                    val videoWidth = mp.videoWidth.toFloat()
+                                    val videoHeight = mp.videoHeight.toFloat()
+                                    if (videoWidth > 0 && videoHeight > 0) {
+                                        val surfaceViewField = VideoView::class.java.getDeclaredField("mSurfaceView")
+                                        surfaceViewField.isAccessible = true
+                                        val surfaceView = surfaceViewField.get(this) as? android.view.SurfaceView
+                                        surfaceView?.let { sv ->
+                                            val lp = sv.layoutParams
+                                            lp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                            lp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                            sv.layoutParams = lp
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+
                                 mp.start()
                                 iptvPlayer.isPlaying = true
                             }
@@ -1409,7 +1488,7 @@ fun IptvPlayerView(
                 ) {
                     Button(
                         onClick = {
-                            iptvPlayer.playPreviousChannel()
+                            iptvPlayer.playNextChannel()
                             showUI = true
                         },
                         modifier = Modifier.height((34 * buttonScale).dp),
@@ -1417,9 +1496,8 @@ fun IptvPlayerView(
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text("CH -", color = theme.accentPurple, fontSize = (11 * buttonScale).sp, fontWeight = FontWeight.Bold)
+                        Text("CH +", color = Color.White, fontSize = (11 * buttonScale).sp, fontWeight = FontWeight.Bold)
                     }
-
                     IconButton(
                         onClick = {
                             iptvPlayer.togglePlayPause()
