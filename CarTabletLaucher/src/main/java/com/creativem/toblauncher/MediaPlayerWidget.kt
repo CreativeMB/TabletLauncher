@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Environment
 import android.widget.VideoView
+import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -16,7 +17,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,21 +35,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
-
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
-import kotlinx.coroutines.delay
-import androidx.annotation.OptIn
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.media3.ui.PlayerView
-
+import kotlinx.coroutines.delay
 
 // =========================================================================
 // 1. ENUM PARA LOS 4 MODOS
@@ -144,17 +138,18 @@ fun ModernMediaPlayerWidget(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             tabOrder.forEach { mode ->
-                val (icon, color) = when (mode) {
-                    MediaMode.MUSIC -> Icons.Default.MusicNote to theme.accentCyan
-                    MediaMode.VIDEO -> Icons.Default.PlayCircle to theme.accentOrange
-                    MediaMode.RADIO -> Icons.Default.Radio to Color(0xFF00E676)
-                    MediaMode.IPTV -> Icons.Default.Tv to theme.accentPurple
+                val icon = when (mode) {
+                    MediaMode.MUSIC -> Icons.Default.MusicNote
+                    MediaMode.VIDEO -> Icons.Default.PlayCircle
+                    MediaMode.RADIO -> Icons.Default.Radio
+                    MediaMode.IPTV -> Icons.Default.Tv
                 }
 
+                // ✅ Se usa el color primario del tema para TODOS los botones seleccionados
                 SquareMediaTabButton(
                     icon = icon,
                     isSelected = currentMode == mode,
-                    activeColor = color,
+                    activeColor = theme.accentCyan,
                     onClick = { onModeChange(mode) },
                     onLongClick = { showReorderModal = true }
                 )
@@ -185,7 +180,7 @@ fun ModernMediaPlayerWidget(
                     )
 
                     MediaMode.RADIO -> RadioPlayerView(
-                        theme = theme,
+                        theme = theme
                     )
 
                     MediaMode.IPTV -> IptvPlayerView(
@@ -248,11 +243,11 @@ fun ReorderMediaTabsModal(
                 Text("El ícono en el puesto #1 será el que arrancarás al encender el auto:", color = Color.Gray, fontSize = 11.sp)
 
                 tabsList.forEachIndexed { index, mode ->
-                    val (title, icon, color) = when (mode) {
-                        MediaMode.MUSIC -> Triple("Música USB", Icons.Default.MusicNote, theme.accentCyan)
-                        MediaMode.VIDEO -> Triple("Videos USB", Icons.Default.PlayCircle, theme.accentOrange)
-                        MediaMode.RADIO -> Triple("Radio Online", Icons.Default.Radio, Color(0xFF00E676))
-                        MediaMode.IPTV -> Triple("Televisión IPTV", Icons.Default.Tv, theme.accentPurple)
+                    val (title, icon) = when (mode) {
+                        MediaMode.MUSIC -> "Música USB" to Icons.Default.MusicNote
+                        MediaMode.VIDEO -> "Videos USB" to Icons.Default.PlayCircle
+                        MediaMode.RADIO -> "Radio Online" to Icons.Default.Radio
+                        MediaMode.IPTV -> "Televisión IPTV" to Icons.Default.Tv
                     }
 
                     Row(
@@ -272,7 +267,7 @@ fun ReorderMediaTabsModal(
                                 fontWeight = FontWeight.ExtraBold
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Icon(imageVector = icon, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
+                            Icon(imageVector = icon, contentDescription = null, tint = theme.accentCyan, modifier = Modifier.size(22.dp))
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(text = title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
@@ -370,7 +365,7 @@ fun SquareMediaTabButton(
 }
 
 // =========================================================================
-// 📻 VISTA DE RADIO ONLINE EN VIVO (CON CONTROL EXCLUSIVO DE AUDIO)
+// 📻 VISTA DE RADIO ONLINE EN VIVO
 // =========================================================================
 @Composable
 fun RadioPlayerView(
@@ -381,7 +376,6 @@ fun RadioPlayerView(
 
     val radioManager = remember { SmartRadioManager.getInstance(context) }
 
-    // Verificación flexible de conexión
     var isOnline by remember { mutableStateOf(radioManager.isConnectedToInternet()) }
 
     val currentStation = radioManager.stationList.getOrNull(radioManager.currentStationIndex)
@@ -389,7 +383,6 @@ fun RadioPlayerView(
 
     val isFavorite = currentStation != null && favoriteIds.contains(currentStation.id)
 
-    // ✅ REPRODUCCIÓN INICIAL LIMPIA AL ABRIR LA RADIO Y VALIDACIÓN DE INTERNET
     LaunchedEffect(Unit) {
         val connected = radioManager.isConnectedToInternet()
         isOnline = connected
@@ -398,7 +391,6 @@ fun RadioPlayerView(
         }
     }
 
-    // PANTALLA DE ADVERTENCIA MEJORADA SI NO HAY INTERNET
     if (!isOnline) {
         Box(
             modifier = Modifier
@@ -488,23 +480,21 @@ fun RadioPlayerView(
             .background(
                 Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFF0B1E16),
+                        theme.accentCyan.copy(alpha = 0.15f),
                         Color(0xFF141414),
-                        theme.accentCyan.copy(alpha = 0.15f)
+                        theme.accentCyan.copy(alpha = 0.05f)
                     )
                 )
             )
             .padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // --- SECCIÓN IZQUIERDA: INFORMACIÓN DE EMISORA Y CONTROLES ---
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight(),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // CABECERA
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -514,7 +504,7 @@ fun RadioPlayerView(
                     Icon(
                         imageVector = Icons.Default.Radio,
                         contentDescription = "Radio",
-                        tint = Color(0xFF00E676),
+                        tint = theme.accentCyan,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
@@ -526,7 +516,6 @@ fun RadioPlayerView(
                     )
                 }
 
-                // BOTÓN CORAZÓN (FAVORITOS)
                 IconButton(
                     onClick = {
                         if (currentStation != null) {
@@ -550,7 +539,6 @@ fun RadioPlayerView(
                 }
             }
 
-            // DATOS DE LA EMISORA ACTUAL
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -569,7 +557,7 @@ fun RadioPlayerView(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "${currentStation?.freqLabel} • ${currentStation?.city}",
-                        color = Color(0xFF00E676),
+                        color = theme.accentCyan,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -584,13 +572,11 @@ fun RadioPlayerView(
                 )
             }
 
-            // BOTONES DE CONTROL DE STREAMING
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Emisora Anterior
                 IconButton(
                     onClick = { radioManager.playPreviousStation() },
                     modifier = Modifier
@@ -600,17 +586,16 @@ fun RadioPlayerView(
                     Icon(
                         imageVector = Icons.Default.SkipPrevious,
                         contentDescription = "Anterior",
-                        tint = Color.White,
+                        tint = theme.accentCyan,
                         modifier = Modifier.size((24 * buttonScale).dp)
                     )
                 }
 
-                // Play / Pausa (Con indicador de Carga)
                 IconButton(
                     onClick = { radioManager.togglePlayPause() },
                     modifier = Modifier
                         .size((48 * buttonScale).dp)
-                        .background(Color(0xFF00E676), CircleShape)
+                        .background(theme.accentCyan, CircleShape)
                 ) {
                     if (radioManager.isLoading) {
                         CircularProgressIndicator(
@@ -628,7 +613,6 @@ fun RadioPlayerView(
                     }
                 }
 
-                // Emisora Siguiente
                 IconButton(
                     onClick = { radioManager.playNextStation() },
                     modifier = Modifier
@@ -638,14 +622,13 @@ fun RadioPlayerView(
                     Icon(
                         imageVector = Icons.Default.SkipNext,
                         contentDescription = "Siguiente",
-                        tint = Color.White,
+                        tint = theme.accentCyan,
                         modifier = Modifier.size((24 * buttonScale).dp)
                     )
                 }
             }
         }
 
-        // --- SECCIÓN DERECHA: LISTA DE EMISORAS DISPONIBLES ---
         Column(
             modifier = Modifier
                 .widthIn(min = 120.dp, max = 160.dp)
@@ -671,12 +654,11 @@ fun RadioPlayerView(
                 Icon(
                     imageVector = Icons.Default.Radio,
                     contentDescription = null,
-                    tint = Color(0xFF00E676),
+                    tint = theme.accentCyan,
                     modifier = Modifier.size(12.dp)
                 )
             }
 
-            // LISTA CON SCROLL DE TODAS LAS EMISORAS
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -689,12 +671,12 @@ fun RadioPlayerView(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(6.dp))
                             .background(
-                                if (isCurrentSelected) Color(0xFF00E676).copy(alpha = 0.25f)
+                                if (isCurrentSelected) theme.accentCyan.copy(alpha = 0.25f)
                                 else Color(0xFF252530)
                             )
                             .border(
                                 width = if (isCurrentSelected) 1.dp else 0.dp,
-                                color = if (isCurrentSelected) Color(0xFF00E676) else Color.Transparent,
+                                color = if (isCurrentSelected) theme.accentCyan else Color.Transparent,
                                 shape = RoundedCornerShape(6.dp)
                             )
                             .clickable {
@@ -707,7 +689,7 @@ fun RadioPlayerView(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = station.name,
-                                color = if (isCurrentSelected) Color(0xFF00E676) else Color.White,
+                                color = if (isCurrentSelected) theme.accentCyan else Color.White,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
@@ -768,9 +750,9 @@ fun MusicPlayerView(
             .background(
                 Brush.linearGradient(
                     colors = listOf(
-                        theme.accentPurple.copy(alpha = 0.35f),
+                        theme.accentCyan.copy(alpha = 0.25f),
                         Color(0xFF0F0F14),
-                        theme.accentCyan.copy(alpha = 0.20f)
+                        theme.accentCyan.copy(alpha = 0.10f)
                     )
                 )
             )
@@ -805,7 +787,7 @@ fun MusicPlayerView(
                         } else {
                             "📂 Toca aquí o conecta tu USB"
                         },
-                        color = if (musicPlayer.isScanning) theme.accentOrange else theme.accentCyan,
+                        color = theme.accentCyan,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1
@@ -819,7 +801,7 @@ fun MusicPlayerView(
                     Icon(
                         imageVector = Icons.Default.FolderOpen,
                         contentDescription = "Abrir USB",
-                        tint = theme.accentOrange,
+                        tint = theme.accentCyan,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -865,7 +847,7 @@ fun MusicPlayerView(
                         .fillMaxWidth()
                         .height(5.dp)
                         .clip(CircleShape),
-                    color = theme.accentOrange,
+                    color = theme.accentCyan,
                     trackColor = theme.cardBorder
                 )
             }
@@ -900,7 +882,7 @@ fun MusicPlayerView(
                     Icon(
                         imageVector = Icons.Default.SkipPrevious,
                         contentDescription = "Anterior",
-                        tint = theme.accentOrange,
+                        tint = theme.accentCyan,
                         modifier = Modifier.size((28 * buttonScale).dp)
                     )
                 }
@@ -928,7 +910,7 @@ fun MusicPlayerView(
                     Icon(
                         imageVector = Icons.Default.SkipNext,
                         contentDescription = "Siguiente",
-                        tint = theme.accentOrange,
+                        tint = theme.accentCyan,
                         modifier = Modifier.size((28 * buttonScale).dp)
                     )
                 }
@@ -940,7 +922,7 @@ fun MusicPlayerView(
                     Icon(
                         imageVector = Icons.Default.Fullscreen,
                         contentDescription = "Pantalla Completa",
-                        tint = theme.accentOrange,
+                        tint = theme.accentCyan,
                         modifier = Modifier.size((22 * buttonScale).dp)
                     )
                 }
@@ -952,7 +934,7 @@ fun MusicPlayerView(
                     Icon(
                         imageVector = if (musicPlayer.isAutoPlayEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
                         contentDescription = "AutoStart",
-                        tint = if (musicPlayer.isAutoPlayEnabled) theme.accentOrange else Color.DarkGray,
+                        tint = if (musicPlayer.isAutoPlayEnabled) theme.accentCyan else Color.DarkGray,
                         modifier = Modifier.size((20 * buttonScale).dp)
                     )
                 }
@@ -993,7 +975,6 @@ fun VideoPlayerView(
 
     val currentVideo = videoPlayer.playlist.getOrNull(videoPlayer.currentTrackIndex)
 
-    // Usamos el estado global de controles gestionado por SmartVideoPlayer (se oculta en 5s)
     val showUI = videoPlayer.showControls
     val interactionSource = remember { MutableInteractionSource() }
     val buttonScale = LocalButtonScale.current
@@ -1016,13 +997,9 @@ fun VideoPlayerView(
                 interactionSource = interactionSource,
                 indication = null
             ) {
-                // Alterna y resetea el temporizador de 5 segundos
                 videoPlayer.toggleControls()
             }
     ) {
-        // ==========================================
-        // 1. RENDERIZADOR DE VIDEO CON EXOPLAYER
-        // ==========================================
         if (currentVideo != null) {
             AndroidView(
                 factory = { ctx ->
@@ -1050,9 +1027,6 @@ fun VideoPlayerView(
             }
         }
 
-        // ==========================================
-        // 2. BARRA SUPERIOR (TÍTULO Y BOTÓN DE CARPETA)
-        // ==========================================
         AnimatedVisibility(
             visible = showUI,
             enter = fadeIn(),
@@ -1101,18 +1075,14 @@ fun VideoPlayerView(
                         Icon(
                             imageVector = Icons.Default.FolderOpen,
                             contentDescription = "Elegir Carpeta USB",
-                            tint = theme.accentOrange,
+                            tint = theme.accentCyan,
                             modifier = Modifier.size(18.dp)
                         )
                     }
-
                 }
             }
         }
 
-        // ==========================================
-        // 3. BARRA INFERIOR DE CONTROLES
-        // ==========================================
         AnimatedVisibility(
             visible = showUI,
             enter = fadeIn(),
@@ -1152,7 +1122,7 @@ fun VideoPlayerView(
                 }
 
                 val currentProgress = if (totalMs <= 1L) {
-                    0f // Protege la barra para que NUNCA se llene sola si no hay duración
+                    0f
                 } else if (isDraggingSlider) {
                     sliderPosition
                 } else {
@@ -1175,13 +1145,12 @@ fun VideoPlayerView(
                         .fillMaxWidth()
                         .height(24.dp),
                     colors = SliderDefaults.colors(
-                        thumbColor = theme.accentOrange,
-                        activeTrackColor = theme.accentOrange,
+                        thumbColor = theme.accentCyan,
+                        activeTrackColor = theme.accentCyan,
                         inactiveTrackColor = theme.cardBorder.copy(alpha = 0.5f)
                     )
                 )
 
-                // BOTONERA DE REPRODUCCIÓN
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
@@ -1208,7 +1177,7 @@ fun VideoPlayerView(
                         Icon(
                             imageVector = Icons.Default.SkipPrevious,
                             contentDescription = "Anterior",
-                            tint = theme.accentOrange,
+                            tint = theme.accentCyan,
                             modifier = Modifier.size((22 * buttonScale).dp)
                         )
                     }
@@ -1236,7 +1205,7 @@ fun VideoPlayerView(
                         Icon(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Siguiente",
-                            tint = theme.accentOrange,
+                            tint = theme.accentCyan,
                             modifier = Modifier.size((22 * buttonScale).dp)
                         )
                     }
@@ -1256,9 +1225,6 @@ fun VideoPlayerView(
             }
         }
 
-        // ==========================================
-        // 4. MODAL EXPLORADOR DE CARPETAS
-        // ==========================================
         if (showFolderModal) {
             FolderPickerModal(
                 onDismiss = {
@@ -1273,6 +1239,7 @@ fun VideoPlayerView(
         }
     }
 }
+
 // =========================================================================
 // 📺 VISTA DE IPTV
 // =========================================================================
@@ -1285,6 +1252,9 @@ fun IptvPlayerView(
     val iptvPlayer = remember { SmartIptvPlayer.getInstance(context) }
     var showFolderModal by remember { mutableStateOf(false) }
 
+    // Carga de Favoritos desde el almacenamiento local
+    var favoriteChannels by remember { mutableStateOf(getSavedIptvFavoriteChannels(context)) }
+
     val currentChannel = iptvPlayer.playlist.getOrNull(iptvPlayer.currentChannelIndex)
     val buttonScale = LocalButtonScale.current
 
@@ -1293,11 +1263,30 @@ fun IptvPlayerView(
 
     val isOnline = remember(iptvPlayer.currentChannelIndex) { iptvPlayer.isConnectedToInternet() }
 
-    // --- TEMPORIZADOR PARA OCULTAR CONTROLES A LOS 5 SEGUNDOS ---
+    // ✅ EXACTAMENTE IGUAL A PANTALLA COMPLETA: GARANTIZA FAVORITOS AL ARRANCAR
+    LaunchedEffect(favoriteChannels, iptvPlayer.playlist.size) {
+        if (favoriteChannels.isNotEmpty()) {
+            val combined = (favoriteChannels + iptvPlayer.playlist).distinctBy { it.streamUrl }
+            try {
+                val list = iptvPlayer.playlist
+                if (list is MutableList<*>) {
+                    @Suppress("UNCHECKED_CAST")
+                    val mutableList = list as MutableList<IptvChannel>
+                    if (mutableList.size != combined.size || !mutableList.containsAll(favoriteChannels)) {
+                        mutableList.clear()
+                        mutableList.addAll(combined)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     LaunchedEffect(showUI, iptvPlayer.isPlaying) {
         if (showUI && iptvPlayer.isPlaying) {
-            delay(5000L) // Espera 5 segundos
-            showUI = false // Oculta los controles automáticamente
+            delay(5000L)
+            showUI = false
         }
     }
 
@@ -1322,7 +1311,7 @@ fun IptvPlayerView(
                 interactionSource = interactionSource,
                 indication = null
             ) {
-                showUI = !showUI // Alterna los controles al hacer clic
+                showUI = !showUI
             }
     ) {
         if (!isOnline) {
@@ -1340,13 +1329,10 @@ fun IptvPlayerView(
                 Text("Conecta la tablet a Wi-Fi o datos móviles", color = Color.Gray, fontSize = 10.sp)
             }
         } else if (currentChannel != null) {
-            // --- VIDEOVIEW MODIFICADO PARA ESTIRARSE AL 100% ---
             AndroidView(
                 factory = { ctx ->
                     object : VideoView(ctx) {
                         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                            // Ignoramos la relación de aspecto nativa del video y forzamos
-                            // que tome exactamente todo el ancho y alto del contenedor Box.
                             val width = MeasureSpec.getSize(widthMeasureSpec)
                             val height = MeasureSpec.getSize(heightMeasureSpec)
                             setMeasuredDimension(width, height)
@@ -1358,7 +1344,6 @@ fun IptvPlayerView(
                             setOnPreparedListener { mp ->
                                 iptvPlayer.bindMediaPlayer(mp)
 
-                                // --- TRUCO PARA FORZAR ESTIRAMIENTO DE VIDEO EN MEDIAPLAYER ---
                                 try {
                                     val videoWidth = mp.videoWidth.toFloat()
                                     val videoHeight = mp.videoHeight.toFloat()
@@ -1410,7 +1395,7 @@ fun IptvPlayerView(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Icon(Icons.Default.Tv, contentDescription = null, tint = theme.accentPurple, modifier = Modifier.size(40.dp))
+                Icon(Icons.Default.Tv, contentDescription = null, tint = theme.accentCyan, modifier = Modifier.size(40.dp))
                 Spacer(modifier = Modifier.height(6.dp))
                 Text("Carga una lista .m3u desde tu USB", color = Color.Gray, fontSize = 11.sp)
             }
@@ -1449,7 +1434,7 @@ fun IptvPlayerView(
                         ChannelLogoImage(
                             logoUrl = currentChannel?.logoUrl,
                             modifier = Modifier.size(24.dp),
-                            tint = theme.accentPurple
+                            tint = theme.accentCyan
                         )
 
                         Spacer(modifier = Modifier.width(6.dp))
@@ -1464,7 +1449,7 @@ fun IptvPlayerView(
                             )
                             Text(
                                 text = "📺 ${iptvPlayer.selectedFileName} (${iptvPlayer.playlist.size} canales)",
-                                color = theme.accentPurple,
+                                color = theme.accentCyan,
                                 fontSize = 9.sp
                             )
                         }
@@ -1477,7 +1462,7 @@ fun IptvPlayerView(
                         },
                         modifier = Modifier.size(32.dp)
                     ) {
-                        Icon(Icons.Default.FolderOpen, contentDescription = "USB", tint = theme.accentOrange, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.FolderOpen, contentDescription = "USB", tint = theme.accentCyan, modifier = Modifier.size(20.dp))
                     }
                 }
 
@@ -1488,7 +1473,7 @@ fun IptvPlayerView(
                 ) {
                     Button(
                         onClick = {
-                            iptvPlayer.playNextChannel()
+                            iptvPlayer.playPreviousChannel()
                             showUI = true
                         },
                         modifier = Modifier.height((34 * buttonScale).dp),
@@ -1496,8 +1481,9 @@ fun IptvPlayerView(
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text("CH +", color = Color.White, fontSize = (11 * buttonScale).sp, fontWeight = FontWeight.Bold)
+                        Text("CH -", color = Color.White, fontSize = (11 * buttonScale).sp, fontWeight = FontWeight.Bold)
                     }
+
                     IconButton(
                         onClick = {
                             iptvPlayer.togglePlayPause()
@@ -1505,12 +1491,12 @@ fun IptvPlayerView(
                         },
                         modifier = Modifier
                             .size((42 * buttonScale).dp)
-                            .background(theme.accentPurple, CircleShape)
+                            .background(theme.accentCyan, CircleShape)
                     ) {
                         Icon(
                             imageVector = if (iptvPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = "Play/Pausa",
-                            tint = Color.White,
+                            tint = Color.Black,
                             modifier = Modifier.size((24 * buttonScale).dp)
                         )
                     }
@@ -1542,7 +1528,7 @@ fun IptvPlayerView(
                         Icon(
                             imageVector = Icons.Default.Fullscreen,
                             contentDescription = "Pantalla Completa",
-                            tint = theme.accentOrange,
+                            tint = theme.accentCyan,
                             modifier = Modifier.size((22 * buttonScale).dp)
                         )
                     }
@@ -1561,7 +1547,9 @@ fun IptvPlayerView(
                         it.extension.lowercase() in listOf("m3u", "m3u8")
                     }
                     if (m3uFile != null) {
-                        iptvPlayer.parseAndLoadM3uFile(m3uFile)
+                        // ✅ CONSERVA Y MUESTRA LOS FAVORITOS RECARGANDO EL ESTADO
+                        loadM3uAndPreserveFavorites(context, iptvPlayer, m3uFile)
+                        favoriteChannels = getSavedIptvFavoriteChannels(context)
                     }
                     showFolderModal = false
                 }
@@ -1569,7 +1557,6 @@ fun IptvPlayerView(
         }
     }
 }
-
 // =========================================================================
 // 💾 FUNCIONES DE PERSISTENCIA GENERAL
 // =========================================================================
