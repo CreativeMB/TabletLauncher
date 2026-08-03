@@ -88,6 +88,9 @@ class SmartVideoPlayer private constructor(private val context: Context) {
             }
         }
 
+    // =========================================================================
+    // ⏱️ GESTIÓN DE OCULTAR CONTROLES A LOS 5 SEGUNDOS
+    // =========================================================================
     var showControls by mutableStateOf(true)
     private var controlsTimerJob: Job? = null
 
@@ -130,6 +133,9 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         autoStartVideoOnBoot()
     }
 
+    // =========================================================================
+    // 🎧 INICIALIZACIÓN MEDIA3 EXOPLAYER ULTRA-COMPATIBLE (1080P / 4K / USB)
+    // =========================================================================
     @OptIn(UnstableApi::class)
     fun getOrCreatePlayer(): ExoPlayer {
         return exoPlayer ?: run {
@@ -154,7 +160,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                         .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                         .setUsage(C.USAGE_MEDIA)
                         .build(),
-                    true
+                    /* handleAudioFocus = */ true
                 )
                 .setLoadControl(loadControl)
                 .build().also { newPlayer ->
@@ -162,6 +168,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                     newPlayer.setSeekParameters(SeekParameters.CLOSEST_SYNC)
 
                     newPlayer.addListener(object : Player.Listener {
+
                         override fun onEvents(player: Player, events: Player.Events) {
                             updateDuration(player)
                         }
@@ -203,7 +210,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                         override fun onPlayerError(error: PlaybackException) {
                             _isPlaying.value = false
                             showControls = true
-                            android.util.Log.e("SmartVideoPlayer", "Error ExoPlayer: ${error.message}")
+                            android.util.Log.e("SmartVideoPlayer", "Error de Video ExoPlayer: ${error.message}")
                             if (playlist.size > 1) {
                                 playNextVideo()
                             }
