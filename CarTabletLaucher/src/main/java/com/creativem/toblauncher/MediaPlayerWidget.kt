@@ -46,6 +46,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.scale
+import kotlinx.coroutines.isActive
 
 // =========================================================================
 // 1. ENUM PARA LOS 4 MODOS
@@ -442,6 +443,9 @@ fun getApiCountryName(displayName: String): String {
 // =========================================================================
 // 📻 VISTA DE RADIO ONLINE CON SELECTOR DE PAÍS Y PERSISTENCIA
 // =========================================================================
+// =========================================================================
+// 📻 VISTA DE RADIO ONLINE (CON AUTO-RECONEXIÓN EN TIEMPO REAL)
+// =========================================================================
 @Composable
 fun RadioPlayerView(
     theme: DashboardTheme
@@ -451,9 +455,9 @@ fun RadioPlayerView(
 
     val radioManager = remember { SmartRadioManager.getInstance(context) }
 
+    // 📡 ESTADO DE INTERNET EN TIEMPO REAL
     var isOnline by remember { mutableStateOf(radioManager.isConnectedToInternet()) }
 
-    // 💾 Carga el país guardado previamente por el usuario (Por defecto Colombia)
     var selectedCountry by remember { mutableStateOf(radioManager.getSavedCountry()) }
     var showCountryModal by remember { mutableStateOf(false) }
 
@@ -462,51 +466,55 @@ fun RadioPlayerView(
 
     val isFavorite = currentStation != null && favoriteIds.contains(currentStation.id)
 
-    // =========================================================================
-    // ⭐ LISTA DE EMISORAS CON FAVORITAS EN PRIMERA POSICIÓN
-    // =========================================================================
     val displayStations = remember(radioManager.stationList, favoriteIds) {
         radioManager.stationList.sortedByDescending { favoriteIds.contains(it.id) }
     }
 
-    // =========================================================================
-    // 📡 CARGA INMEDIATA DE SEÑAL Y REPRODUCCIÓN DE LA ÚLTIMA EMISORA GUARDADA
-    // =========================================================================
-    LaunchedEffect(selectedCountry, isOnline) {
-        val connected = radioManager.isConnectedToInternet()
-        isOnline = connected
-
-        if (connected) {
-            val apiCountry = getApiCountryName(selectedCountry)
-
-            // Si la lista está vacía, pedir emisoras a la API
-            if (radioManager.stationList.isEmpty() && !radioManager.isFetchingApi) {
-                radioManager.fetchStationsByCountry(apiCountry) {
-                    if (radioManager.stationList.isNotEmpty() && !radioManager.isPlaying) {
-
-                        // 💾 Carga el índice/posicion de la última emisora que escuchó
-                        val savedIndex = if (radioManager.currentStationIndex in radioManager.stationList.indices) {
-                            radioManager.currentStationIndex
-                        } else 0
-
-                        radioManager.playStationAtIndex(savedIndex)
+    // 🔄 MONITOR DE CONEXIÓN EN TIEMPO REAL (AUTO-RECONEXIÓN RADIO AL ENCENDER EL CARRO)
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            val connected = radioManager.isConnectedToInternet()
+            if (connected != isOnline) {
+                isOnline = connected
+                if (connected) {
+                    val apiCountry = getApiCountryName(selectedCountry)
+                    radioManager.fetchStationsByCountry(apiCountry) {
+                        if (radioManager.stationList.isNotEmpty() && !radioManager.isPlaying) {
+                            val savedIndex = if (radioManager.currentStationIndex in radioManager.stationList.indices) {
+                                radioManager.currentStationIndex
+                            } else 0
+                            radioManager.playStationAtIndex(savedIndex)
+                        }
                     }
                 }
             }
-            // Si las emisoras ya estaban cargadas en memoria, reproducir la última guardada
-            else if (radioManager.stationList.isNotEmpty() && !radioManager.isPlaying && !radioManager.isLoading) {
+            delay(2000L) // Monitorear red cada 2 segundos
+        }
+    }
+
+    // Carga inicial si la red ya estaba lista
+    LaunchedEffect(selectedCountry, isOnline) {
+        if (isOnline) {
+            val apiCountry = getApiCountryName(selectedCountry)
+            if (radioManager.stationList.isEmpty() && !radioManager.isFetchingApi) {
+                radioManager.fetchStationsByCountry(apiCountry) {
+                    if (radioManager.stationList.isNotEmpty() && !radioManager.isPlaying) {
+                        val savedIndex = if (radioManager.currentStationIndex in radioManager.stationList.indices) {
+                            radioManager.currentStationIndex
+                        } else 0
+                        radioManager.playStationAtIndex(savedIndex)
+                    }
+                }
+            } else if (radioManager.stationList.isNotEmpty() && !radioManager.isPlaying && !radioManager.isLoading) {
                 val savedIndex = if (radioManager.currentStationIndex in radioManager.stationList.indices) {
                     radioManager.currentStationIndex
                 } else 0
-
                 radioManager.playStationAtIndex(savedIndex)
             }
         }
     }
 
-    // =========================================================================
-    // 🚨 CASO 1: SIN INTERNET
-    // =========================================================================
+    // CASO 1: ESPERANDO INTERNET (MUESTRA SPINNER Y AUTO-CONECTARÁ AL CONECTAR AL WI-FI)
     if (!isOnline) {
         Box(
             modifier = Modifier
@@ -525,24 +533,16 @@ fun RadioPlayerView(
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.fillMaxWidth(0.85f)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .background(Color(0xFF381414), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.WifiOff,
-                        contentDescription = null,
-                        tint = Color(0xFFFF4D4D),
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
+                CircularProgressIndicator(
+                    modifier = Modifier.size(36.dp),
+                    color = theme.accentCyan,
+                    strokeWidth = 3.dp
+                )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "Sin Conexión a Internet",
+                    text = "Esperando Conexión Wi-Fi / Datos...",
                     color = Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
@@ -552,42 +552,11 @@ fun RadioPlayerView(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = "La radio online requiere conexión activa para descargar la lista de emisoras.",
+                    text = "Cargará las emisoras de radio automáticamente al obtener internet.",
                     color = Color.Gray,
                     fontSize = 11.sp,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2
+                    textAlign = TextAlign.Center
                 )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Button(
-                    onClick = {
-                        val connected = radioManager.isConnectedToInternet()
-                        isOnline = connected
-                        if (connected) {
-                            radioManager.fetchStationsByCountry(getApiCountryName(selectedCountry)) {
-                                if (radioManager.stationList.isNotEmpty()) {
-                                    val savedIndex = if (radioManager.currentStationIndex in radioManager.stationList.indices) {
-                                        radioManager.currentStationIndex
-                                    } else 0
-                                    radioManager.playStationAtIndex(savedIndex)
-                                }
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = null,
-                        tint = Color.Black,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Reintentar Conexión", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
             }
         }
         return
@@ -1668,7 +1637,7 @@ fun VideoPlayerView(
     }
 }
 // =========================================================================
-// 📺 VISTA DE IPTV
+// 📺 VISTA DE IPTV (CON RECONEXIÓN AUTOMÁTICA EN TIEMPO REAL)
 // =========================================================================
 @Composable
 fun IptvPlayerView(
@@ -1687,7 +1656,25 @@ fun IptvPlayerView(
     var showUI by remember { mutableStateOf(true) }
     val interactionSource = remember { MutableInteractionSource() }
 
-    val isOnline = remember(iptvPlayer.currentChannelIndex) { iptvPlayer.isConnectedToInternet() }
+    // 📡 ESTADO DE INTERNET EN TIEMPO REAL
+    var isOnline by remember { mutableStateOf(iptvPlayer.isConnectedToInternet()) }
+
+    // 🔄 MONITOR DE CONEXIÓN EN TIEMPO REAL (AUTO-RECONEXIÓN AL ENCENDER EL CARRO)
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            val connected = iptvPlayer.isConnectedToInternet()
+            if (connected != isOnline) {
+                isOnline = connected
+                if (connected && iptvPlayer.playlist.isNotEmpty() && !iptvPlayer.isPlaying) {
+                    val targetIndex = if (iptvPlayer.currentChannelIndex in iptvPlayer.playlist.indices) {
+                        iptvPlayer.currentChannelIndex
+                    } else 0
+                    iptvPlayer.playChannelAtIndex(targetIndex)
+                }
+            }
+            delay(2000L) // Monitorear red cada 2 segundos
+        }
+    }
 
     LaunchedEffect(favoriteChannels, iptvPlayer.playlist.size) {
         if (favoriteChannels.isNotEmpty()) {
@@ -1715,8 +1702,8 @@ fun IptvPlayerView(
         }
     }
 
-    LaunchedEffect(iptvPlayer.playlist.isNotEmpty(), iptvPlayer.isFullscreenActive) {
-        if (!iptvPlayer.isFullscreenActive && iptvPlayer.playlist.isNotEmpty()) {
+    LaunchedEffect(iptvPlayer.playlist.isNotEmpty(), iptvPlayer.isFullscreenActive, isOnline) {
+        if (isOnline && !iptvPlayer.isFullscreenActive && iptvPlayer.playlist.isNotEmpty()) {
             val targetIndex = if (iptvPlayer.currentChannelIndex in iptvPlayer.playlist.indices) {
                 iptvPlayer.currentChannelIndex
             } else 0
@@ -1743,15 +1730,30 @@ fun IptvPlayerView(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFF0F0F14)),
+                    .background(Color(0xFF0F0F14))
+                    .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Icon(Icons.Default.WifiOff, contentDescription = null, tint = Color.Red, modifier = Modifier.size(36.dp))
-                Spacer(modifier = Modifier.height(6.dp))
-                Text("Se requiere Internet para ver IPTV", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(2.dp))
-                Text("Conecta la tablet a Wi-Fi o datos móviles", color = Color.Gray, fontSize = 10.sp)
+                CircularProgressIndicator(
+                    modifier = Modifier.size(32.dp),
+                    color = theme.accentCyan,
+                    strokeWidth = 3.dp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "Esperando Conexión Wi-Fi / Datos...",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Conectará automáticamente en cuanto la tablet obtenga internet",
+                    color = Color.Gray,
+                    fontSize = 10.sp,
+                    textAlign = TextAlign.Center
+                )
             }
         } else if (currentChannel != null) {
             AndroidView(
