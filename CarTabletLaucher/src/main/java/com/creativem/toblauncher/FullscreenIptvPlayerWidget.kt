@@ -39,7 +39,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-
+import androidx.activity.compose.BackHandler
 val iptvLogoCache = LruCache<String, Bitmap>(150)
 
 // =========================================================================
@@ -124,6 +124,10 @@ fun loadM3uAndPreserveFavorites(context: Context, iptvPlayer: SmartIptvPlayer, m
 fun FullscreenIptvPlayerWidget(
     onClose: () -> Unit
 ) {
+    // 👈 CAPTURA EL BOTÓN FÍSICO / SISTEMA "ATRÁS" DE LA TABLETA
+    BackHandler {
+        onClose()
+    }
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
     val iptvPlayer = remember { SmartIptvPlayer.getInstance(context) }

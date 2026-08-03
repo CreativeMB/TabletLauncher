@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -264,6 +265,9 @@ fun ThemeSelectorModal(
     onIsBoldChanged: (Boolean) -> Unit,
     onButtonScaleChanged: (Float) -> Unit = {}
 ) {
+    BackHandler {
+        onDismiss()
+    }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 

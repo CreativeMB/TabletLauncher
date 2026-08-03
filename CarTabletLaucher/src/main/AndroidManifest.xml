@@ -68,20 +68,17 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
-
         </intent>
-    </queries>
-    <!-- 🛑 REQUERIDO PARA VER Y ACTIVAR OTROS LAUNCHERS EN ANDROID 11+ -->
-    <queries>
+
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.HOME" />
         </intent>
+
         <intent>
             <action android:name="android.settings.HOME_SETTINGS" />
         </intent>
     </queries>
-
 
     <application
         android:allowBackup="true"

@@ -23,11 +23,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
-
+import androidx.activity.compose.BackHandler
 @Composable
 fun FullscreenMusicPlayerWidget(
     onClose: () -> Unit
 ) {
+    BackHandler {
+        onClose()
+    }
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
     val musicPlayer = remember { SmartMusicPlayer.getInstance(context) }

@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-
+import androidx.activity.compose.BackHandler
 data class AndroidInstalledApp(
     val appName: String,
     val packageName: String,
@@ -63,6 +63,9 @@ fun FullscreenAppDrawerWidget(
     onClose: () -> Unit,
     onAppSelected: ((packageName: String) -> Unit)? = null
 ) {
+    BackHandler {
+        onClose()
+    }
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
     val isBold = LocalIsBoldText.current

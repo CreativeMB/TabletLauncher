@@ -30,12 +30,15 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-
+import androidx.activity.compose.BackHandler
 @OptIn(UnstableApi::class)
 @Composable
 fun FullscreenVideoPlayerWidget(
     onClose: () -> Unit
 ) {
+    BackHandler {
+        onClose()
+    }
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
 

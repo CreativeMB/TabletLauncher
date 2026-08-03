@@ -14,6 +14,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.text.style.AlignmentSpan
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,6 +50,14 @@ import org.mapsforge.map.android.graphics.AndroidGraphicFactory
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 🛡️ BLOQUEAR EL BOTÓN ATRÁS EN LA PANTALLA PRINCIPAL DEL LAUNCHER
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                // Al dejar esto vacío, evitamos que la tableta minimice tu Launcher
+                // o se regrese al launcher original de fábrica cuando estés en el Home.
+            }
+        })
         // ✅ FONDO NEGRO ABSOLUTO DESDE EL PRIMER MILISEGUNDO DE ARRANQUE
         window.decorView.setBackgroundColor(android.graphics.Color.BLACK)
         // PANTALLA SIEMPRE ENCENDIDA
@@ -76,6 +85,7 @@ class MainActivity : ComponentActivity() {
                 MainScreen()
             }
         }
+
     }
 
     // ✅ Captura cuando el usuario presiona "HOME" estando la app ya abierta

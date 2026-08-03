@@ -15,6 +15,7 @@ import android.net.Uri
 import android.os.Looper
 import android.view.ViewGroup
 import android.view.View
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -126,8 +127,13 @@ fun MapsforgeWidget(
     onLocationUpdated: (LatLong) -> Unit,
     mapPickerLauncher: ActivityResultLauncher<String>,
     onNoFileManagerError: () -> Unit,
-    onMapLoadError: (String) -> Unit // Callback para reportar fallos de lectura del .map
+    onMapLoadError: (String) -> Unit, // Callback para reportar fallos de lectura del .map
+    onClose: () -> Unit = {}
 ) {
+    // 👈 2. Y AQUÍ USAS EL BACKHANDLER LLAMANDO A onClose()
+    BackHandler {
+        onClose()
+    }
     val context = LocalContext.current
     val currentAutoCenterEnabled by rememberUpdatedState(isAutoCenterEnabled)
 
