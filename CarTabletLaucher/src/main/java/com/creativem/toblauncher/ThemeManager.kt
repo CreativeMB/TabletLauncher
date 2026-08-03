@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -707,13 +708,13 @@ fun ThemeSelectorModal(
 // =========================================================================
 // 📱 MODAL SIMPLIFICADO PARA ASIGNACIÓN DIRECTA
 // =========================================================================
+
 @Composable
 fun LauncherPickerModal(
     theme: DashboardTheme,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val installedLaunchers = remember { LauncherManager.getInstalledLaunchers(context) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -729,52 +730,49 @@ fun LauncherPickerModal(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 340.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 🌟 BOTÓN ÚNICO DIRECTO
+                Text(
+                    text = "Selecciona Car Tablet Launcher como predeterminado para disfrutar del contenido y la mejor experiencia en tu vehículo.",
+                    color = Color.LightGray,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center
+                )
+
+                // 🌟 BOTÓN ÚNICO EXCLUSIVO VERDE
                 Button(
                     onClick = {
                         LauncherManager.forceAndroidChooser(context)
+                        onDismiss()
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Icon(Icons.Default.Star, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(20.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("⭐ ESTABLECER CAR TABLET LAUNCHER COMO PREDETERMINADO", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(
+                        text = "⭐ ESTABLECER CAR TABLET LAUNCHER COMO PREDETERMINADO",
+                        color = Color.Black,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center
+                    )
                 }
-
-                // 📌 INSTRUCCIÓN Y MENSAJE PEDIDO
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1B2B22)),
-                    border = BorderStroke(1.dp, Color(0xFF00E676)),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(22.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "💡 Selecciona Car Tablet Launcher como predeterminado para disfrutar del contenido y la mejor experiencia.",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-
-
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cerrar", color = Color.White)
+                Text("Cancelar", color = Color.White)
             }
         }
     )

@@ -57,99 +57,120 @@ enum class MediaMode {
 // =========================================================================
 // 2. WIDGET CON CONMUTACIÓN EXCLUSIVA Y AUTO-ARRANQUE EN LA POSICIÓN #1
 // =========================================================================
-// =========================================================================
-// 2. WIDGET CON CONMUTACIÓN EXCLUSIVA Y AUTO-ARRANQUE EN LA POSICIÓN #1
-// =========================================================================
 @Composable
 fun ModernMediaPlayerWidget(
     currentMode: MediaMode = MediaMode.MUSIC,
     onModeChange: (MediaMode) -> Unit = {},
     onExpandMusicFullscreen: () -> Unit = {},
     onExpandVideoFullscreen: () -> Unit = {},
-    onExpandIptvFullscreen: () -> Unit = {},
-    onExpandRadioFullscreen: () -> Unit = {}
+    onExpandIptvFullscreen: () -> Unit = {}
 ) {
     val theme = LocalDashboardTheme.current
     val context = LocalContext.current
 
-    // Carga inicial del orden de íconos guardado en la tablet
+    // Carga del orden de íconos guardado en la tablet
     var tabOrder by remember { mutableStateOf(getSavedMediaTabOrder(context)) }
     var showReorderModal by remember { mutableStateOf(false) }
 
-    // Bandera para evitar que la música o video suenen por defecto en el primer milisegundo de arranque
-    var isInitialModeSet by remember { mutableStateOf(false) }
+    // Identificar la prioridad #1 absoluta del usuario
+    val preferredFirstMode = remember(tabOrder) {
+        tabOrder.firstOrNull() ?: MediaMode.MUSIC
+    }
 
-    // Estado de Scroll para la barra lateral
+    var isInitialized by remember { mutableStateOf(false) }
     val sidebarScrollState = rememberScrollState()
 
-    // Instancias singleton de reproductores
+    // Instancias de reproductores
     val musicPlayer = remember { SmartMusicPlayer.getInstance(context) }
     val videoPlayer = remember { SmartVideoPlayer.getInstance(context) }
     val radioPlayer = remember { SmartRadioManager.getInstance(context) }
     val iptvPlayer = remember { SmartIptvPlayer.getInstance(context) }
 
     // =========================================================================
-    // ✅ 1. VALIDAR MODO DE POSICIÓN #1 ANTES DE REPRODUCIR CUALQUIER COSA
+    // ✅ 1. BLOQUEO Y SILENCIADO INICIAL (SIN PAUSAR EL MODO #1)
     // =========================================================================
-    LaunchedEffect(Unit) {
-        if (tabOrder.isNotEmpty()) {
-            val firstPreferredMode = tabOrder.first()
-            if (currentMode != firstPreferredMode) {
-                onModeChange(firstPreferredMode)
-            }
+    LaunchedEffect(preferredFirstMode) {
+        if (preferredFirstMode != MediaMode.MUSIC) runCatching { musicPlayer.pausePlayback() }
+        if (preferredFirstMode != MediaMode.VIDEO) runCatching { videoPlayer.pausePlayback() }
+        if (preferredFirstMode != MediaMode.RADIO) runCatching { radioPlayer.stopPlayback() }
+        if (preferredFirstMode != MediaMode.IPTV) runCatching { iptvPlayer.pausePlayback() }
+
+        if (currentMode != preferredFirstMode) {
+            onModeChange(preferredFirstMode)
         }
-        // Permitimos el arranque de audio solo tras confirmar el tab #1 verdadero
-        isInitialModeSet = true
+
+        isInitialized = true
     }
 
     // =========================================================================
-    // 2. CONTROLADOR DE EXCLUSIVIDAD TOTAL Y REPRODUCCIÓN AUTOMÁTICA
+    // 🛡️ 2. GUARDAS DE SEGURIDAD: SILENCIAR CUALQUIER AUDIO INACTIVO
     // =========================================================================
-    LaunchedEffect(currentMode, isInitialModeSet) {
-        // 🛑 BLOQUEO DE SEGURIDAD: No auto-reproducir nada hasta confirmar el tab correcto
-        if (!isInitialModeSet) return@LaunchedEffect
+    LaunchedEffect(currentMode, musicPlayer.isPlaying) {
+        if (currentMode != MediaMode.MUSIC && musicPlayer.isPlaying) {
+            runCatching { musicPlayer.pausePlayback() }
+        }
+    }
+
+    LaunchedEffect(currentMode, videoPlayer.isPlaying) {
+        if (currentMode != MediaMode.VIDEO && videoPlayer.isPlaying) {
+            runCatching { videoPlayer.pausePlayback() }
+        }
+    }
+
+    LaunchedEffect(currentMode, radioPlayer.isPlaying) {
+        if (currentMode != MediaMode.RADIO && radioPlayer.isPlaying) {
+            runCatching { radioPlayer.stopPlayback() }
+        }
+    }
+
+    LaunchedEffect(currentMode, iptvPlayer.isPlaying) {
+        if (currentMode != MediaMode.IPTV && iptvPlayer.isPlaying) {
+            runCatching { iptvPlayer.pausePlayback() }
+        }
+    }
+
+    // =========================================================================
+    // 🚀 3. BUCLE DE CONTROL Y REANUDACIÓN SILENCIOSA
+    // =========================================================================
+    LaunchedEffect(currentMode, isInitialized) {
+        if (!isInitialized) return@LaunchedEffect
 
         when (currentMode) {
             MediaMode.MUSIC -> {
-                try { radioPlayer.stopPlayback() } catch (e: Exception) { e.printStackTrace() }
-                try { videoPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
-                try { iptvPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
+                runCatching { videoPlayer.pausePlayback() }
+                runCatching { radioPlayer.stopPlayback() }
+                runCatching { iptvPlayer.pausePlayback() }
 
-                // Auto-reproducir música si hay lista cargada y no está sonando
                 if (musicPlayer.playlist.isNotEmpty() && !musicPlayer.isPlaying) {
-                    musicPlayer.playTrackAtIndex(musicPlayer.currentTrackIndex, musicPlayer.currentPositionMs)
-                }
-            }
-            MediaMode.VIDEO -> {
-                try { radioPlayer.stopPlayback() } catch (e: Exception) { e.printStackTrace() }
-                try { musicPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
-                try { iptvPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
-
-                // Auto-reproducir video si hay lista
-                if (videoPlayer.playlist.isNotEmpty() && !videoPlayer.isPlaying) {
-                    videoPlayer.togglePlayPause()
+                    val targetIndex = musicPlayer.currentTrackIndex.coerceIn(0, musicPlayer.playlist.size - 1)
+                    musicPlayer.playTrackAtIndex(targetIndex, musicPlayer.currentPositionMs)
                 }
             }
             MediaMode.RADIO -> {
-                // Silenciar inmediatamente el resto de reproductores
-                try { musicPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
-                try { videoPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
-                try { iptvPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
+                runCatching { musicPlayer.pausePlayback() }
+                runCatching { videoPlayer.pausePlayback() }
+                runCatching { iptvPlayer.pausePlayback() }
 
-                // Auto-reproducir radio si las emisoras ya cargaron desde la API
                 if (radioPlayer.stationList.isNotEmpty() && !radioPlayer.isPlaying && !radioPlayer.isLoading) {
-                    radioPlayer.playStationAtIndex(radioPlayer.currentStationIndex)
+                    val targetIndex = radioPlayer.currentStationIndex.coerceIn(0, radioPlayer.stationList.size - 1)
+                    radioPlayer.playStationAtIndex(targetIndex)
                 }
             }
             MediaMode.IPTV -> {
-                try { radioPlayer.stopPlayback() } catch (e: Exception) { e.printStackTrace() }
-                try { musicPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
-                try { videoPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
+                runCatching { musicPlayer.pausePlayback() }
+                runCatching { videoPlayer.pausePlayback() }
+                runCatching { radioPlayer.stopPlayback() }
 
-                // Auto-reproducir IPTV si hay lista
                 if (iptvPlayer.playlist.isNotEmpty() && !iptvPlayer.isPlaying) {
-                    iptvPlayer.playChannelAtIndex(iptvPlayer.currentChannelIndex)
+                    val targetIndex = iptvPlayer.currentChannelIndex.coerceIn(0, iptvPlayer.playlist.size - 1)
+                    iptvPlayer.playChannelAtIndex(targetIndex)
                 }
+            }
+            MediaMode.VIDEO -> {
+                runCatching { musicPlayer.pausePlayback() }
+                runCatching { radioPlayer.stopPlayback() }
+                runCatching { iptvPlayer.pausePlayback() }
+                // La reproducción de video la gestiona de forma segura VideoPlayerView
             }
         }
     }
@@ -1133,12 +1154,8 @@ fun CountryPickerModal(
     )
 }
 
-
-
-
-
 // =========================================================================
-// 🎵 VISTA DE MÚSICA
+// 🎵 VISTA DE MÚSICA (CORREGIDA SIN AUTO-PLAY FANTASMA)
 // =========================================================================
 @Composable
 fun MusicPlayerView(
@@ -1151,16 +1168,7 @@ fun MusicPlayerView(
 
     val currentTrack = musicPlayer.playlist.getOrNull(musicPlayer.currentTrackIndex)
 
-    LaunchedEffect(musicPlayer.playlist.isNotEmpty()) {
-        if (!musicPlayer.isPlaying && musicPlayer.playlist.isNotEmpty()) {
-            val indexToPlay = if (musicPlayer.currentTrackIndex in musicPlayer.playlist.indices) {
-                musicPlayer.currentTrackIndex
-            } else {
-                0
-            }
-            musicPlayer.playTrackAtIndex(indexToPlay, musicPlayer.currentPositionMs)
-        }
-    }
+    // ✅ ELIMINADO EL LAUNCHEDEFFECT AUTO-PLAY QUE FORZABA REPRODUCIR MÚSICA
 
     Box(
         modifier = Modifier
@@ -1368,7 +1376,7 @@ private fun formatMs(ms: Long): String {
 }
 
 // =========================================================================
-// 🎬 VISTA DE VIDEO
+// 🎬 VISTA DE VIDEO (AUTO-ARRANQUE ÚNICO SIN PAUSA DOBLE)
 // =========================================================================
 @OptIn(UnstableApi::class)
 @Composable
@@ -1388,6 +1396,19 @@ fun VideoPlayerView(
 
     var isDraggingSlider by remember { mutableStateOf(false) }
     var sliderPosition by remember { mutableFloatStateOf(0f) }
+
+    // ✅ AUTO-ARRANQUE GARANTIZADO ÚNICO (EVITA QUE SE PAUSE TRAS 1 SEGUNDO)
+    var hasAutoPlayedForCurrentVideo by remember(currentVideo) { mutableStateOf(false) }
+
+    LaunchedEffect(currentVideo) {
+        if (currentVideo != null && !hasAutoPlayedForCurrentVideo) {
+            delay(400L) // Esperar a que la pantalla/surface se monte 100% en Android
+            if (!videoPlayer.isPlaying && !videoPlayer.isFullscreenActive) {
+                videoPlayer.togglePlayPause()
+            }
+            hasAutoPlayedForCurrentVideo = true
+        }
+    }
 
     LaunchedEffect(videoPlayer.isFullscreenActive) {
         if (!videoPlayer.isFullscreenActive && videoPlayer.playlist.isNotEmpty() && !videoPlayer.isPlaying) {
@@ -1430,7 +1451,7 @@ fun VideoPlayerView(
             )
         } else {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No hay videos cargados", color = Color.Gray, fontSize = 12.sp)
+                Text("Cargando videos de la USB...", color = Color.Gray, fontSize = 12.sp)
             }
         }
 
@@ -1646,7 +1667,6 @@ fun VideoPlayerView(
         }
     }
 }
-
 // =========================================================================
 // 📺 VISTA DE IPTV
 // =========================================================================
