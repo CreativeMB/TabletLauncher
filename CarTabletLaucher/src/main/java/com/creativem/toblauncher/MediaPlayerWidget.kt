@@ -43,6 +43,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.scale
 
 // =========================================================================
 // 1. ENUM PARA LOS 4 MODOS
@@ -51,6 +54,9 @@ enum class MediaMode {
     MUSIC, VIDEO, RADIO, IPTV
 }
 
+// =========================================================================
+// 2. WIDGET CON CONMUTACIÓN EXCLUSIVA Y AUTO-ARRANQUE EN LA POSICIÓN #1
+// =========================================================================
 // =========================================================================
 // 2. WIDGET CON CONMUTACIÓN EXCLUSIVA Y AUTO-ARRANQUE EN LA POSICIÓN #1
 // =========================================================================
@@ -70,6 +76,9 @@ fun ModernMediaPlayerWidget(
     var tabOrder by remember { mutableStateOf(getSavedMediaTabOrder(context)) }
     var showReorderModal by remember { mutableStateOf(false) }
 
+    // Bandera para evitar que la música o video suenen por defecto en el primer milisegundo de arranque
+    var isInitialModeSet by remember { mutableStateOf(false) }
+
     // Estado de Scroll para la barra lateral
     val sidebarScrollState = rememberScrollState()
 
@@ -80,7 +89,7 @@ fun ModernMediaPlayerWidget(
     val iptvPlayer = remember { SmartIptvPlayer.getInstance(context) }
 
     // =========================================================================
-    // ✅ AUTO-DISPARAR EL MODO DE LA POSICIÓN #1 AL ABRIR EL LAUNCHER
+    // ✅ 1. VALIDAR MODO DE POSICIÓN #1 ANTES DE REPRODUCIR CUALQUIER COSA
     // =========================================================================
     LaunchedEffect(Unit) {
         if (tabOrder.isNotEmpty()) {
@@ -89,32 +98,58 @@ fun ModernMediaPlayerWidget(
                 onModeChange(firstPreferredMode)
             }
         }
+        // Permitimos el arranque de audio solo tras confirmar el tab #1 verdadero
+        isInitialModeSet = true
     }
 
     // =========================================================================
-    // CONTROLADOR DE EXCLUSIVIDAD TOTAL (GARANTIZA UN SOLO AUDIO ACTIVO)
+    // 2. CONTROLADOR DE EXCLUSIVIDAD TOTAL Y REPRODUCCIÓN AUTOMÁTICA
     // =========================================================================
-    LaunchedEffect(currentMode) {
+    LaunchedEffect(currentMode, isInitialModeSet) {
+        // 🛑 BLOQUEO DE SEGURIDAD: No auto-reproducir nada hasta confirmar el tab correcto
+        if (!isInitialModeSet) return@LaunchedEffect
+
         when (currentMode) {
             MediaMode.MUSIC -> {
                 try { radioPlayer.stopPlayback() } catch (e: Exception) { e.printStackTrace() }
                 try { videoPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
                 try { iptvPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
+
+                // Auto-reproducir música si hay lista cargada y no está sonando
+                if (musicPlayer.playlist.isNotEmpty() && !musicPlayer.isPlaying) {
+                    musicPlayer.playTrackAtIndex(musicPlayer.currentTrackIndex, musicPlayer.currentPositionMs)
+                }
             }
             MediaMode.VIDEO -> {
                 try { radioPlayer.stopPlayback() } catch (e: Exception) { e.printStackTrace() }
                 try { musicPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
                 try { iptvPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
+
+                // Auto-reproducir video si hay lista
+                if (videoPlayer.playlist.isNotEmpty() && !videoPlayer.isPlaying) {
+                    videoPlayer.togglePlayPause()
+                }
             }
             MediaMode.RADIO -> {
+                // Silenciar inmediatamente el resto de reproductores
                 try { musicPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
                 try { videoPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
                 try { iptvPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
+
+                // Auto-reproducir radio si las emisoras ya cargaron desde la API
+                if (radioPlayer.stationList.isNotEmpty() && !radioPlayer.isPlaying && !radioPlayer.isLoading) {
+                    radioPlayer.playStationAtIndex(radioPlayer.currentStationIndex)
+                }
             }
             MediaMode.IPTV -> {
                 try { radioPlayer.stopPlayback() } catch (e: Exception) { e.printStackTrace() }
                 try { musicPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
                 try { videoPlayer.pausePlayback() } catch (e: Exception) { e.printStackTrace() }
+
+                // Auto-reproducir IPTV si hay lista
+                if (iptvPlayer.playlist.isNotEmpty() && !iptvPlayer.isPlaying) {
+                    iptvPlayer.playChannelAtIndex(iptvPlayer.currentChannelIndex)
+                }
             }
         }
     }
@@ -145,7 +180,6 @@ fun ModernMediaPlayerWidget(
                     MediaMode.IPTV -> Icons.Default.Tv
                 }
 
-                // ✅ Se usa el color primario del tema para TODOS los botones seleccionados
                 SquareMediaTabButton(
                     icon = icon,
                     isSelected = currentMode == mode,
@@ -208,7 +242,6 @@ fun ModernMediaPlayerWidget(
         )
     }
 }
-
 // =========================================================================
 // 3. MODAL REORGANIZADOR
 // =========================================================================
@@ -365,43 +398,102 @@ fun SquareMediaTabButton(
 }
 
 // =========================================================================
-// 📻 VISTA DE RADIO ONLINE EN VIVO
+// 🌎 ESTRUCTURA DE DATOS Y AYUDANTE PARA LA API DE RADIO
+// =========================================================================
+data class CountryItem(
+    val displayName: String, // Nombre en español para mostrar en pantalla
+    val flag: String,        // Emoji de la bandera
+    val apiName: String      // Nombre exacto que requiere la API de Radio Browser
+)
+
+// Convierte nombres en español al nombre en inglés reconocido por la API
+fun getApiCountryName(displayName: String): String {
+    return when (displayName) {
+        "México" -> "Mexico"
+        "España" -> "Spain"
+        "Perú" -> "Peru"
+        "Estados Unidos" -> "The United States Of America"
+        "República Dominicana" -> "Dominican Republic"
+        else -> displayName
+    }
+}
+
+// =========================================================================
+// 📻 VISTA DE RADIO ONLINE CON SELECTOR DE PAÍS Y PERSISTENCIA
 // =========================================================================
 @Composable
 fun RadioPlayerView(
     theme: DashboardTheme
 ) {
     val context = LocalContext.current
-    val buttonScale = LocalButtonScale.current
+    val buttonScale = LocalButtonScale.current ?: 1.0f
 
     val radioManager = remember { SmartRadioManager.getInstance(context) }
 
     var isOnline by remember { mutableStateOf(radioManager.isConnectedToInternet()) }
+
+    // 💾 Carga el país guardado previamente por el usuario (Por defecto Colombia)
+    var selectedCountry by remember { mutableStateOf(radioManager.getSavedCountry()) }
+    var showCountryModal by remember { mutableStateOf(false) }
 
     val currentStation = radioManager.stationList.getOrNull(radioManager.currentStationIndex)
     var favoriteIds by remember { mutableStateOf(radioManager.getSavedFavorites()) }
 
     val isFavorite = currentStation != null && favoriteIds.contains(currentStation.id)
 
-    LaunchedEffect(Unit) {
+    // =========================================================================
+    // ⭐ LISTA DE EMISORAS CON FAVORITAS EN PRIMERA POSICIÓN
+    // =========================================================================
+    val displayStations = remember(radioManager.stationList, favoriteIds) {
+        radioManager.stationList.sortedByDescending { favoriteIds.contains(it.id) }
+    }
+
+    // =========================================================================
+    // 📡 CARGA INMEDIATA DE SEÑAL Y REPRODUCCIÓN DE LA ÚLTIMA EMISORA GUARDADA
+    // =========================================================================
+    LaunchedEffect(selectedCountry, isOnline) {
         val connected = radioManager.isConnectedToInternet()
         isOnline = connected
-        if (connected && !radioManager.isPlaying && !radioManager.isLoading) {
-            radioManager.playStationAtIndex(radioManager.currentStationIndex)
+
+        if (connected) {
+            val apiCountry = getApiCountryName(selectedCountry)
+
+            // Si la lista está vacía, pedir emisoras a la API
+            if (radioManager.stationList.isEmpty() && !radioManager.isFetchingApi) {
+                radioManager.fetchStationsByCountry(apiCountry) {
+                    if (radioManager.stationList.isNotEmpty() && !radioManager.isPlaying) {
+
+                        // 💾 Carga el índice/posicion de la última emisora que escuchó
+                        val savedIndex = if (radioManager.currentStationIndex in radioManager.stationList.indices) {
+                            radioManager.currentStationIndex
+                        } else 0
+
+                        radioManager.playStationAtIndex(savedIndex)
+                    }
+                }
+            }
+            // Si las emisoras ya estaban cargadas en memoria, reproducir la última guardada
+            else if (radioManager.stationList.isNotEmpty() && !radioManager.isPlaying && !radioManager.isLoading) {
+                val savedIndex = if (radioManager.currentStationIndex in radioManager.stationList.indices) {
+                    radioManager.currentStationIndex
+                } else 0
+
+                radioManager.playStationAtIndex(savedIndex)
+            }
         }
     }
 
+    // =========================================================================
+    // 🚨 CASO 1: SIN INTERNET
+    // =========================================================================
     if (!isOnline) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF1F0D0D),
-                            Color(0xFF0F0F14)
-                        )
+                        colors = listOf(Color(0xFF1E0D0D), Color(0xFF0D0D12))
                     )
                 )
                 .padding(16.dp),
@@ -414,24 +506,24 @@ fun RadioPlayerView(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(56.dp)
-                        .background(Color(0xFF331111), CircleShape),
+                        .size(52.dp)
+                        .background(Color(0xFF381414), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.WifiOff,
                         contentDescription = null,
-                        tint = Color(0xFFFF5252),
-                        modifier = Modifier.size(28.dp)
+                        tint = Color(0xFFFF4D4D),
+                        modifier = Modifier.size(26.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
                     text = "Sin Conexión a Internet",
                     color = Color.White,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
@@ -439,25 +531,32 @@ fun RadioPlayerView(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = "Las emisoras de radio online requieren una conexión activa a internet para poder reproducirse.",
+                    text = "La radio online requiere conexión activa para descargar la lista de emisoras.",
                     color = Color.Gray,
                     fontSize = 11.sp,
                     textAlign = TextAlign.Center,
-                    maxLines = 3
+                    maxLines = 2
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 Button(
                     onClick = {
                         val connected = radioManager.isConnectedToInternet()
                         isOnline = connected
                         if (connected) {
-                            radioManager.playStationAtIndex(radioManager.currentStationIndex)
+                            radioManager.fetchStationsByCountry(getApiCountryName(selectedCountry)) {
+                                if (radioManager.stationList.isNotEmpty()) {
+                                    val savedIndex = if (radioManager.currentStationIndex in radioManager.stationList.indices) {
+                                        radioManager.currentStationIndex
+                                    } else 0
+                                    radioManager.playStationAtIndex(savedIndex)
+                                }
+                            }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
@@ -473,182 +572,384 @@ fun RadioPlayerView(
         return
     }
 
+    // =========================================================================
+    // ⌛ CASO 2: CARGANDO API
+    // =========================================================================
+    if (radioManager.isFetchingApi) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF121218)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(36.dp),
+                    color = theme.accentCyan,
+                    strokeWidth = 3.dp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Obteniendo emisoras de $selectedCountry...",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+        return
+    }
+
+    // =========================================================================
+    // ⚠️ CASO 3: ERROR DE RED O LISTA VACÍA
+    // =========================================================================
+    if (radioManager.isApiError || radioManager.stationList.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF121218))
+                .padding(16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Default.ErrorOutline,
+                    contentDescription = null,
+                    tint = Color(0xFFFFB74D),
+                    modifier = Modifier.size(38.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "No se encontraron emisoras para $selectedCountry",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { showCountryModal = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Cambiar País", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(
+                        onClick = { radioManager.fetchStationsByCountry(getApiCountryName(selectedCountry)) },
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Reintentar", color = Color.White, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
+        if (showCountryModal) {
+            CountryPickerModal(
+                currentCountry = selectedCountry,
+                theme = theme,
+                onDismiss = { showCountryModal = false },
+                onCountrySelected = { displayName, apiName ->
+                    selectedCountry = displayName
+                    radioManager.selectedCountry = displayName
+                    showCountryModal = false
+
+                    radioManager.fetchStationsByCountry(apiName) {
+                        if (radioManager.stationList.isNotEmpty()) {
+                            radioManager.playStationAtIndex(0)
+                        }
+                    }
+                }
+            )
+        }
+        return
+    }
+
+    // =========================================================================
+    // 📻 CASO 4: REPRODUCTOR PRINCIPAL
+    // =========================================================================
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(
                 Brush.linearGradient(
                     colors = listOf(
-                        theme.accentCyan.copy(alpha = 0.15f),
-                        Color(0xFF141414),
-                        theme.accentCyan.copy(alpha = 0.05f)
+                        theme.accentCyan.copy(alpha = 0.18f),
+                        Color(0xFF101014),
+                        theme.accentCyan.copy(alpha = 0.06f)
                     )
                 )
             )
+            .border(1.dp, theme.accentCyan.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
             .padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // ---------------------------------------------------------------------
+        // PANEL IZQUIERDO: INFORMACIÓN Y CONTROLES
+        // ---------------------------------------------------------------------
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight(),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
+            // ENCABEZADO: INDICADOR EN VIVO + BOTÓN SELECTOR DE PAÍS + FAVORITO
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Radio,
-                        contentDescription = "Radio",
-                        tint = theme.accentCyan,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Radio Online HD",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(
+                                if (radioManager.isPlaying) Color(0xFF00C853) else theme.accentCyan.copy(alpha = 0.2f)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = if (radioManager.isPlaying) "EN VIVO" else "SEÑAL RADIO",
+                            color = if (radioManager.isPlaying) Color.Black else theme.accentCyan,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // 🌎 BOTÓN INTERACTIVO "PON TU PAÍS"
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF1E1E28))
+                            .border(1.dp, theme.accentCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                            .clickable { showCountryModal = true }
+                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Public,
+                            contentDescription = "Pon tu país",
+                            tint = theme.accentCyan,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = selectedCountry,
+                            color = Color.White,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = null,
+                            tint = Color.Gray,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
                 }
 
-                IconButton(
-                    onClick = {
-                        if (currentStation != null) {
-                            val newFavs = if (isFavorite) {
-                                favoriteIds - currentStation.id
-                            } else {
-                                (favoriteIds + currentStation.id).distinct()
+                // BOTÓN FAVORITO FLOTANTE
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1E1E26))
+                        .clickable {
+                            if (currentStation != null) {
+                                val newFavs = if (isFavorite) {
+                                    favoriteIds - currentStation.id
+                                } else {
+                                    (favoriteIds + currentStation.id).distinct()
+                                }
+                                favoriteIds = newFavs
+                                radioManager.saveFavorites(newFavs)
                             }
-                            favoriteIds = newFavs
-                            radioManager.saveFavorites(newFavs)
-                        }
-                    },
-                    modifier = Modifier.size(30.dp)
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = "Favorito",
-                        tint = if (isFavorite) Color.Red else Color.Gray,
-                        modifier = Modifier.size(20.dp)
+                        tint = if (isFavorite) Color(0xFFFF5252) else Color.Gray,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
 
+            // INFORMACIÓN DE LA EMISORA ACTUAL
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = currentStation?.name ?: "Selecciona Emisora",
+                    text = currentStation?.name ?: "Cargando Emisora...",
                     color = Color.White,
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.ExtraBold,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center
                 )
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = theme.accentCyan,
+                        modifier = Modifier.size(11.dp)
+                    )
+                    Spacer(modifier = Modifier.width(2.dp))
                     Text(
-                        text = "${currentStation?.freqLabel} • ${currentStation?.city}",
+                        text = "${currentStation?.freqLabel ?: ""} • ${currentStation?.city ?: selectedCountry}",
                         color = theme.accentCyan,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
                 Spacer(modifier = Modifier.height(2.dp))
 
                 Text(
-                    text = currentStation?.genre ?: "",
+                    text = currentStation?.genre ?: "Variada",
                     color = Color.Gray,
-                    fontSize = 10.sp
+                    fontSize = 10.sp,
+                    maxLines = 1
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
+            // CONTROLES PRINCIPALES DE REPRODUCCIÓN
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF16161E))
+                    .border(1.dp, Color(0xFF262636), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center
             ) {
-                IconButton(
-                    onClick = { radioManager.playPreviousStation() },
-                    modifier = Modifier
-                        .size((38 * buttonScale).dp)
-                        .background(Color(0xFF22222E), CircleShape)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.SkipPrevious,
-                        contentDescription = "Anterior",
-                        tint = theme.accentCyan,
-                        modifier = Modifier.size((24 * buttonScale).dp)
-                    )
-                }
-
-                IconButton(
-                    onClick = { radioManager.togglePlayPause() },
-                    modifier = Modifier
-                        .size((48 * buttonScale).dp)
-                        .background(theme.accentCyan, CircleShape)
-                ) {
-                    if (radioManager.isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size((24 * buttonScale).dp),
-                            color = Color.Black,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
+                    // BOTÓN ANTERIOR
+                    Box(
+                        modifier = Modifier
+                            .size((40 * buttonScale).dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF22222E))
+                            .border(1.dp, Color(0xFF333345), CircleShape)
+                            .clickable { radioManager.playPreviousStation() },
+                        contentAlignment = Alignment.Center
+                    ) {
                         Icon(
-                            imageVector = if (radioManager.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play/Pausa",
-                            tint = Color.Black,
-                            modifier = Modifier.size((28 * buttonScale).dp)
+                            imageVector = Icons.Default.SkipPrevious,
+                            contentDescription = "Anterior",
+                            tint = theme.accentCyan,
+                            modifier = Modifier.size((22 * buttonScale).dp)
                         )
                     }
-                }
 
-                IconButton(
-                    onClick = { radioManager.playNextStation() },
-                    modifier = Modifier
-                        .size((38 * buttonScale).dp)
-                        .background(Color(0xFF22222E), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SkipNext,
-                        contentDescription = "Siguiente",
-                        tint = theme.accentCyan,
-                        modifier = Modifier.size((24 * buttonScale).dp)
+                    // BOTÓN PLAY / PAUSE
+                    val playButtonScale by animateFloatAsState(
+                        targetValue = if (radioManager.isPlaying) 1.05f else 1.0f,
+                        animationSpec = tween(durationMillis = 200),
+                        label = "playScale"
                     )
+
+                    Box(
+                        modifier = Modifier
+                            .scale(playButtonScale)
+                            .size((50 * buttonScale).dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.radialGradient(
+                                    colors = listOf(
+                                        theme.accentCyan,
+                                        theme.accentCyan.copy(alpha = 0.85f)
+                                    )
+                                )
+                            )
+                            .border(2.dp, Color.White.copy(alpha = 0.4f), CircleShape)
+                            .clickable { radioManager.togglePlayPause() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (radioManager.isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size((26 * buttonScale).dp),
+                                color = Color.Black,
+                                strokeWidth = 2.5.dp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (radioManager.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = "Play/Pausa",
+                                tint = Color.Black,
+                                modifier = Modifier.size((28 * buttonScale).dp)
+                            )
+                        }
+                    }
+
+                    // BOTÓN SIGUIENTE
+                    Box(
+                        modifier = Modifier
+                            .size((40 * buttonScale).dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF22222E))
+                            .border(1.dp, Color(0xFF333345), CircleShape)
+                            .clickable { radioManager.playNextStation() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipNext,
+                            contentDescription = "Siguiente",
+                            tint = theme.accentCyan,
+                            modifier = Modifier.size((22 * buttonScale).dp)
+                        )
+                    }
                 }
             }
         }
 
+        // ---------------------------------------------------------------------
+        // PANEL DERECHO: LISTA DE EMISORAS (CON FAVORITAS PRIMERO)
+        // ---------------------------------------------------------------------
         Column(
             modifier = Modifier
-                .widthIn(min = 120.dp, max = 160.dp)
+                .widthIn(min = 125.dp, max = 165.dp)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFF18181F))
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF14141C))
+                .border(1.dp, Color(0xFF22222E), RoundedCornerShape(12.dp))
                 .padding(6.dp)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 4.dp),
+                    .padding(horizontal = 2.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "EMISORAS",
+                    text = "EMISORAS (${displayStations.size})",
                     color = Color.Gray,
                     fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.ExtraBold,
                     maxLines = 1
                 )
                 Icon(
@@ -663,26 +964,30 @@ fun RadioPlayerView(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                itemsIndexed(radioManager.stationList) { index, station ->
-                    val isCurrentSelected = index == radioManager.currentStationIndex
+                itemsIndexed(displayStations) { _, station ->
+                    val isCurrentSelected = currentStation?.id == station.id
+                    val isStationFav = favoriteIds.contains(station.id)
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(
-                                if (isCurrentSelected) theme.accentCyan.copy(alpha = 0.25f)
-                                else Color(0xFF252530)
+                                if (isCurrentSelected) theme.accentCyan.copy(alpha = 0.22f)
+                                else Color(0xFF1E1E28)
                             )
                             .border(
                                 width = if (isCurrentSelected) 1.dp else 0.dp,
                                 color = if (isCurrentSelected) theme.accentCyan else Color.Transparent,
-                                shape = RoundedCornerShape(6.dp)
+                                shape = RoundedCornerShape(8.dp)
                             )
                             .clickable {
-                                radioManager.playStationAtIndex(index)
+                                val originalIndex = radioManager.stationList.indexOfFirst { it.id == station.id }
+                                if (originalIndex != -1) {
+                                    radioManager.playStationAtIndex(originalIndex)
+                                }
                             }
-                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -691,24 +996,27 @@ fun RadioPlayerView(
                                 text = station.name,
                                 color = if (isCurrentSelected) theme.accentCyan else Color.White,
                                 fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = if (isCurrentSelected) FontWeight.ExtraBold else FontWeight.Bold,
                                 maxLines = 1,
-                                softWrap = false
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = station.freqLabel,
+                                text = station.city.ifEmpty { selectedCountry },
                                 color = Color.Gray,
                                 fontSize = 8.sp,
-                                maxLines = 1
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
-                        if (favoriteIds.contains(station.id)) {
+                        if (isStationFav) {
                             Icon(
                                 imageVector = Icons.Default.Favorite,
-                                contentDescription = null,
-                                tint = Color.Red,
-                                modifier = Modifier.size(10.dp)
+                                contentDescription = "Favorita",
+                                tint = Color(0xFFFF5252),
+                                modifier = Modifier
+                                    .size(12.dp)
+                                    .padding(start = 2.dp)
                             )
                         }
                     }
@@ -716,7 +1024,118 @@ fun RadioPlayerView(
             }
         }
     }
+
+    // =========================================================================
+    // MODAL SELECTOR DE PAÍS ("PON TU PAÍS")
+    // =========================================================================
+    if (showCountryModal) {
+        CountryPickerModal(
+            currentCountry = selectedCountry,
+            theme = theme,
+            onDismiss = { showCountryModal = false },
+            onCountrySelected = { displayName, apiName ->
+                selectedCountry = displayName
+                radioManager.selectedCountry = displayName // 💾 Guarda el país seleccionado
+                showCountryModal = false
+
+                radioManager.fetchStationsByCountry(apiName) {
+                    if (radioManager.stationList.isNotEmpty()) {
+                        radioManager.playStationAtIndex(0)
+                    }
+                }
+            }
+        )
+    }
 }
+
+// =========================================================================
+// 🌎 MODAL PARA SELECCIONAR EL PAÍS DE EMISORAS
+// =========================================================================
+@Composable
+fun CountryPickerModal(
+    currentCountry: String,
+    theme: DashboardTheme,
+    onDismiss: () -> Unit,
+    onCountrySelected: (displayName: String, apiName: String) -> Unit
+) {
+    val countries = listOf(
+        CountryItem("Colombia", "🇨🇴", "Colombia"),
+        CountryItem("México", "🇲🇽", "Mexico"),
+        CountryItem("España", "🇪🇸", "Spain"),
+        CountryItem("Argentina", "🇦🇷", "Argentina"),
+        CountryItem("Chile", "🇨🇱", "Chile"),
+        CountryItem("Perú", "🇵🇪", "Peru"),
+        CountryItem("Ecuador", "🇪🇨", "Ecuador"),
+        CountryItem("Venezuela", "🇻🇪", "Venezuela"),
+        CountryItem("Estados Unidos", "🇺🇸", "The United States Of America"),
+        CountryItem("Uruguay", "🇺🇾", "Uruguay"),
+        CountryItem("Bolivia", "🇧🇴", "Bolivia"),
+        CountryItem("República Dominicana", "🇩🇴", "Dominican Republic")
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1C1C24),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Public, contentDescription = null, tint = theme.accentCyan)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Pon Tu País", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 280.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text("Elige tu ubicación para cargar emisoras locales HD:", color = Color.Gray, fontSize = 11.sp)
+
+                countries.forEach { item ->
+                    val isSelected = item.displayName.equals(currentCountry, ignoreCase = true)
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isSelected) theme.accentCyan.copy(alpha = 0.2f) else Color(0xFF262632))
+                            .border(1.dp, if (isSelected) theme.accentCyan else Color.Transparent, RoundedCornerShape(10.dp))
+                            .clickable { onCountrySelected(item.displayName, item.apiName) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = item.flag, fontSize = 18.sp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = item.displayName,
+                                color = if (isSelected) theme.accentCyan else Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+
+                        if (isSelected) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = theme.accentCyan, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar", color = Color.White)
+            }
+        }
+    )
+}
+
+
+
+
 
 // =========================================================================
 // 🎵 VISTA DE MÚSICA
@@ -924,18 +1343,6 @@ fun MusicPlayerView(
                         contentDescription = "Pantalla Completa",
                         tint = theme.accentCyan,
                         modifier = Modifier.size((22 * buttonScale).dp)
-                    )
-                }
-
-                IconButton(
-                    onClick = { musicPlayer.toggleAutoPlay() },
-                    modifier = Modifier.size((38 * buttonScale).dp)
-                ) {
-                    Icon(
-                        imageVector = if (musicPlayer.isAutoPlayEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
-                        contentDescription = "AutoStart",
-                        tint = if (musicPlayer.isAutoPlayEnabled) theme.accentCyan else Color.DarkGray,
-                        modifier = Modifier.size((20 * buttonScale).dp)
                     )
                 }
             }
@@ -1252,7 +1659,6 @@ fun IptvPlayerView(
     val iptvPlayer = remember { SmartIptvPlayer.getInstance(context) }
     var showFolderModal by remember { mutableStateOf(false) }
 
-    // Carga de Favoritos desde el almacenamiento local
     var favoriteChannels by remember { mutableStateOf(getSavedIptvFavoriteChannels(context)) }
 
     val currentChannel = iptvPlayer.playlist.getOrNull(iptvPlayer.currentChannelIndex)
@@ -1263,7 +1669,6 @@ fun IptvPlayerView(
 
     val isOnline = remember(iptvPlayer.currentChannelIndex) { iptvPlayer.isConnectedToInternet() }
 
-    // ✅ EXACTAMENTE IGUAL A PANTALLA COMPLETA: GARANTIZA FAVORITOS AL ARRANCAR
     LaunchedEffect(favoriteChannels, iptvPlayer.playlist.size) {
         if (favoriteChannels.isNotEmpty()) {
             val combined = (favoriteChannels + iptvPlayer.playlist).distinctBy { it.streamUrl }
@@ -1547,7 +1952,6 @@ fun IptvPlayerView(
                         it.extension.lowercase() in listOf("m3u", "m3u8")
                     }
                     if (m3uFile != null) {
-                        // ✅ CONSERVA Y MUESTRA LOS FAVORITOS RECARGANDO EL ESTADO
                         loadM3uAndPreserveFavorites(context, iptvPlayer, m3uFile)
                         favoriteChannels = getSavedIptvFavoriteChannels(context)
                     }
@@ -1557,6 +1961,7 @@ fun IptvPlayerView(
         }
     }
 }
+
 // =========================================================================
 // 💾 FUNCIONES DE PERSISTENCIA GENERAL
 // =========================================================================

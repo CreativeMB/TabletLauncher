@@ -21,8 +21,11 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-// MODELO DE DATOS DE EMISORA ONLINE
 data class RadioStation(
     val id: String,
     val name: String,
@@ -45,9 +48,22 @@ class SmartRadioManager private constructor(private val context: Context) {
         }
     }
 
-    // =========================================================================
-    // ✅ ESTADOS OBSERVABLES EN COMPOSE
-    // =========================================================================
+    private val scope = CoroutineScope(Dispatchers.Main)
+
+    private val _stationListState = mutableStateOf<List<RadioStation>>(emptyList())
+    val stationList: List<RadioStation>
+        get() = _stationListState.value
+
+    private val isApiErrorState = mutableStateOf(false)
+    var isApiError: Boolean
+        get() = isApiErrorState.value
+        set(value) { isApiErrorState.value = value }
+
+    private val isFetchingApiState = mutableStateOf(false)
+    var isFetchingApi: Boolean
+        get() = isFetchingApiState.value
+        set(value) { isFetchingApiState.value = value }
+
     private val isPlayingState = mutableStateOf(false)
     var isPlaying: Boolean
         get() = isPlayingState.value
@@ -63,38 +79,75 @@ class SmartRadioManager private constructor(private val context: Context) {
         get() = currentStationIndexState.value
         set(value) { currentStationIndexState.value = value }
 
+    private val selectedCountryState = mutableStateOf("Colombia")
+    var selectedCountry: String
+        get() = selectedCountryState.value
+        set(value) {
+            selectedCountryState.value = value
+            saveSelectedCountry(value)
+        }
+
     private var player: ExoPlayer? = null
-
-    // 📻 SESIÓN DE MEDIOS DEL SISTEMA (Para gestos, volante y notificación)
     private var mediaSession: MediaSession? = null
-
-    // =========================================================================
-    // 🇨🇴 LISTA NATIVA DE EMISORAS DE COLOMBIA
-    // =========================================================================
-    val stationList = listOf(
-        RadioStation("1", "Caracol Radio", "100.9 FM", "Colombia", "https://playerservices.streamtheworld.com/api/livestream-redirect/CARACOL_RADIOAAC.aac", "Noticias"),
-        RadioStation("2", "W Radio", "99.9 FM", "Colombia", "https://playerservices.streamtheworld.com/api/livestream-redirect/WRADIOAAC_SC", "Noticias / Opinión"),
-        RadioStation("3", "Tropicana", "102.9 FM", "Bogotá", "https://playerservices.streamtheworld.com/api/livestream-redirect/TROPICANA_BOGAAC.aac", "Salsa / Urbana"),
-        RadioStation("4", "La Mega", "90.9 FM", "Bogotá", "https://stream.rcn.com.co/lamega.mp3", "Pop / Reggaeton"),
-        RadioStation("5", "Bésame", "97.4 FM", "Bogotá", "https://playerservices.streamtheworld.com/api/livestream-redirect/BESAME_BOGAAC.aac", "Romántica"),
-        RadioStation("6", "RCN Radio", "93.9 FM", "Colombia", "https://stream.rcn.com.co/rcnradio.mp3", "Noticias"),
-        RadioStation("7", "Olímpica Stereo", "105.9 FM", "Bogotá", "https://server2.ejeserver.com:8014/stream", "Variada / Cumbia"),
-        RadioStation("8", "Radio Uno", "88.9 FM", "Bogotá", "https://stream.rcn.com.co/radiouno.mp3", "Popular")
-    )
 
     init {
         currentStationIndex = getSavedStationIndex()
+        selectedCountryState.value = getSavedCountry()
         setupMediaSession()
+        fetchStationsByCountry(selectedCountryState.value)
     }
 
     // =========================================================================
-    // 🎛️ CONFIGURACIÓN DE MEDIA SESSION (GESTOS / BOTONES DEL SISTEMA)
+    // 🌐 CARGA RÁPIDA DE API POR PAÍS
     // =========================================================================
+    fun fetchStationsByCountry(country: String, onComplete: (() -> Unit)? = null) {
+        selectedCountry = country
+
+        if (!isConnectedToInternet()) {
+            isApiError = true
+            onComplete?.invoke()
+            return
+        }
+
+        scope.launch {
+            try {
+                isFetchingApi = true
+                isApiError = false
+
+                val apiResult = withContext(Dispatchers.IO) {
+                    RetrofitClient.api.getStationsByCountry(country = country)
+                }
+
+                if (apiResult.isNotEmpty()) {
+                    val mapped = apiResult.map { it.toRadioStation() }
+                    _stationListState.value = mapped
+
+                    if (currentStationIndex >= mapped.size) {
+                        currentStationIndex = 0
+                    }
+                } else {
+                    _stationListState.value = emptyList()
+                    isApiError = true
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("SmartRadioManager", "Error API ($country): ${e.message}")
+                isApiError = true
+            } finally {
+                isFetchingApi = false
+                onComplete?.invoke()
+            }
+        }
+    }
+
+    // Método de retrocompatibilidad por si se llama desde otra vista
+    fun fetchSpanishStations(onComplete: (() -> Unit)? = null) {
+        fetchStationsByCountry(selectedCountryState.value, onComplete)
+    }
+
     private fun setupMediaSession() {
         try {
             mediaSession = MediaSession(context, "SmartRadioManager").apply {
                 setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
-
                 setCallback(object : MediaSession.Callback() {
                     override fun onPlay() { togglePlayPause() }
                     override fun onPause() { togglePlayPause() }
@@ -129,49 +182,44 @@ class SmartRadioManager private constructor(private val context: Context) {
     }
 
     fun isConnectedToInternet(): Boolean {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
         return try {
-            val network = cm.activeNetwork ?: return true
-            val capabilities = cm.getNetworkCapabilities(network) ?: return true
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
-                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            val network = cm.activeNetwork ?: return false
+            val capabilities = cm.getNetworkCapabilities(network) ?: return false
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         } catch (e: Exception) {
-            true
+            false
         }
     }
 
     // =========================================================================
-    // 🎧 INICIALIZACIÓN DE MEDIA3 EXOPLAYER PARA STREAMING EN DIRECTO
+    // 🎧 EXOPLAYER ULTRA-RÁPIDO (CERO ESPERA DE BUFFER)
     // =========================================================================
     @OptIn(UnstableApi::class)
     private fun getOrCreatePlayer(): ExoPlayer {
         return player ?: run {
 
-            // Búfer ligero de respuesta rápida (Ideal para Audio Streaming)
+            // ⚡ Búfer ultraligero: Inicia la transmisión tan pronto recibe 250ms de audio
             val loadControl = DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
-                    /* minBufferMs = */ 4000,
-                    /* maxBufferMs = */ 15000,
-                    /* bufferForPlaybackMs = */ 1000,
-                    /* bufferForPlaybackAfterRebufferMs = */ 2000
+                    /* minBufferMs = */ 1500,
+                    /* maxBufferMs = */ 5000,
+                    /* bufferForPlaybackMs = */ 250,
+                    /* bufferForPlaybackAfterRebufferMs = */ 500
                 )
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
 
-            // Cliente HTTP estable para peticiones Shoutcast / Icecast / HLS
+            // ⚡ Timeouts agresivos de 4s para brincar rápidamente emisoras muertas
             val httpDataSourceFactory = DefaultHttpDataSource.Factory()
                 .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 .setAllowCrossProtocolRedirects(true)
-                .setConnectTimeoutMs(10000)
-                .setReadTimeoutMs(10000)
+                .setConnectTimeoutMs(4000)
+                .setReadTimeoutMs(4000)
 
-            val extractorsFactory = DefaultExtractorsFactory()
-                .setConstantBitrateSeekingAlwaysEnabled(true)
-
+            val extractorsFactory = DefaultExtractorsFactory().setConstantBitrateSeekingAlwaysEnabled(true)
             val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSourceFactory, extractorsFactory)
-
-            val renderersFactory = DefaultRenderersFactory(context)
-                .setEnableDecoderFallback(true)
+            val renderersFactory = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
 
             ExoPlayer.Builder(context, renderersFactory, mediaSourceFactory)
                 .setAudioAttributes(
@@ -179,7 +227,7 @@ class SmartRadioManager private constructor(private val context: Context) {
                         .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                         .setUsage(C.USAGE_MEDIA)
                         .build(),
-                    /* handleAudioFocus = */ true // Control automático de volumen con llamadas y GPS
+                    true
                 )
                 .setWakeMode(C.WAKE_MODE_LOCAL)
                 .setHandleAudioBecomingNoisy(true)
@@ -225,19 +273,15 @@ class SmartRadioManager private constructor(private val context: Context) {
                             isPlaying = false
                             mediaSession?.isActive = false
                             updatePlaybackState(PlaybackState.STATE_ERROR)
-                            android.util.Log.e("SmartRadioManager", "Error de radio: ${error.message}")
-                            Toast.makeText(context, "Error de conexión con la emisora", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Emisora fuera de línea", Toast.LENGTH_SHORT).show()
                         }
                     })
                 }
         }
     }
 
-    // =========================================================================
-    // 📻 REPRODUCCIÓN SIMPLE Y ESTABLE
-    // =========================================================================
     fun playStationAtIndex(index: Int) {
-        if (index !in stationList.indices) return
+        if (stationList.isEmpty() || index !in stationList.indices) return
 
         currentStationIndex = index
         saveStationIndex(index)
@@ -248,7 +292,6 @@ class SmartRadioManager private constructor(private val context: Context) {
             isPlaying = false
             isLoading = false
             mediaSession?.isActive = false
-            updatePlaybackState(PlaybackState.STATE_NONE)
             Toast.makeText(context, "Sin conexión a Internet", Toast.LENGTH_SHORT).show()
             return
         }
@@ -256,7 +299,6 @@ class SmartRadioManager private constructor(private val context: Context) {
         try {
             isLoading = true
             val exoPlayer = getOrCreatePlayer()
-
             val mediaItem = MediaItem.fromUri(station.streamUrl)
 
             exoPlayer.stop()
@@ -270,13 +312,19 @@ class SmartRadioManager private constructor(private val context: Context) {
         } catch (e: Exception) {
             isLoading = false
             isPlaying = false
-            mediaSession?.isActive = false
-            updatePlaybackState(PlaybackState.STATE_ERROR)
-            android.util.Log.e("SmartRadioManager", "Excepción al iniciar la emisora", e)
+        }
+    }
+
+    fun playStation(station: RadioStation) {
+        val index = stationList.indexOfFirst { it.id == station.id }
+        if (index != -1) {
+            playStationAtIndex(index)
         }
     }
 
     fun togglePlayPause() {
+        if (stationList.isEmpty()) return
+
         val exoPlayer = player ?: run {
             playStationAtIndex(currentStationIndex)
             return
@@ -298,11 +346,13 @@ class SmartRadioManager private constructor(private val context: Context) {
     }
 
     fun playNextStation() {
+        if (stationList.isEmpty()) return
         val nextIndex = (currentStationIndex + 1) % stationList.size
         playStationAtIndex(nextIndex)
     }
 
     fun playPreviousStation() {
+        if (stationList.isEmpty()) return
         val prevIndex = if (currentStationIndex - 1 < 0) stationList.size - 1 else currentStationIndex - 1
         playStationAtIndex(prevIndex)
     }
@@ -320,30 +370,27 @@ class SmartRadioManager private constructor(private val context: Context) {
         updatePlaybackState(PlaybackState.STATE_STOPPED)
     }
 
-    fun releasePlayer() {
-        try {
-            player?.release()
-            player = null
-
-            mediaSession?.isActive = false
-            mediaSession?.release()
-            mediaSession = null
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        isPlaying = false
-        isLoading = false
-    }
-
-    // PERSISTENCIA DE CONFIGURACIÓN
+    // =========================================================================
+    // 💾 PERSISTENCIA EN SHARED PREFERENCES
+    // =========================================================================
     private fun getSavedStationIndex(): Int {
         val prefs = context.getSharedPreferences("online_radio_prefs", Context.MODE_PRIVATE)
-        return prefs.getInt("station_index", 0).coerceIn(0, stationList.size - 1)
+        return prefs.getInt("station_index", 0)
     }
 
     private fun saveStationIndex(index: Int) {
         val prefs = context.getSharedPreferences("online_radio_prefs", Context.MODE_PRIVATE)
         prefs.edit().putInt("station_index", index).apply()
+    }
+
+    fun getSavedCountry(): String {
+        val prefs = context.getSharedPreferences("online_radio_prefs", Context.MODE_PRIVATE)
+        return prefs.getString("selected_country", "Colombia") ?: "Colombia"
+    }
+
+    private fun saveSelectedCountry(country: String) {
+        val prefs = context.getSharedPreferences("online_radio_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("selected_country", country).apply()
     }
 
     fun saveFavorites(favIds: List<String>) {
@@ -353,7 +400,7 @@ class SmartRadioManager private constructor(private val context: Context) {
 
     fun getSavedFavorites(): List<String> {
         val prefs = context.getSharedPreferences("online_radio_prefs", Context.MODE_PRIVATE)
-        val saved = prefs.getString("radio_favs", "1,3,7,12,14") ?: ""
+        val saved = prefs.getString("radio_favs", "") ?: ""
         return if (saved.isEmpty()) emptyList() else saved.split(",")
     }
 }
