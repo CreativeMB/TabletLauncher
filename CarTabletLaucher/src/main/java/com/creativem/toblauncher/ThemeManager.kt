@@ -1,15 +1,22 @@
 package com.creativem.toblauncher
 
-import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.Drawable
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,19 +24,27 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatSize
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 
 data class DashboardTheme(
     val id: Int,
@@ -42,60 +57,148 @@ data class DashboardTheme(
     val accentOrange: Color    // 3er Color (Destaque/Alta velocidad)
 )
 
+data class LauncherAppInfo(
+    val label: String,
+    val packageName: String,
+    val icon: Drawable,
+    val isCurrentDefault: Boolean,
+    val isSelf: Boolean
+)
+
 val LocalDashboardTheme = compositionLocalOf { ThemeManager.themes[0] }
 val LocalIsBoldText = compositionLocalOf { true }
 val LocalButtonScale = compositionLocalOf { 1.0f }
 
+// =========================================================================
+// 🚀 GESTOR PARA SELECCIÓN DE LAUNCHER PREDETERMINADO
+// =========================================================================
+object LauncherManager {
+
+    fun isDefaultLauncher(context: Context): Boolean {
+        return try {
+            val intent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+            }
+            val resolveInfo = context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            val currentPackage = resolveInfo?.activityInfo?.packageName
+            currentPackage == context.packageName
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // Escanea todos los Launchers instalados en el estéreo
+    fun getInstalledLaunchers(context: Context): List<LauncherAppInfo> {
+        val pm = context.packageManager
+        val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+        }
+
+        val defaultResolve = pm.resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY)
+        val defaultPackage = defaultResolve?.activityInfo?.packageName
+
+        val resolveList = pm.queryIntentActivities(homeIntent, PackageManager.MATCH_ALL)
+
+        return resolveList.map { resolveInfo ->
+            val pkg = resolveInfo.activityInfo.packageName
+            val label = resolveInfo.loadLabel(pm).toString()
+            val icon = resolveInfo.loadIcon(pm)
+            LauncherAppInfo(
+                label = label,
+                packageName = pkg,
+                icon = icon,
+                isCurrentDefault = (pkg == defaultPackage),
+                isSelf = (pkg == context.packageName)
+            )
+        }.distinctBy { it.packageName }
+    }
+
+    // Lanza directamente la ventana flotante de selección de Android
+    fun forceAndroidChooser(context: Context) {
+        try {
+            @Suppress("DEPRECATION")
+            context.packageManager.clearPackagePreferredActivities(context.packageName)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        try {
+            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val chooser = Intent.createChooser(homeIntent, "Selecciona Car Tablet Launcher").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun launchPackage(context: Context, packageName: String) {
+        try {
+            val pm = context.packageManager
+            val intent = pm.getLaunchIntentForPackage(packageName) ?: Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                setPackage(packageName)
+            }
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+}
+
+// Convierte un Drawable nativo a Bitmap para Jetpack Compose
+fun drawableToImageBitmap(drawable: Drawable): ImageBitmap? {
+    return try {
+        val bitmap = if (drawable.intrinsicWidth <= 0 || drawable.intrinsicHeight <= 0) {
+            Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        } else {
+            Bitmap.createBitmap(
+                drawable.intrinsicWidth,
+                drawable.intrinsicHeight,
+                Bitmap.Config.ARGB_8888
+            )
+        }
+        val canvas = Canvas(bitmap)
+        drawable.setBounds(0, 0, canvas.width, canvas.height)
+        drawable.draw(canvas)
+        bitmap.asImageBitmap()
+    } catch (e: Exception) {
+        null
+    }
+}
+
 object ThemeManager {
     val themes = listOf(
-        // =========================================================================
-        // 🏁 1. CLÁSICOS Y OLED PURO (ALTO CONTRASTE)
-        // =========================================================================
         DashboardTheme(0, "Negro OLED (Predeterminado)", Color(0xFF000000), Color(0xFF0C0E14), Color(0xFF1E2230), Color(0xFF00E5FF), Color(0xFF9D00FF), Color(0xFFFF9100)),
         DashboardTheme(1, "Cian Eléctrico", Color(0xFF070D14), Color(0xFF0F1926), Color(0xFF00838F), Color(0xFF00F2FE), Color(0xFF4FACFE), Color(0xFFFF5252)),
         DashboardTheme(2, "Rojo Pasión Sport", Color(0xFF0A0405), Color(0xFF1C0B0E), Color(0xFF88111A), Color(0xFFFF1744), Color(0xFFFF6100), Color(0xFFFFD600)),
         DashboardTheme(3, "Verde Esmeralda", Color(0xFF040B08), Color(0xFF0B1C14), Color(0xFF0D6136), Color(0xFF00E676), Color(0xFF00B0FF), Color(0xFFFFAB00)),
         DashboardTheme(4, "Azul Zafiro", Color(0xFF050A14), Color(0xFF0C1628), Color(0xFF1446A0), Color(0xFF2979FF), Color(0xFF00E5FF), Color(0xFFFF6D00)),
-
-        // =========================================================================
-        // 🎆 2. NEÓN VIVOS Y CYBERPUNK (GRADIENTES FUERTES)
-        // =========================================================================
         DashboardTheme(5, "Cyberpunk Synthwave", Color(0xFF0A0414), Color(0xFF190C28), Color(0xFF6A1B9A), Color(0xFFF50057), Color(0xFF7C4DFF), Color(0xFF00E5FF)),
         DashboardTheme(6, "Tokyo Drift Pink", Color(0xFF0D030A), Color(0xFF1F0818), Color(0xFF880E4F), Color(0xFFFF007F), Color(0xFF00F5FF), Color(0xFFCCFF00)),
         DashboardTheme(7, "Naranja Fuego Volcánico", Color(0xFF0D0703), Color(0xFF211208), Color(0xFFA84200), Color(0xFFFF6D00), Color(0xFFFFD600), Color(0xFFFF1744)),
         DashboardTheme(8, "Verde Neón Tóxico", Color(0xFF030D05), Color(0xFF0A240F), Color(0xFF1B5E20), Color(0xFF00FF66), Color(0xFFB2FF59), Color(0xFFFF3D00)),
         DashboardTheme(9, "Hyper Violeta", Color(0xFF080312), Color(0xFF160A2D), Color(0xFF4A148C), Color(0xFFD500F9), Color(0xFF29B6F6), Color(0xFFFFEE58)),
-
-        // =========================================================================
-        // 🌸 3. TONOS SUAVES Y PASTELES (ELEGANTES Y RELAJANTES)
-        // =========================================================================
         DashboardTheme(10, "Menta Suave Pastel", Color(0xFF0A1210), Color(0xFF142420), Color(0xFF2E5A4C), Color(0xFF80CBC4), Color(0xFFA5D6A7), Color(0xFFFFAB91)),
         DashboardTheme(11, "Lavanda Nocturna", Color(0xFF0F0C1B), Color(0xFF1C1830), Color(0xFF453A68), Color(0xFFCE93D8), Color(0xFF9FA8DA), Color(0xFFFFCC80)),
         DashboardTheme(12, "Turquesa Brisa Marina", Color(0xFF06141B), Color(0xFF11252D), Color(0xFF254B5A), Color(0xFF80DEEA), Color(0xFF80CBC4), Color(0xFFFF8A80)),
         DashboardTheme(13, "Rosa Pastel & Cyan", Color(0xFF140A10), Color(0xFF261420), Color(0xFF5E2B4E), Color(0xFFF48FB1), Color(0xFF80DEEA), Color(0xFFFFE082)),
         DashboardTheme(14, "Crema & Albaricoque", Color(0xFF140E0A), Color(0xFF261D16), Color(0xFF594130), Color(0xFFFFCC80), Color(0xFFBCAAA4), Color(0xFF80CBC4)),
-
-        // =========================================================================
-        // 🏆 4. LUJO, METÁLICOS Y EDICIONES VIP
-        // =========================================================================
         DashboardTheme(15, "Oro Imperial Luxury", Color(0xFF000000), Color(0xFF0F0D05), Color(0xFF5E4E0A), Color(0xFFFFD700), Color(0xFFFFF59D), Color(0xFFFF3D00)),
         DashboardTheme(16, "Platino Titanio", Color(0xFF0D1015), Color(0xFF1E242E), Color(0xFF607D8B), Color(0xFFFFFFFF), Color(0xFF80D8FF), Color(0xFFFFD600)),
         DashboardTheme(17, "Cobre Ejecutivo", Color(0xFF0E0B08), Color(0xFF211812), Color(0xFF5C3A21), Color(0xFFFF8A65), Color(0xFFD7CCC8), Color(0xFFFFD54F)),
         DashboardTheme(18, "Calamar Carbón & Plata", Color(0xFF08090A), Color(0xFF14171A), Color(0xFF363B42), Color(0xFFE0E0E0), Color(0xFF90A4AE), Color(0xFFFF5252)),
         DashboardTheme(19, "Noche Zafiro & Oro", Color(0xFF04060F), Color(0xFF0D1326), Color(0xFF1D2D59), Color(0xFF448AFF), Color(0xFFFFD700), Color(0xFFFF5252)),
-
-        // =========================================================================
-        // 🏎️ 5. DEPORTIVOS Y RACING HERITAGE
-        // =========================================================================
         DashboardTheme(20, "Gulf Racing Classic", Color(0xFF081018), Color(0xFF112030), Color(0xFF214468), Color(0xFF81D4FA), Color(0xFFFF8A65), Color(0xFFFFFFFF)),
         DashboardTheme(21, "Scuderia Monza", Color(0xFF0A0202), Color(0xFF1F0808), Color(0xFF6B0F0F), Color(0xFFFF1744), Color(0xFFFFEA00), Color(0xFFFFFFFF)),
         DashboardTheme(22, "Carbono M Performance", Color(0xFF000000), Color(0xFF0F1218), Color(0xFF1F2838), Color(0xFF2979FF), Color(0xFFFF1744), Color(0xFF00E5FF)),
         DashboardTheme(23, "Amarillo Speed GT", Color(0xFF0A0A02), Color(0xFF1A1A05), Color(0xFF52520B), Color(0xFFFFEA00), Color(0xFF00E5FF), Color(0xFFFF3D00)),
         DashboardTheme(24, "Verde Británico Racing", Color(0xFF020A05), Color(0xFF081C0F), Color(0xFF114223), Color(0xFF00C853), Color(0xFFFFD700), Color(0xFF00E5FF)),
-
-        // =========================================================================
-        // 🌌 6. AMBIENTALES, DEVANECIDOS Y NATURALEZA
-        // =========================================================================
         DashboardTheme(25, "Aurora Boreal", Color(0xFF030D12), Color(0xFF091E26), Color(0xFF144552), Color(0xFF00E676), Color(0xFF00B0FF), Color(0xFFD500F9)),
         DashboardTheme(26, "Puesta de Sol Acapulco", Color(0xFF0F050C), Color(0xFF240D1D), Color(0xFF5E1A48), Color(0xFFFF4081), Color(0xFFFF6D00), Color(0xFFFFD600)),
         DashboardTheme(27, "Océano Profundo", Color(0xFF020B14), Color(0xFF06182B), Color(0xFF0E3860), Color(0xFF00B8D4), Color(0xFF004D40), Color(0xFFFFAB00)),
@@ -161,6 +264,22 @@ fun ThemeSelectorModal(
     onButtonScaleChanged: (Float) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    var isDefaultLauncher by remember { mutableStateOf(LauncherManager.isDefaultLauncher(context)) }
+    var showLauncherListModal by remember { mutableStateOf(false) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isDefaultLauncher = LauncherManager.isDefaultLauncher(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     LaunchedEffect(Unit) {
         BrightnessManager.init(context)
@@ -170,7 +289,6 @@ fun ThemeSelectorModal(
     var buttonScaleValue by remember { mutableFloatStateOf(currentButtonScale) }
     var isBoldState by remember { mutableStateOf(currentIsBold) }
 
-    // ESTADOS LOCALES PARA CONTROL DE BRILLO
     var isAutoBrightness by remember { mutableStateOf(BrightnessManager.isAutoBrightnessEnabled) }
     var dayBrightness by remember { mutableFloatStateOf(BrightnessManager.dayBrightnessValue) }
     var nightBrightness by remember { mutableFloatStateOf(BrightnessManager.nightBrightnessValue) }
@@ -231,7 +349,7 @@ fun ThemeSelectorModal(
                         .weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // COLUMNA IZQUIERDA: SLIDERS, BRILLO Y NEGRITA
+                    // COLUMNA IZQUIERDA
                     Surface(
                         color = currentTheme.cardBackground,
                         shape = RoundedCornerShape(18.dp),
@@ -247,6 +365,69 @@ fun ThemeSelectorModal(
                                 .padding(14.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
+                            // 🚀 TARJETA: ESTADO Y SELECCIÓN DE LAUNCHER
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isDefaultLauncher) Color(0xFF0E2218) else Color(0xFF2A190B)
+                                ),
+                                border = BorderStroke(1.dp, if (isDefaultLauncher) Color(0xFF00E676) else Color(0xFFFF9100)),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Home,
+                                            contentDescription = null,
+                                            tint = if (isDefaultLauncher) Color(0xFF00E676) else Color(0xFFFF9100),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = if (isDefaultLauncher) "Launcher Predeterminado Activo" else "No es el Launcher Principal",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = if (isDefaultLauncher) "El botón Home de tu estéreo abrirá siempre esta pantalla." else "Toca asignar para establecer como inicio por defecto.",
+                                                color = Color.LightGray,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    Button(
+                                        onClick = { showLauncherListModal = true },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isDefaultLauncher) Color(0xFF00E676) else Color(0xFFFF9100)
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                        modifier = Modifier.height(32.dp),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text(
+                                            text = if (isDefaultLauncher) "Ver Lista" else "Asignar",
+                                            color = Color.Black,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
+                                }
+                            }
+
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.FormatSize, contentDescription = null, tint = currentTheme.accentCyan)
@@ -257,7 +438,7 @@ fun ThemeSelectorModal(
                                 Text("Ajusta letras, botones y brillo para el día y noche.", color = Color.Gray, fontSize = 11.sp)
                             }
 
-                            // ⚠️ TARJETA DE PERMISO SI LA TABLET AÚN NO LO HA CONCEDIDO
+                            // ⚠️ TARJETA DE PERMISO DE BRILLO
                             if (!hasSettingsPermission) {
                                 Card(
                                     colors = CardDefaults.cardColors(containerColor = Color(0xFF3B1200)),
@@ -315,7 +496,7 @@ fun ThemeSelectorModal(
                                 }
                             }
 
-                            // 1. SWITCH BRILLO AUTOMÁTICO DÍA / NOCHE
+                            // CONTROLES DE BRILLO Y FUENTES
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -336,7 +517,6 @@ fun ThemeSelectorModal(
                                 )
                             }
 
-                            // 2. SLIDER BRILLO DE DÍA (6 AM - 18 PM)
                             Column {
                                 Text("☀️ Brillo de Día: ${(dayBrightness * 100).toInt()}%", color = currentTheme.accentOrange, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 Slider(
@@ -357,7 +537,6 @@ fun ThemeSelectorModal(
                                 )
                             }
 
-                            // 3. SLIDER BRILLO DE NOCHE (18 PM - 6 AM)
                             Column {
                                 val overlayPercent = (BrightnessManager.nightOverlayAlpha * 100).toInt()
                                 Text(
@@ -381,7 +560,6 @@ fun ThemeSelectorModal(
                                 )
                             }
 
-                            // 4. INTERRUPTOR DE TEXTO EN NEGRITA
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -402,7 +580,6 @@ fun ThemeSelectorModal(
                                 )
                             }
 
-                            // 5. SLIDER ESCALA DE TEXTO
                             Column {
                                 Text("Escala Letras: ${(sliderValue * 100).toInt()}%", color = Color.LightGray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 Slider(
@@ -421,7 +598,6 @@ fun ThemeSelectorModal(
                                 )
                             }
 
-                            // 6. SLIDER ESCALA DE BOTONES DEL REPRODUCTOR
                             Column {
                                 Text("Tamaño Botones Reproductor: ${(buttonScaleValue * 100).toInt()}%", color = currentTheme.accentCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 Slider(
@@ -518,4 +694,88 @@ fun ThemeSelectorModal(
             }
         }
     }
+
+    // MODAL SIMPLIFICADO CON EL BOTÓN DIRECTO DE VENTANA FLOTANTE
+    if (showLauncherListModal) {
+        LauncherPickerModal(
+            theme = currentTheme,
+            onDismiss = { showLauncherListModal = false }
+        )
+    }
+}
+
+// =========================================================================
+// 📱 MODAL SIMPLIFICADO PARA ASIGNACIÓN DIRECTA
+// =========================================================================
+@Composable
+fun LauncherPickerModal(
+    theme: DashboardTheme,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val installedLaunchers = remember { LauncherManager.getInstalledLaunchers(context) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1E1E28),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Home, contentDescription = null, tint = theme.accentCyan)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Asignar Launcher Predeterminado", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 340.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // 🌟 BOTÓN ÚNICO DIRECTO
+                Button(
+                    onClick = {
+                        LauncherManager.forceAndroidChooser(context)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.Star, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("⭐ ESTABLECER CAR TABLET LAUNCHER COMO PREDETERMINADO", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                }
+
+                // 📌 INSTRUCCIÓN Y MENSAJE PEDIDO
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1B2B22)),
+                    border = BorderStroke(1.dp, Color(0xFF00E676)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(22.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "💡 Selecciona Car Tablet Launcher como predeterminado para disfrutar del contenido y la mejor experiencia.",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+
+
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cerrar", color = Color.White)
+            }
+        }
+    )
 }
