@@ -88,10 +88,20 @@ class MainActivity : ComponentActivity() {
 
     }
 
-    // ✅ Captura cuando el usuario presiona "HOME" estando la app ya abierta
+    // ✅ CAPTURA CUALQUIER PRESIONADO DEL BOTÓN "HOME" EN LA TABLET
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+
+        // Si el usuario presionó la tecla HOME, nos aseguramos de traer la ventana al frente limpia
+        if (Intent.ACTION_MAIN == intent.action && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            // Cierra sub-pantallas o diálogos que hayan quedado abiertos
+            setContent {
+                MaterialTheme {
+                    MainScreen()
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
