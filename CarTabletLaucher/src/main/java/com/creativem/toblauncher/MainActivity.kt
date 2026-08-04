@@ -384,10 +384,12 @@ fun CarDashboard(
     var showFullscreenMusic by remember { mutableStateOf(false) }
     var showFullscreenVideo by remember { mutableStateOf(false) }
     var showFullscreenIptv by remember { mutableStateOf(false) }
+    var showFullscreenRadio by remember { mutableStateOf(false) }
 
     var activeAppDrawerTarget by remember { mutableIntStateOf(0) }
 
     var currentSpeedKmH by remember { mutableFloatStateOf(0f) }
+
     var currentBearing by remember { mutableFloatStateOf(0f) }
 
     // =========================================================================
@@ -497,7 +499,8 @@ fun CarDashboard(
                                 onModeChange = { newMode: MediaMode -> currentMediaMode = newMode },
                                 onExpandMusicFullscreen = { showFullscreenMusic = true },
                                 onExpandVideoFullscreen = { showFullscreenVideo = true },
-                                onExpandIptvFullscreen = { showFullscreenIptv = true }
+                                onExpandIptvFullscreen = { showFullscreenIptv = true },
+                                onExpandRadioFullscreen =  { showFullscreenRadio = true }
                             )
                         }
                     }
@@ -600,6 +603,12 @@ fun CarDashboard(
         if (showFullscreenIptv) {
             FullscreenIptvPlayerWidget(
                 onClose = { showFullscreenIptv = false }
+            )
+        }
+
+        if (showFullscreenRadio) {
+            FullscreenRadioPlayerWidget(
+                onClose = { showFullscreenRadio = false }
             )
         }
 

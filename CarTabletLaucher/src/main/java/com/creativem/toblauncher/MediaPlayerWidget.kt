@@ -64,7 +64,8 @@ fun ModernMediaPlayerWidget(
     onModeChange: (MediaMode) -> Unit = {},
     onExpandMusicFullscreen: () -> Unit = {},
     onExpandVideoFullscreen: () -> Unit = {},
-    onExpandIptvFullscreen: () -> Unit = {}
+    onExpandIptvFullscreen: () -> Unit = {},
+    onExpandRadioFullscreen: () -> Unit = {}
 ) {
     val theme = LocalDashboardTheme.current
     val context = LocalContext.current
@@ -236,7 +237,8 @@ fun ModernMediaPlayerWidget(
                     )
 
                     MediaMode.RADIO -> RadioPlayerView(
-                        theme = theme
+                        theme = theme,
+                        onExpandFullscreen = onExpandRadioFullscreen
                     )
 
                     MediaMode.IPTV -> IptvPlayerView(
@@ -441,14 +443,12 @@ fun getApiCountryName(displayName: String): String {
 }
 
 // =========================================================================
-// 📻 VISTA DE RADIO ONLINE CON SELECTOR DE PAÍS Y PERSISTENCIA
-// =========================================================================
-// =========================================================================
 // 📻 VISTA DE RADIO ONLINE (CON AUTO-RECONEXIÓN EN TIEMPO REAL)
 // =========================================================================
 @Composable
 fun RadioPlayerView(
-    theme: DashboardTheme
+    theme: DashboardTheme,
+    onExpandFullscreen: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val buttonScale = LocalButtonScale.current ?: 1.0f
@@ -770,8 +770,24 @@ fun RadioPlayerView(
                         modifier = Modifier.size(16.dp)
                     )
                 }
-            }
 
+// ⛶ BOTÓN PANTALLA COMPLETA
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF1E1E26))
+                    .clickable { onExpandFullscreen() }, // 👈 Llama a tu función/navegación de pantalla completa
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Fullscreen,
+                    contentDescription = "Pantalla Completa",
+                    tint = theme.accentCyan,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            }
             // INFORMACIÓN DE LA EMISORA ACTUAL
             Column(
                 modifier = Modifier
@@ -921,7 +937,7 @@ fun RadioPlayerView(
         // ---------------------------------------------------------------------
         Column(
             modifier = Modifier
-                .widthIn(min = 125.dp, max = 165.dp)
+                .widthIn(min = 125.dp, max = 230.dp)
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color(0xFF14141C))
