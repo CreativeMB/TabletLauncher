@@ -46,6 +46,22 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 
+
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
+
+
 data class DashboardTheme(
     val id: Int,
     val name: String,
@@ -287,11 +303,9 @@ fun ThemeSelectorModal(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(currentTheme.dashBackground)
-                .padding(20.dp)
+        Interactive3DBackground(
+            theme = currentTheme,
+            modifier = Modifier.padding(20.dp)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // ENCABEZADO
@@ -914,4 +928,99 @@ fun LauncherPickerModal(
             }
         }
     )
+}
+@Composable
+fun Interactive3DBackground(
+    theme: DashboardTheme,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(theme.dashBackground) // Fondo oscuro base del tema
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val width = size.width
+            val height = size.height
+
+            // -------------------------------------------------------------
+            // 1. RESPLANDORES NEÓN SUAVES (DEGRADADOS DIFUMINADOS)
+            // -------------------------------------------------------------
+            // Luz Superior Izquierda (Cian Suave)
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        theme.accentCyan.copy(alpha = 0.40f),
+                        theme.accentCyan.copy(alpha = 0.12f),
+                        Color.Transparent
+                    ),
+                    center = Offset(0f, 0f),
+                    radius = width * 0.55f
+                )
+            )
+
+            // Luz Inferior Derecha (Naranja Suave)
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        theme.accentOrange.copy(alpha = 0.35f),
+                        theme.accentOrange.copy(alpha = 0.10f),
+                        Color.Transparent
+                    ),
+                    center = Offset(width, height),
+                    radius = width * 0.55f
+                )
+            )
+
+            // Luz Central de Cruce entre Gadgets (Púrpura Suave)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        theme.accentPurple.copy(alpha = 0.30f),
+                        theme.accentPurple.copy(alpha = 0.08f),
+                        Color.Transparent
+                    ),
+                    center = Offset(width * 0.50f, height * 0.50f),
+                    radius = width * 0.45f
+                ),
+                center = Offset(width * 0.50f, height * 0.50f),
+                radius = width * 0.45f
+            )
+
+            // -------------------------------------------------------------
+            // 2. TEXTURA DEPORTIVA GT EN HUECOS (LÍNEAS TENUES)
+            // -------------------------------------------------------------
+            val stripeSpacing = 36f
+            val stripeColor = theme.accentCyan.copy(alpha = 0.06f)
+
+            var x = -height
+            while (x < width + height) {
+                drawLine(
+                    color = stripeColor,
+                    start = Offset(x, 0f),
+                    end = Offset(x + height, height),
+                    strokeWidth = 2f
+                )
+                x += stripeSpacing
+            }
+
+            // -------------------------------------------------------------
+            // 3. DESVANECIDO SUAVE HACIA LOS BORDES (VIÑETA ELEGANTE)
+            // -------------------------------------------------------------
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        theme.dashBackground.copy(alpha = 0.85f)
+                    ),
+                    center = Offset(width / 2f, height / 2f),
+                    radius = width * 0.65f
+                )
+            )
+        }
+
+        // 🖼️ CONTENIDO DE TU TABLERO (GADGETS/CARDS)
+        content()
+    }
 }

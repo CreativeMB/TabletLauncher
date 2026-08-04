@@ -396,12 +396,12 @@ fun CarDashboard(
     currentTextScale: Float,
     currentIsBold: Boolean,
     currentButtonScale: Float,
-    currentEqualizerStyle: EqualizerStyle, // 👈 AHORA ES PARÁMETRO DE ENTRADA
+    currentEqualizerStyle: EqualizerStyle,
     onThemeChanged: (DashboardTheme) -> Unit,
     onTextScaleChanged: (Float) -> Unit,
     onIsBoldChanged: (Boolean) -> Unit,
     onButtonScaleChanged: (Float) -> Unit,
-    onEqualizerStyleChanged: (EqualizerStyle) -> Unit // 👈 AHORA ES PARÁMETRO DE ENTRADA
+    onEqualizerStyleChanged: (EqualizerStyle) -> Unit
 ) {
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
@@ -479,122 +479,127 @@ fun CarDashboard(
                 }
             }
         } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(theme.dashBackground)
-                    .padding(16.dp)
+            // 🌌 🚀 AQUÍ ESTÁ EL CAMBIO: REEMPLAZAMOS EL BOX PLANO POR EL FONDO 3D
+            Interactive3DBackground(
+                theme = theme,
+                modifier = Modifier.fillMaxSize()
             ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .weight(1.2f)
-                            .fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        ModernDashboardCard(
-                            modifier = Modifier.weight(0.4f),
-                            title = null,
-                            icon = Icons.Default.Map,
-                            headerAction = {
-                                IconButton(onClick = { isMapExpanded = true }, modifier = Modifier.size(24.dp)) {
-                                    Icon(Icons.Default.Fullscreen, contentDescription = "Expandir Mapa", tint = theme.accentCyan)
-                                }
-                            }
-                        ) {
-                            MapContainerWidget(
-                                onExpandClicked = { isMapExpanded = true }
-                            )
-                        }
-
-                        ModernDashboardCard(
-                            modifier = Modifier.weight(0.6f),
-                            title = null
-                        ) {
-                            ModernMediaPlayerWidget(
-                                currentMode = currentMediaMode,
-                                onModeChange = { newMode: MediaMode -> currentMediaMode = newMode },
-                                onExpandMusicFullscreen = { showFullscreenMusic = true },
-                                onExpandVideoFullscreen = { showFullscreenVideo = true },
-                                onExpandIptvFullscreen = { showFullscreenIptv = true },
-                                onExpandRadioFullscreen =  { showFullscreenRadio = true }
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        ModernDashboardCard(
-                            modifier = Modifier.weight(1f),
-                            title = null
-                        ) {
-                            ModernSpeedometerWidget(
-                                speedKmH = currentSpeedKmH,
-                                bearing = currentBearing,
-                                onRequestAppSelection = { slot: Int ->
-                                    activeAppDrawerTarget = slot
-                                }
-                            )
-                        }
-
                         Row(
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1.2f)
+                                .fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             ModernDashboardCard(
-                                modifier = Modifier.weight(1.1f),
-                                title = "APLICACIONES",
-                                icon = Icons.Default.Apps,
+                                modifier = Modifier.weight(0.4f),
+                                title = null,
+                                icon = Icons.Default.Map,
                                 headerAction = {
-                                    IconButton(
-                                        onClick = { activeAppDrawerTarget = 99 },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Launch,
-                                            contentDescription = "Ver Todas",
-                                            tint = theme.accentCyan
-                                        )
+                                    IconButton(onClick = { isMapExpanded = true }, modifier = Modifier.size(24.dp)) {
+                                        Icon(Icons.Default.Fullscreen, contentDescription = "Expandir Mapa", tint = theme.accentCyan)
                                     }
                                 }
                             ) {
-                                CustomApps3DGridWidget(
-                                    onRequestAppSelection = { slot -> activeAppDrawerTarget = slot }
+                                MapContainerWidget(
+                                    onExpandClicked = { isMapExpanded = true }
                                 )
                             }
 
                             ModernDashboardCard(
-                                modifier = Modifier.weight(1f),
-                                title = null,
-                                icon = Icons.Default.Schedule
+                                modifier = Modifier.weight(0.6f),
+                                title = null
                             ) {
-                                ModernClockWidget()
+                                ModernMediaPlayerWidget(
+                                    currentMode = currentMediaMode,
+                                    onModeChange = { newMode: MediaMode -> currentMediaMode = newMode },
+                                    onExpandMusicFullscreen = { showFullscreenMusic = true },
+                                    onExpandVideoFullscreen = { showFullscreenVideo = true },
+                                    onExpandIptvFullscreen = { showFullscreenIptv = true },
+                                    onExpandRadioFullscreen = { showFullscreenRadio = true }
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            ModernDashboardCard(
+                                modifier = Modifier.weight(1f),
+                                title = null
+                            ) {
+                                ModernSpeedometerWidget(
+                                    speedKmH = currentSpeedKmH,
+                                    bearing = currentBearing,
+                                    onRequestAppSelection = { slot: Int ->
+                                        activeAppDrawerTarget = slot
+                                    }
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                ModernDashboardCard(
+                                    modifier = Modifier.weight(1.1f),
+                                    title = "APLICACIONES",
+                                    icon = Icons.Default.Apps,
+                                    headerAction = {
+                                        IconButton(
+                                            onClick = { activeAppDrawerTarget = 99 },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Launch,
+                                                contentDescription = "Ver Todas",
+                                                tint = theme.accentCyan
+                                            )
+                                        }
+                                    }
+                                ) {
+                                    CustomApps3DGridWidget(
+                                        onRequestAppSelection = { slot -> activeAppDrawerTarget = slot }
+                                    )
+                                }
+
+                                ModernDashboardCard(
+                                    modifier = Modifier.weight(1f),
+                                    title = null,
+                                    icon = Icons.Default.Schedule
+                                ) {
+                                    ModernClockWidget()
+                                }
                             }
                         }
                     }
-                }
 
-                FloatingActionButton(
-                    onClick = { showThemeModal = true },
-                    containerColor = theme.cardBackground,
-                    contentColor = theme.accentCyan,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 24.dp, bottom = 24.dp)
-                        .size(42.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Palette,
-                        contentDescription = "Mundo de Colores",
-                        modifier = Modifier.size(22.dp)
-                    )
+                    FloatingActionButton(
+                        onClick = { showThemeModal = true },
+                        containerColor = theme.cardBackground,
+                        contentColor = theme.accentCyan,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 24.dp, bottom = 24.dp)
+                            .size(42.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Palette,
+                            contentDescription = "Mundo de Colores",
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
         }
@@ -666,13 +671,13 @@ fun CarDashboard(
                 currentTextScale = currentTextScale,
                 currentIsBold = currentIsBold,
                 currentButtonScale = currentButtonScale,
-                currentEqualizerStyle = currentEqualizerStyle, // 👈 AHORA SÍ CONECTADO
+                currentEqualizerStyle = currentEqualizerStyle,
                 onDismiss = { showThemeModal = false },
                 onThemeSelected = { newTheme: DashboardTheme -> onThemeChanged(newTheme) },
                 onTextScaleChanged = { newScale: Float -> onTextScaleChanged(newScale) },
                 onIsBoldChanged = { newIsBold: Boolean -> onIsBoldChanged(newIsBold) },
                 onButtonScaleChanged = { newButtonScale: Float -> onButtonScaleChanged(newButtonScale) },
-                onEqualizerStyleChanged = { newStyle: EqualizerStyle -> onEqualizerStyleChanged(newStyle) } // 👈 AHORA SÍ CONECTADO
+                onEqualizerStyleChanged = { newStyle: EqualizerStyle -> onEqualizerStyleChanged(newStyle) }
             )
         }
     }
