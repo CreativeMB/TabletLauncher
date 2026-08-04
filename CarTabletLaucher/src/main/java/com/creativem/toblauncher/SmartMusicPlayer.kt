@@ -42,18 +42,14 @@ class SmartMusicPlayer private constructor(private val context: Context) {
 
     private val prefs = context.getSharedPreferences("smart_music_prefs", Context.MODE_PRIVATE)
 
-    // REPRODUCTOR MEDIA3 EXOPLAYER
     var exoPlayer: ExoPlayer? = null
         private set
 
-    // Sesión de medios del sistema
     private var mediaSession: MediaSession? = null
 
-    // --- ALGORITMO INTELIGENTE DE SHUFFLE ---
     private val shuffledDeck = mutableListOf<Int>()
     private val historyStack = mutableListOf<Int>()
 
-    // --- ESTADOS OBSERVABLES EN COMPOSE ---
     var isAutoPlayEnabled by mutableStateOf(prefs.getBoolean("auto_play_enabled", true))
         private set
 
@@ -65,17 +61,16 @@ class SmartMusicPlayer private constructor(private val context: Context) {
 
     private val _isPlaying = mutableStateOf(false)
 
+    // CORREGIDO: Propiedad sincronizada correctamente con MediaSession
     var isPlaying: Boolean
         get() = _isPlaying.value
         set(value) {
             _isPlaying.value = value
             if (value) {
-                mediaSession?.isActive = true
                 updatePlaybackState(PlaybackState.STATE_PLAYING)
                 startProgressTracker()
             } else {
                 updatePlaybackState(PlaybackState.STATE_PAUSED)
-                mediaSession?.isActive = false
                 progressJob?.cancel()
             }
         }
@@ -109,9 +104,6 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         autoStartPlaybackOnBoot()
     }
 
-    // =========================================================================
-    // 🎧 INICIALIZACIÓN MEDIA3 EXOPLAYER (AUDIO FOCUS NATIVO Y ALTA COMPATIBILIDAD)
-    // =========================================================================
     @OptIn(UnstableApi::class)
     fun getOrCreatePlayer(): ExoPlayer {
         return exoPlayer ?: run {
@@ -135,7 +127,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                         .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                         .setUsage(C.USAGE_MEDIA)
                         .build(),
-                    /* handleAudioFocus = */ true // Media3 maneja Foco de Audio automáticamente
+                    /* handleAudioFocus = */ true
                 )
                 .setLoadControl(loadControl)
                 .build().also { newPlayer ->
@@ -149,17 +141,9 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                             }
                         }
 
+                        // CORREGIDO: Llama a la propiedad sincronizada isPlaying
                         override fun onIsPlayingChanged(playing: Boolean) {
-                            _isPlaying.value = playing
-                            if (playing) {
-                                mediaSession?.isActive = true
-                                updatePlaybackState(PlaybackState.STATE_PLAYING)
-                                startProgressTracker()
-                            } else {
-                                updatePlaybackState(PlaybackState.STATE_PAUSED)
-                                mediaSession?.isActive = false
-                                progressJob?.cancel()
-                            }
+                            this@SmartMusicPlayer.isPlaying = playing
                         }
 
                         override fun onPlaybackStateChanged(state: Int) {
@@ -169,10 +153,10 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                                     if (duration != C.TIME_UNSET && duration > 0L) {
                                         totalDurationMs = duration
                                     }
-                                    _isPlaying.value = newPlayer.isPlaying
+                                    this@SmartMusicPlayer.isPlaying = newPlayer.isPlaying
                                 }
                                 Player.STATE_ENDED -> {
-                                    _isPlaying.value = false
+                                    this@SmartMusicPlayer.isPlaying = false
                                     if (repeatMode == RepeatMode.ONE) {
                                         playTrackAtIndex(currentTrackIndex, 0L)
                                     } else {
@@ -180,13 +164,13 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                                     }
                                 }
                                 Player.STATE_IDLE -> {
-                                    _isPlaying.value = false
+                                    this@SmartMusicPlayer.isPlaying = false
                                 }
                             }
                         }
 
                         override fun onPlayerError(error: PlaybackException) {
-                            _isPlaying.value = false
+                            this@SmartMusicPlayer.isPlaying = false
                             android.util.Log.e("SmartMusicPlayer", "Error de Audio Media3: ${error.message}")
                             if (playlist.size > 1) {
                                 playNextTrack(userTriggered = false)
@@ -229,6 +213,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         shuffledDeck.addAll(indices)
     }
 
+    // CORREGIDO: MediaSession soporta todos los gestos de tablets de auto
     private fun setupMediaSession() {
         try {
             mediaSession = MediaSession(context, "SmartMusicPlayer").apply {
@@ -239,8 +224,10 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                     override fun onPause() { pausePlayback() }
                     override fun onSkipToNext() { playNextTrack(userTriggered = true) }
                     override fun onSkipToPrevious() { playPreviousTrack() }
+                    override fun onSeekTo(pos: Long) { seekTo(pos) }
+                    override fun onStop() { pausePlayback() }
                 })
-                isActive = false
+                isActive = true // SIEMPRE ACTIVO PARA GESTOS
             }
             updatePlaybackState(PlaybackState.STATE_NONE)
         } catch (e: Exception) {
@@ -248,17 +235,23 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         }
     }
 
+    // CORREGIDO: Acciones de PlaybackState completas y velocidad dinámica (0.0f pausado, 1.0f reproduciendo)
     private fun updatePlaybackState(state: Int) {
         try {
+            val speed = if (state == PlaybackState.STATE_PLAYING) 1.0f else 0.0f
             val stateBuilder = PlaybackState.Builder()
                 .setActions(
                     PlaybackState.ACTION_PLAY or
                             PlaybackState.ACTION_PAUSE or
+                            PlaybackState.ACTION_PLAY_PAUSE or
                             PlaybackState.ACTION_SKIP_TO_NEXT or
-                            PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                            PlaybackState.ACTION_SKIP_TO_PREVIOUS or
+                            PlaybackState.ACTION_SEEK_TO or
+                            PlaybackState.ACTION_STOP
                 )
-                .setState(state, currentPositionMs, 1.0f)
+                .setState(state, currentPositionMs, speed)
 
+            mediaSession?.isActive = true // Mantiene conexión con la tablet
             mediaSession?.setPlaybackState(stateBuilder.build())
         } catch (e: Exception) {
             e.printStackTrace()
@@ -567,17 +560,13 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         return ext in listOf("mp3", "wav", "flac", "m4a", "aac", "ogg", "opus", "amr", "wma", "alac", "ape")
     }
 
-    // --- CONTROLES DE REPRODUCCIÓN MEDIA3 ---
-
     fun pausePlayback() {
         try {
             exoPlayer?.pause()
         } catch (e: Exception) {
             e.printStackTrace()
         }
-        _isPlaying.value = false
-        updatePlaybackState(PlaybackState.STATE_PAUSED)
-        mediaSession?.isActive = false
+        isPlaying = false
         progressJob?.cancel()
         saveCurrentState()
     }
@@ -609,16 +598,14 @@ class SmartMusicPlayer private constructor(private val context: Context) {
 
             player.playWhenReady = true
             player.play()
-            _isPlaying.value = true
-            mediaSession?.isActive = true
-            updatePlaybackState(PlaybackState.STATE_PLAYING)
-            startProgressTracker()
+            isPlaying = true
         }
     }
 
     fun seekTo(positionMs: Long) {
         currentPositionMs = positionMs
         exoPlayer?.seekTo(positionMs)
+        updatePlaybackState(if (exoPlayer?.isPlaying == true) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED)
     }
 
     fun playNextTrack(userTriggered: Boolean = false) {
@@ -695,9 +682,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                 player.seekTo(startPosMs)
             }
             player.playWhenReady = false
-            _isPlaying.value = false
-            mediaSession?.isActive = false
-            updatePlaybackState(PlaybackState.STATE_PAUSED)
+            isPlaying = false
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -722,10 +707,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
             player.playWhenReady = true
             player.play()
 
-            _isPlaying.value = true
-            mediaSession?.isActive = true
-            updatePlaybackState(PlaybackState.STATE_PLAYING)
-            startProgressTracker()
+            isPlaying = true
             saveCurrentState()
         } catch (e: Exception) {
             e.printStackTrace()
