@@ -160,7 +160,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                         .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                         .setUsage(C.USAGE_MEDIA)
                         .build(),
-                    /* handleAudioFocus = */ true
+                    /* handleAudioFocus = */ false
                 )
                 .setLoadControl(loadControl)
                 .build().also { newPlayer ->
@@ -657,7 +657,19 @@ class SmartVideoPlayer private constructor(private val context: Context) {
             e.printStackTrace()
         }
     }
-
+    // 💥 AGREGAR ESTA FUNCIÓN EN SmartVideoPlayer.kt
+    fun forcePlay() {
+        val player = getOrCreatePlayer()
+        if (!player.isPlaying) {
+            player.playWhenReady = true
+            player.play()
+            _isPlaying.value = true
+            mediaSession?.isActive = true
+            updatePlaybackState(PlaybackState.STATE_PLAYING)
+            startProgressTracker()
+            resetControlsTimer()
+        }
+    }
     private fun startProgressTracker() {
         progressJob?.cancel()
         progressJob = scope.launch {

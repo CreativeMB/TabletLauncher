@@ -1351,19 +1351,19 @@ fun VideoPlayerView(
     // ✅ AUTO-ARRANQUE GARANTIZADO ÚNICO (EVITA QUE SE PAUSE TRAS 1 SEGUNDO)
     var hasAutoPlayedForCurrentVideo by remember(currentVideo) { mutableStateOf(false) }
 
+    // ✅ 1. Auto-arranque al cargar el video por primera vez
     LaunchedEffect(currentVideo) {
         if (currentVideo != null && !hasAutoPlayedForCurrentVideo) {
-            delay(400L) // Esperar a que la pantalla/surface se monte 100% en Android
-            if (!videoPlayer.isPlaying && !videoPlayer.isFullscreenActive) {
-                videoPlayer.togglePlayPause()
-            }
+            videoPlayer.forcePlay()
             hasAutoPlayedForCurrentVideo = true
         }
     }
 
+    // ✅ 2. Reanudar cuando SALGAS de Pantalla Completa (USANDO forcePlay, NUNCA togglePlayPause)
     LaunchedEffect(videoPlayer.isFullscreenActive) {
+        // Solo actúa si NO está en pantalla completa y el video estaba pausado
         if (!videoPlayer.isFullscreenActive && videoPlayer.playlist.isNotEmpty() && !videoPlayer.isPlaying) {
-            videoPlayer.togglePlayPause()
+            videoPlayer.forcePlay() // 👈 AQUÍ ESTABA EL ERROR: Decía togglePlayPause()
         }
     }
 
@@ -1389,7 +1389,9 @@ fun VideoPlayerView(
                             android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                             android.view.ViewGroup.LayoutParams.MATCH_PARENT
                         )
-                        player = if (!videoPlayer.isFullscreenActive) videoPlayer.getOrCreatePlayer() else null
+                        val exoPlayer = if (!videoPlayer.isFullscreenActive) videoPlayer.getOrCreatePlayer() else null
+                        exoPlayer?.playWhenReady = true // 👈 ESTO FORZA EL PLAY INMEDIATO EN EXOPLAYER
+                        player = exoPlayer
                     }
                 },
                 update = { playerView ->
