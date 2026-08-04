@@ -37,7 +37,8 @@ fun FullscreenMusicPlayerWidget(
     val currentTrack = musicPlayer.playlist.getOrNull(musicPlayer.currentTrackIndex)
 
     var showFolderModal by remember { mutableStateOf(false) }
-
+    // 🎛️ RECUPERAR ESTILO DE ECUALIZADOR GUARDADO
+    val currentEqStyle = LocalEqualizerStyle.current
     // PANTALLA COMPLETA TOTAL
     Box(
         modifier = Modifier
@@ -118,6 +119,15 @@ fun FullscreenMusicPlayerWidget(
                         .padding(20.dp),
                     contentAlignment = Alignment.Center
                 ) {
+                    // 📊 ECUALIZADOR CON ESTILO Y COLORES DINÁMICOS DEL TEMA
+                    EqualizerVisualizer(
+                        isPlaying = musicPlayer.isPlaying,
+                        primaryColor = theme.accentCyan,
+                        secondaryColor = theme.accentPurple,
+                        tertiaryColor = theme.accentOrange,
+                        style = currentEqStyle, // 👈 AHORA APLICA EL ESTILO SELECCIONADO
+                        modifier = Modifier.fillMaxSize()
+                    )
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center

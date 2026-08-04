@@ -48,6 +48,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.scale
 import kotlinx.coroutines.isActive
 
+
+import androidx.compose.animation.core.RepeatMode
+
+
+
+
 // =========================================================================
 // 1. ENUM PARA LOS 4 MODOS
 // =========================================================================
@@ -443,7 +449,10 @@ fun getApiCountryName(displayName: String): String {
 }
 
 // =========================================================================
-// 📻 VISTA DE RADIO ONLINE (CON AUTO-RECONEXIÓN EN TIEMPO REAL)
+// 📻 VISTA DE RADIO ONLINE (CON AUTO-RECONEXIÓN Y RETRY AUTOMÁTICO DE API)
+// =========================================================================
+// =========================================================================
+// 📻 VISTA DE RADIO ONLINE (CON ECUALIZADOR DINÁMICO)
 // =========================================================================
 @Composable
 fun RadioPlayerView(
@@ -455,9 +464,7 @@ fun RadioPlayerView(
 
     val radioManager = remember { SmartRadioManager.getInstance(context) }
 
-    // 📡 ESTADO DE INTERNET EN TIEMPO REAL
     var isOnline by remember { mutableStateOf(radioManager.isConnectedToInternet()) }
-
     var selectedCountry by remember { mutableStateOf(radioManager.getSavedCountry()) }
     var showCountryModal by remember { mutableStateOf(false) }
 
@@ -470,13 +477,23 @@ fun RadioPlayerView(
         radioManager.stationList.sortedByDescending { favoriteIds.contains(it.id) }
     }
 
-    // 🔄 MONITOR DE CONEXIÓN EN TIEMPO REAL (AUTO-RECONEXIÓN RADIO AL ENCENDER EL CARRO)
+    // 🎛️ RECUPERAR ESTILO DE ECUALIZADOR GUARDADO
+    val currentEqStyle = LocalEqualizerStyle.current
+
     LaunchedEffect(Unit) {
         while (isActive) {
             val connected = radioManager.isConnectedToInternet()
             if (connected != isOnline) {
                 isOnline = connected
-                if (connected) {
+            }
+            delay(2000L)
+        }
+    }
+
+    LaunchedEffect(isOnline, selectedCountry, radioManager.stationList.size, radioManager.isApiError) {
+        if (isOnline && (radioManager.stationList.isEmpty() || radioManager.isApiError)) {
+            while (isActive && isOnline && radioManager.stationList.isEmpty()) {
+                if (!radioManager.isFetchingApi) {
                     val apiCountry = getApiCountryName(selectedCountry)
                     radioManager.fetchStationsByCountry(apiCountry) {
                         if (radioManager.stationList.isNotEmpty() && !radioManager.isPlaying) {
@@ -487,151 +504,485 @@ fun RadioPlayerView(
                         }
                     }
                 }
-            }
-            delay(2000L) // Monitorear red cada 2 segundos
-        }
-    }
-
-    // Carga inicial si la red ya estaba lista
-    LaunchedEffect(selectedCountry, isOnline) {
-        if (isOnline) {
-            val apiCountry = getApiCountryName(selectedCountry)
-            if (radioManager.stationList.isEmpty() && !radioManager.isFetchingApi) {
-                radioManager.fetchStationsByCountry(apiCountry) {
-                    if (radioManager.stationList.isNotEmpty() && !radioManager.isPlaying) {
-                        val savedIndex = if (radioManager.currentStationIndex in radioManager.stationList.indices) {
-                            radioManager.currentStationIndex
-                        } else 0
-                        radioManager.playStationAtIndex(savedIndex)
-                    }
-                }
-            } else if (radioManager.stationList.isNotEmpty() && !radioManager.isPlaying && !radioManager.isLoading) {
-                val savedIndex = if (radioManager.currentStationIndex in radioManager.stationList.indices) {
-                    radioManager.currentStationIndex
-                } else 0
-                radioManager.playStationAtIndex(savedIndex)
+                delay(4000L)
             }
         }
     }
 
-    // CASO 1: ESPERANDO INTERNET (MUESTRA SPINNER Y AUTO-CONECTARÁ AL CONECTAR AL WI-FI)
-    if (!isOnline) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(14.dp))
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color(0xFF1E0D0D), Color(0xFF0D0D12))
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        theme.accentCyan.copy(alpha = 0.18f),
+                        Color(0xFF101014),
+                        theme.accentCyan.copy(alpha = 0.06f)
                     )
                 )
-                .padding(16.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier.fillMaxWidth(0.85f)
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(36.dp),
-                    color = theme.accentCyan,
-                    strokeWidth = 3.dp
-                )
+            )
+            .border(1.dp, theme.accentCyan.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
+    ) {
+        // 📊 ECUALIZADOR CON ESTILO Y COLORES DINÁMICOS
+        EqualizerVisualizer(
+            isPlaying = radioManager.isPlaying,
+            primaryColor = theme.accentCyan,
+            secondaryColor = theme.accentPurple,
+            tertiaryColor = theme.accentOrange,
+            style = currentEqStyle, // 👈 AHORA APLICA EL ESTILO SELECCIONADO
+            modifier = Modifier.fillMaxSize()
+        )
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = "Esperando Conexión Wi-Fi / Datos...",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = "Cargará las emisoras de radio automáticamente al obtener internet.",
-                    color = Color.Gray,
-                    fontSize = 11.sp,
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
-        return
-    }
-
-    // =========================================================================
-    // ⌛ CASO 2: CARGANDO API
-    // =========================================================================
-    if (radioManager.isFetchingApi) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color(0xFF121218)),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(36.dp),
-                    color = theme.accentCyan,
-                    strokeWidth = 3.dp
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Obteniendo emisoras de $selectedCountry...",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
-        return
-    }
-
-    // =========================================================================
-    // ⚠️ CASO 3: ERROR DE RED O LISTA VACÍA
-    // =========================================================================
-    if (radioManager.isApiError || radioManager.stationList.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color(0xFF121218))
-                .padding(16.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    imageVector = Icons.Default.ErrorOutline,
-                    contentDescription = null,
-                    tint = Color(0xFFFFB74D),
-                    modifier = Modifier.size(38.dp)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "No se encontraron emisoras para $selectedCountry",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { showCountryModal = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan),
-                        shape = RoundedCornerShape(10.dp)
+        when {
+            !isOnline -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxWidth(0.85f)
                     ) {
-                        Text("Cambiar País", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(36.dp),
+                            color = theme.accentCyan,
+                            strokeWidth = 3.dp
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = "Esperando Conexión Wi-Fi / Datos...",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = "Cargará las emisoras de radio automáticamente al obtener internet.",
+                            color = Color.Gray,
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center
+                        )
                     }
-                    OutlinedButton(
-                        onClick = { radioManager.fetchStationsByCountry(getApiCountryName(selectedCountry)) },
-                        shape = RoundedCornerShape(10.dp)
+                }
+            }
+
+            radioManager.isFetchingApi && radioManager.stationList.isEmpty() -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(36.dp),
+                            color = theme.accentCyan,
+                            strokeWidth = 3.dp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Obteniendo emisoras de $selectedCountry...",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            radioManager.isApiError || radioManager.stationList.isEmpty() -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp),
+                            color = Color(0xFFFFB74D),
+                            strokeWidth = 2.5.dp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Conectando al servidor de radio ($selectedCountry)...",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Reintentando conectar automáticamente...",
+                            color = Color.Gray,
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Button(
+                            onClick = { showCountryModal = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Cambiar País", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            else -> {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Reintentar", color = Color.White, fontSize = 11.sp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(
+                                            if (radioManager.isPlaying) Color(0xFF00C853) else theme.accentCyan.copy(alpha = 0.2f)
+                                        )
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (radioManager.isPlaying) "EN VIVO" else "SEÑAL RADIO",
+                                        color = if (radioManager.isPlaying) Color.Black else theme.accentCyan,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(6.dp))
+
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF1E1E28))
+                                        .border(1.dp, theme.accentCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                        .clickable { showCountryModal = true }
+                                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Public,
+                                        contentDescription = "Pon tu país",
+                                        tint = theme.accentCyan,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = selectedCountry,
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = null,
+                                        tint = Color.Gray,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF1E1E26))
+                                        .clickable {
+                                            if (currentStation != null) {
+                                                val newFavs = if (isFavorite) {
+                                                    favoriteIds - currentStation.id
+                                                } else {
+                                                    (favoriteIds + currentStation.id).distinct()
+                                                }
+                                                favoriteIds = newFavs
+                                                radioManager.saveFavorites(newFavs)
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                        contentDescription = "Favorito",
+                                        tint = if (isFavorite) Color(0xFFFF5252) else Color.Gray,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF1E1E26))
+                                        .clickable { onExpandFullscreen() },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Fullscreen,
+                                        contentDescription = "Pantalla Completa",
+                                        tint = theme.accentCyan,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = currentStation?.name ?: "Cargando Emisora...",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Spacer(modifier = Modifier.height(2.dp))
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOn,
+                                    contentDescription = null,
+                                    tint = theme.accentCyan,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = "${currentStation?.freqLabel ?: ""} • ${currentStation?.city ?: selectedCountry}",
+                                    color = theme.accentCyan,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(2.dp))
+
+                            Text(
+                                text = currentStation?.genre ?: "Variada",
+                                color = Color.Gray,
+                                fontSize = 10.sp,
+                                maxLines = 1
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color(0xFF16161E).copy(alpha = 0.85f))
+                                .border(1.dp, Color(0xFF262636), RoundedCornerShape(20.dp))
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size((40 * buttonScale).dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF22222E))
+                                        .border(1.dp, Color(0xFF333345), CircleShape)
+                                        .clickable { radioManager.playPreviousStation() },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.SkipPrevious,
+                                        contentDescription = "Anterior",
+                                        tint = theme.accentCyan,
+                                        modifier = Modifier.size((22 * buttonScale).dp)
+                                    )
+                                }
+
+                                val playButtonScale by animateFloatAsState(
+                                    targetValue = if (radioManager.isPlaying) 1.05f else 1.0f,
+                                    animationSpec = tween(durationMillis = 200),
+                                    label = "playScale"
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .scale(playButtonScale)
+                                        .size((50 * buttonScale).dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            Brush.radialGradient(
+                                                colors = listOf(
+                                                    theme.accentCyan,
+                                                    theme.accentCyan.copy(alpha = 0.85f)
+                                                )
+                                            )
+                                        )
+                                        .border(2.dp, Color.White.copy(alpha = 0.4f), CircleShape)
+                                        .clickable { radioManager.togglePlayPause() },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (radioManager.isLoading) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size((26 * buttonScale).dp),
+                                            color = Color.Black,
+                                            strokeWidth = 2.5.dp
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = if (radioManager.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                            contentDescription = "Play/Pausa",
+                                            tint = Color.Black,
+                                            modifier = Modifier.size((28 * buttonScale).dp)
+                                        )
+                                    }
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .size((40 * buttonScale).dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF22222E))
+                                        .border(1.dp, Color(0xFF333345), CircleShape)
+                                        .clickable { radioManager.playNextStation() },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.SkipNext,
+                                        contentDescription = "Siguiente",
+                                        tint = theme.accentCyan,
+                                        modifier = Modifier.size((22 * buttonScale).dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .widthIn(min = 125.dp, max = 230.dp)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF14141C).copy(alpha = 0.9f))
+                            .border(1.dp, Color(0xFF22222E), RoundedCornerShape(12.dp))
+                            .padding(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 2.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "EMISORAS (${displayStations.size})",
+                                color = Color.Gray,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1
+                            )
+                            Icon(
+                                imageVector = Icons.Default.Radio,
+                                contentDescription = null,
+                                tint = theme.accentCyan,
+                                modifier = Modifier.size(12.dp)
+                            )
+                        }
+
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            itemsIndexed(displayStations) { _, station ->
+                                val isCurrentSelected = currentStation?.id == station.id
+                                val isStationFav = favoriteIds.contains(station.id)
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            if (isCurrentSelected) theme.accentCyan.copy(alpha = 0.22f)
+                                            else Color(0xFF1E1E28)
+                                        )
+                                        .border(
+                                            width = if (isCurrentSelected) 1.dp else 0.dp,
+                                            color = if (isCurrentSelected) theme.accentCyan else Color.Transparent,
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable {
+                                            val originalIndex = radioManager.stationList.indexOfFirst { it.id == station.id }
+                                            if (originalIndex != -1) {
+                                                radioManager.playStationAtIndex(originalIndex)
+                                            }
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = station.name,
+                                            color = if (isCurrentSelected) theme.accentCyan else Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = if (isCurrentSelected) FontWeight.ExtraBold else FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = station.city.ifEmpty { selectedCountry },
+                                            color = Color.Gray,
+                                            fontSize = 8.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    if (isStationFav) {
+                                        Icon(
+                                            imageVector = Icons.Default.Favorite,
+                                            contentDescription = "Favorita",
+                                            tint = Color(0xFFFF5252),
+                                            modifier = Modifier
+                                                .size(12.dp)
+                                                .padding(start = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -655,402 +1006,6 @@ fun RadioPlayerView(
                 }
             )
         }
-        return
-    }
-
-    // =========================================================================
-    // 📻 CASO 4: REPRODUCTOR PRINCIPAL
-    // =========================================================================
-    Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(14.dp))
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        theme.accentCyan.copy(alpha = 0.18f),
-                        Color(0xFF101014),
-                        theme.accentCyan.copy(alpha = 0.06f)
-                    )
-                )
-            )
-            .border(1.dp, theme.accentCyan.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
-            .padding(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        // ---------------------------------------------------------------------
-        // PANEL IZQUIERDO: INFORMACIÓN Y CONTROLES
-        // ---------------------------------------------------------------------
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            // ENCABEZADO: INDICADOR EN VIVO + BOTÓN SELECTOR DE PAÍS + FAVORITO
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(
-                                if (radioManager.isPlaying) Color(0xFF00C853) else theme.accentCyan.copy(alpha = 0.2f)
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = if (radioManager.isPlaying) "EN VIVO" else "SEÑAL RADIO",
-                            color = if (radioManager.isPlaying) Color.Black else theme.accentCyan,
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    // 🌎 BOTÓN INTERACTIVO "PON TU PAÍS"
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF1E1E28))
-                            .border(1.dp, theme.accentCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                            .clickable { showCountryModal = true }
-                            .padding(horizontal = 6.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Public,
-                            contentDescription = "Pon tu país",
-                            tint = theme.accentCyan,
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = selectedCountry,
-                            color = Color.White,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = null,
-                            tint = Color.Gray,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-                }
-
-                // BOTÓN FAVORITO FLOTANTE
-                Box(
-                    modifier = Modifier
-                        .size(30.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF1E1E26))
-                        .clickable {
-                            if (currentStation != null) {
-                                val newFavs = if (isFavorite) {
-                                    favoriteIds - currentStation.id
-                                } else {
-                                    (favoriteIds + currentStation.id).distinct()
-                                }
-                                favoriteIds = newFavs
-                                radioManager.saveFavorites(newFavs)
-                            }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = "Favorito",
-                        tint = if (isFavorite) Color(0xFFFF5252) else Color.Gray,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-
-// ⛶ BOTÓN PANTALLA COMPLETA
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF1E1E26))
-                    .clickable { onExpandFullscreen() }, // 👈 Llama a tu función/navegación de pantalla completa
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Fullscreen,
-                    contentDescription = "Pantalla Completa",
-                    tint = theme.accentCyan,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-            }
-            // INFORMACIÓN DE LA EMISORA ACTUAL
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = currentStation?.name ?: "Cargando Emisora...",
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.LocationOn,
-                        contentDescription = null,
-                        tint = theme.accentCyan,
-                        modifier = Modifier.size(11.dp)
-                    )
-                    Spacer(modifier = Modifier.width(2.dp))
-                    Text(
-                        text = "${currentStation?.freqLabel ?: ""} • ${currentStation?.city ?: selectedCountry}",
-                        color = theme.accentCyan,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Text(
-                    text = currentStation?.genre ?: "Variada",
-                    color = Color.Gray,
-                    fontSize = 10.sp,
-                    maxLines = 1
-                )
-            }
-
-            // CONTROLES PRINCIPALES DE REPRODUCCIÓN
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF16161E))
-                    .border(1.dp, Color(0xFF262636), RoundedCornerShape(20.dp))
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // BOTÓN ANTERIOR
-                    Box(
-                        modifier = Modifier
-                            .size((40 * buttonScale).dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF22222E))
-                            .border(1.dp, Color(0xFF333345), CircleShape)
-                            .clickable { radioManager.playPreviousStation() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipPrevious,
-                            contentDescription = "Anterior",
-                            tint = theme.accentCyan,
-                            modifier = Modifier.size((22 * buttonScale).dp)
-                        )
-                    }
-
-                    // BOTÓN PLAY / PAUSE
-                    val playButtonScale by animateFloatAsState(
-                        targetValue = if (radioManager.isPlaying) 1.05f else 1.0f,
-                        animationSpec = tween(durationMillis = 200),
-                        label = "playScale"
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .scale(playButtonScale)
-                            .size((50 * buttonScale).dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(
-                                        theme.accentCyan,
-                                        theme.accentCyan.copy(alpha = 0.85f)
-                                    )
-                                )
-                            )
-                            .border(2.dp, Color.White.copy(alpha = 0.4f), CircleShape)
-                            .clickable { radioManager.togglePlayPause() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (radioManager.isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size((26 * buttonScale).dp),
-                                color = Color.Black,
-                                strokeWidth = 2.5.dp
-                            )
-                        } else {
-                            Icon(
-                                imageVector = if (radioManager.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = "Play/Pausa",
-                                tint = Color.Black,
-                                modifier = Modifier.size((28 * buttonScale).dp)
-                            )
-                        }
-                    }
-
-                    // BOTÓN SIGUIENTE
-                    Box(
-                        modifier = Modifier
-                            .size((40 * buttonScale).dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF22222E))
-                            .border(1.dp, Color(0xFF333345), CircleShape)
-                            .clickable { radioManager.playNextStation() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipNext,
-                            contentDescription = "Siguiente",
-                            tint = theme.accentCyan,
-                            modifier = Modifier.size((22 * buttonScale).dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        // ---------------------------------------------------------------------
-        // PANEL DERECHO: LISTA DE EMISORAS (CON FAVORITAS PRIMERO)
-        // ---------------------------------------------------------------------
-        Column(
-            modifier = Modifier
-                .widthIn(min = 125.dp, max = 230.dp)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF14141C))
-                .border(1.dp, Color(0xFF22222E), RoundedCornerShape(12.dp))
-                .padding(6.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 2.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "EMISORAS (${displayStations.size})",
-                    color = Color.Gray,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1
-                )
-                Icon(
-                    imageVector = Icons.Default.Radio,
-                    contentDescription = null,
-                    tint = theme.accentCyan,
-                    modifier = Modifier.size(12.dp)
-                )
-            }
-
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                itemsIndexed(displayStations) { _, station ->
-                    val isCurrentSelected = currentStation?.id == station.id
-                    val isStationFav = favoriteIds.contains(station.id)
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(
-                                if (isCurrentSelected) theme.accentCyan.copy(alpha = 0.22f)
-                                else Color(0xFF1E1E28)
-                            )
-                            .border(
-                                width = if (isCurrentSelected) 1.dp else 0.dp,
-                                color = if (isCurrentSelected) theme.accentCyan else Color.Transparent,
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                            .clickable {
-                                val originalIndex = radioManager.stationList.indexOfFirst { it.id == station.id }
-                                if (originalIndex != -1) {
-                                    radioManager.playStationAtIndex(originalIndex)
-                                }
-                            }
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = station.name,
-                                color = if (isCurrentSelected) theme.accentCyan else Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = if (isCurrentSelected) FontWeight.ExtraBold else FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = station.city.ifEmpty { selectedCountry },
-                                color = Color.Gray,
-                                fontSize = 8.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        if (isStationFav) {
-                            Icon(
-                                imageVector = Icons.Default.Favorite,
-                                contentDescription = "Favorita",
-                                tint = Color(0xFFFF5252),
-                                modifier = Modifier
-                                    .size(12.dp)
-                                    .padding(start = 2.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // =========================================================================
-    // MODAL SELECTOR DE PAÍS ("PON TU PAÍS")
-    // =========================================================================
-    if (showCountryModal) {
-        CountryPickerModal(
-            currentCountry = selectedCountry,
-            theme = theme,
-            onDismiss = { showCountryModal = false },
-            onCountrySelected = { displayName, apiName ->
-                selectedCountry = displayName
-                radioManager.selectedCountry = displayName // 💾 Guarda el país seleccionado
-                showCountryModal = false
-
-                radioManager.fetchStationsByCountry(apiName) {
-                    if (radioManager.stationList.isNotEmpty()) {
-                        radioManager.playStationAtIndex(0)
-                    }
-                }
-            }
-        )
     }
 }
 
@@ -1140,7 +1095,7 @@ fun CountryPickerModal(
 }
 
 // =========================================================================
-// 🎵 VISTA DE MÚSICA (CORREGIDA SIN AUTO-PLAY FANTASMA)
+// 🎵 VISTA DE MÚSICA CON ECUALIZADOR DINÁMICO
 // =========================================================================
 @Composable
 fun MusicPlayerView(
@@ -1153,7 +1108,8 @@ fun MusicPlayerView(
 
     val currentTrack = musicPlayer.playlist.getOrNull(musicPlayer.currentTrackIndex)
 
-    // ✅ ELIMINADO EL LAUNCHEDEFFECT AUTO-PLAY QUE FORZABA REPRODUCIR MÚSICA
+    // 🎛️ RECUPERAR ESTILO DE ECUALIZADOR GUARDADO
+    val currentEqStyle = LocalEqualizerStyle.current
 
     Box(
         modifier = Modifier
@@ -1171,6 +1127,16 @@ fun MusicPlayerView(
             .clickable { onExpandFullscreen() }
             .padding(10.dp)
     ) {
+        // 📊 ECUALIZADOR CON ESTILO Y COLORES DINÁMICOS DEL TEMA
+        EqualizerVisualizer(
+            isPlaying = musicPlayer.isPlaying,
+            primaryColor = theme.accentCyan,
+            secondaryColor = theme.accentPurple,
+            tertiaryColor = theme.accentOrange,
+            style = currentEqStyle, // 👈 AHORA APLICA EL ESTILO SELECCIONADO
+            modifier = Modifier.fillMaxSize()
+        )
+
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.SpaceBetween
@@ -1266,7 +1232,7 @@ fun MusicPlayerView(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            val buttonScale = LocalButtonScale.current
+            val buttonScale = LocalButtonScale.current ?: 1.0f
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

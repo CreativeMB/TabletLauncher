@@ -8,16 +8,13 @@ import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,9 +22,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatSize
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -70,6 +68,7 @@ data class LauncherAppInfo(
 val LocalDashboardTheme = compositionLocalOf { ThemeManager.themes[0] }
 val LocalIsBoldText = compositionLocalOf { true }
 val LocalButtonScale = compositionLocalOf { 1.0f }
+val LocalEqualizerStyle = compositionLocalOf { EqualizerStyle.CLASSIC_BARS }
 
 // =========================================================================
 // 🚀 GESTOR PARA SELECCIÓN DE LAUNCHER PREDETERMINADO
@@ -89,33 +88,6 @@ object LauncherManager {
         }
     }
 
-    // Escanea todos los Launchers instalados en el estéreo
-    fun getInstalledLaunchers(context: Context): List<LauncherAppInfo> {
-        val pm = context.packageManager
-        val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-            addCategory(Intent.CATEGORY_HOME)
-        }
-
-        val defaultResolve = pm.resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY)
-        val defaultPackage = defaultResolve?.activityInfo?.packageName
-
-        val resolveList = pm.queryIntentActivities(homeIntent, PackageManager.MATCH_ALL)
-
-        return resolveList.map { resolveInfo ->
-            val pkg = resolveInfo.activityInfo.packageName
-            val label = resolveInfo.loadLabel(pm).toString()
-            val icon = resolveInfo.loadIcon(pm)
-            LauncherAppInfo(
-                label = label,
-                packageName = pkg,
-                icon = icon,
-                isCurrentDefault = (pkg == defaultPackage),
-                isSelf = (pkg == context.packageName)
-            )
-        }.distinctBy { it.packageName }
-    }
-
-    // Lanza directamente la ventana flotante de selección de Android
     fun forceAndroidChooser(context: Context) {
         try {
             @Suppress("DEPRECATION")
@@ -136,41 +108,6 @@ object LauncherManager {
         } catch (e: Exception) {
             e.printStackTrace()
         }
-    }
-
-    fun launchPackage(context: Context, packageName: String) {
-        try {
-            val pm = context.packageManager
-            val intent = pm.getLaunchIntentForPackage(packageName) ?: Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                setPackage(packageName)
-            }
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-}
-
-// Convierte un Drawable nativo a Bitmap para Jetpack Compose
-fun drawableToImageBitmap(drawable: Drawable): ImageBitmap? {
-    return try {
-        val bitmap = if (drawable.intrinsicWidth <= 0 || drawable.intrinsicHeight <= 0) {
-            Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
-        } else {
-            Bitmap.createBitmap(
-                drawable.intrinsicWidth,
-                drawable.intrinsicHeight,
-                Bitmap.Config.ARGB_8888
-            )
-        }
-        val canvas = Canvas(bitmap)
-        drawable.setBounds(0, 0, canvas.width, canvas.height)
-        drawable.draw(canvas)
-        bitmap.asImageBitmap()
-    } catch (e: Exception) {
-        null
     }
 }
 
@@ -248,6 +185,42 @@ object ThemeManager {
         val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
         prefs.edit().putFloat("button_scale_factor", scale).apply()
     }
+
+    fun getSavedEqualizerStyle(context: Context): EqualizerStyle {
+        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
+        val styleName = prefs.getString("equalizer_style", EqualizerStyle.CLASSIC_BARS.name)
+        return try {
+            EqualizerStyle.valueOf(styleName ?: EqualizerStyle.CLASSIC_BARS.name)
+        } catch (e: Exception) {
+            EqualizerStyle.CLASSIC_BARS
+        }
+    }
+
+    fun saveEqualizerStyle(context: Context, style: EqualizerStyle) {
+        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("equalizer_style", style.name).apply()
+    }
+
+    // 🎛️ 🌟 ECUALIZADORES ALEATORIOS (CAMBIO AUTOMÁTICO DE ESTILO DE ECUALIZADOR)
+    fun getSavedAutoRotateEqEnabled(context: Context): Boolean {
+        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
+        return prefs.getBoolean("auto_rotate_eq_enabled", false)
+    }
+
+    fun saveAutoRotateEqEnabled(context: Context, enabled: Boolean) {
+        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("auto_rotate_eq_enabled", enabled).apply()
+    }
+
+    fun getSavedAutoRotateEqInterval(context: Context): Int {
+        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
+        return prefs.getInt("auto_rotate_eq_interval", 30) // Predeterminado: 30 segundos
+    }
+
+    fun saveAutoRotateEqInterval(context: Context, seconds: Int) {
+        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putInt("auto_rotate_eq_interval", seconds).apply()
+    }
 }
 
 // ==========================================
@@ -259,11 +232,13 @@ fun ThemeSelectorModal(
     currentTextScale: Float,
     currentIsBold: Boolean,
     currentButtonScale: Float = 1.0f,
+    currentEqualizerStyle: EqualizerStyle = EqualizerStyle.CLASSIC_BARS,
     onDismiss: () -> Unit,
     onThemeSelected: (DashboardTheme) -> Unit,
     onTextScaleChanged: (Float) -> Unit,
     onIsBoldChanged: (Boolean) -> Unit,
-    onButtonScaleChanged: (Float) -> Unit = {}
+    onButtonScaleChanged: (Float) -> Unit = {},
+    onEqualizerStyleChanged: (EqualizerStyle) -> Unit = {}
 ) {
     BackHandler {
         onDismiss()
@@ -293,6 +268,11 @@ fun ThemeSelectorModal(
     var sliderValue by remember { mutableFloatStateOf(currentTextScale) }
     var buttonScaleValue by remember { mutableFloatStateOf(currentButtonScale) }
     var isBoldState by remember { mutableStateOf(currentIsBold) }
+    var selectedEqualizerStyle by remember { mutableStateOf(currentEqualizerStyle) }
+
+    // 🎛️ ESTADOS PARA ECUALIZADORES ALEATORIOS
+    var isAutoRotateEq by remember { mutableStateOf(ThemeManager.getSavedAutoRotateEqEnabled(context)) }
+    var autoRotateEqInterval by remember { mutableIntStateOf(ThemeManager.getSavedAutoRotateEqInterval(context)) }
 
     var isAutoBrightness by remember { mutableStateOf(BrightnessManager.isAutoBrightnessEnabled) }
     var dayBrightness by remember { mutableFloatStateOf(BrightnessManager.dayBrightnessValue) }
@@ -301,6 +281,7 @@ fun ThemeSelectorModal(
 
     val previewWeight = if (isBoldState) FontWeight.ExtraBold else FontWeight.Normal
     val leftScrollState = rememberScrollState()
+    val rightScrollState = rememberScrollState()
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -354,7 +335,9 @@ fun ThemeSelectorModal(
                         .weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // COLUMNA IZQUIERDA
+                    // -------------------------------------------------------------
+                    // 👈 COLUMNA IZQUIERDA: CONFIGURACIONES DEL SISTEMA Y BRILLO
+                    // -------------------------------------------------------------
                     Surface(
                         color = currentTheme.cardBackground,
                         shape = RoundedCornerShape(18.dp),
@@ -370,7 +353,6 @@ fun ThemeSelectorModal(
                                 .padding(14.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            // 🚀 TARJETA: ESTADO Y SELECCIÓN DE LAUNCHER
                             Card(
                                 colors = CardDefaults.cardColors(
                                     containerColor = if (isDefaultLauncher) Color(0xFF0E2218) else Color(0xFF2A190B)
@@ -433,17 +415,6 @@ fun ThemeSelectorModal(
                                 }
                             }
 
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.FormatSize, contentDescription = null, tint = currentTheme.accentCyan)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Ajustes Visuales y Brillo GPS", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                }
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text("Ajusta letras, botones y brillo para el día y noche.", color = Color.Gray, fontSize = 11.sp)
-                            }
-
-                            // ⚠️ TARJETA DE PERMISO DE BRILLO
                             if (!hasSettingsPermission) {
                                 Card(
                                     colors = CardDefaults.cardColors(containerColor = Color(0xFF3B1200)),
@@ -475,7 +446,6 @@ fun ThemeSelectorModal(
                                 }
                             }
 
-                            // VISTA PREVIA
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -501,7 +471,6 @@ fun ThemeSelectorModal(
                                 }
                             }
 
-                            // CONTROLES DE BRILLO Y FUENTES
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -623,71 +592,239 @@ fun ThemeSelectorModal(
                         }
                     }
 
-                    // COLUMNA DERECHA: SELECCIÓN DE TEMAS EN GRILLA
+                    // -------------------------------------------------------------
+                    // 👉 COLUMNA DERECHA: APARIENCIA (ECUALIZADORES Y TEMAS)
+                    // -------------------------------------------------------------
                     Surface(
                         color = currentTheme.cardBackground,
                         shape = RoundedCornerShape(18.dp),
                         modifier = Modifier
-                            .weight(1.3f)
+                            .weight(1.1f)
                             .fillMaxHeight()
                             .border(1.dp, currentTheme.cardBorder, RoundedCornerShape(18.dp))
                     ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Text(
-                                text = "Colección de Estilos (${ThemeManager.themes.size} Temas)",
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rightScrollState)
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            // 🎛️ 1. SECCIÓN: ESTILO DE ECUALIZADOR VISUAL
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.GraphicEq,
+                                    contentDescription = null,
+                                    tint = currentTheme.accentCyan,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Estilo de Ecualizador Visual",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
 
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(2),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(ThemeManager.themes) { theme ->
-                                    val isSelected = theme.id == currentTheme.id
-
-                                    Surface(
-                                        color = theme.dashBackground,
-                                        shape = RoundedCornerShape(14.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(62.dp)
-                                            .border(
-                                                width = if (isSelected) 2.5.dp else 1.dp,
-                                                color = if (isSelected) theme.accentCyan else theme.cardBorder,
-                                                shape = RoundedCornerShape(14.dp)
-                                            )
-                                            .clickable {
-                                                ThemeManager.saveTheme(context, theme.id)
-                                                onThemeSelected(theme)
-                                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                EqualizerStyle.values().toList().chunked(2).forEach { rowStyles ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(horizontal = 10.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
+                                        rowStyles.forEach { style ->
+                                            val isSelected = style == selectedEqualizerStyle
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(if (isSelected) currentTheme.accentCyan.copy(alpha = 0.25f) else Color(0xFF1E1E28))
+                                                    .border(
+                                                        width = if (isSelected) 1.5.dp else 0.dp,
+                                                        color = if (isSelected) currentTheme.accentCyan else Color.Transparent,
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    .clickable {
+                                                        selectedEqualizerStyle = style
+                                                        ThemeManager.saveEqualizerStyle(context, style)
+                                                        onEqualizerStyleChanged(style)
+                                                    }
+                                                    .padding(vertical = 8.dp, horizontal = 6.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = style.displayName,
+                                                    color = if (isSelected) currentTheme.accentCyan else Color.White,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    textAlign = TextAlign.Center,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 🔀 2. TARJETA NUEVA: ECUALIZADORES ALEATORIOS (CAMBIO AUTOMÁTICO)
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A26)),
+                                border = BorderStroke(1.dp, if (isAutoRotateEq) currentTheme.accentCyan else currentTheme.cardBorder),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.Shuffle,
+                                                contentDescription = null,
+                                                tint = if (isAutoRotateEq) currentTheme.accentCyan else Color.Gray,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
                                             Text(
-                                                text = theme.name,
+                                                text = "Ecualizador Aleatorio (Auto-Cambio)",
                                                 color = Color.White,
                                                 fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.weight(1f),
-                                                maxLines = 2
+                                                fontWeight = FontWeight.Bold
                                             )
+                                        }
 
-                                            Spacer(modifier = Modifier.width(4.dp))
+                                        Switch(
+                                            checked = isAutoRotateEq,
+                                            onCheckedChange = {
+                                                isAutoRotateEq = it
+                                                ThemeManager.saveAutoRotateEqEnabled(context, it)
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = currentTheme.accentCyan,
+                                                checkedTrackColor = currentTheme.cardBorder
+                                            )
+                                        )
+                                    }
 
-                                            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                                                Box(modifier = Modifier.size(11.dp).clip(CircleShape).background(theme.accentCyan))
-                                                Box(modifier = Modifier.size(11.dp).clip(CircleShape).background(theme.accentPurple))
-                                                Box(modifier = Modifier.size(11.dp).clip(CircleShape).background(theme.accentOrange))
+                                    if (isAutoRotateEq) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "Intervalo de cambio de ecualizador:",
+                                            color = Color.Gray,
+                                            fontSize = 9.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        val intervals = listOf(
+                                            10 to "10s",
+                                            30 to "30s",
+                                            60 to "1 Min",
+                                            300 to "5 Min",
+                                            600 to "10 Min"
+                                        )
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            intervals.forEach { (sec, label) ->
+                                                val isSelected = autoRotateEqInterval == sec
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(if (isSelected) currentTheme.accentCyan else Color(0xFF282836))
+                                                        .clickable {
+                                                            autoRotateEqInterval = sec
+                                                            ThemeManager.saveAutoRotateEqInterval(context, sec)
+                                                        }
+                                                        .padding(vertical = 5.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = label,
+                                                        color = if (isSelected) Color.Black else Color.White,
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.ExtraBold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            HorizontalDivider(color = currentTheme.cardBorder.copy(alpha = 0.5f), thickness = 1.dp)
+
+                            // 🎨 3. SECCIÓN: PALETA DE TEMAS DE COLOR
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Palette,
+                                    contentDescription = null,
+                                    tint = currentTheme.accentCyan,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Colección de Temas (${ThemeManager.themes.size})",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                ThemeManager.themes.chunked(2).forEach { rowThemes ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        rowThemes.forEach { theme ->
+                                            val isSelected = theme.id == currentTheme.id
+
+                                            Surface(
+                                                color = theme.dashBackground,
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(58.dp)
+                                                    .border(
+                                                        width = if (isSelected) 2.5.dp else 1.dp,
+                                                        color = if (isSelected) theme.accentCyan else theme.cardBorder,
+                                                        shape = RoundedCornerShape(12.dp)
+                                                    )
+                                                    .clickable {
+                                                        ThemeManager.saveTheme(context, theme.id)
+                                                        onThemeSelected(theme)
+                                                    }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .padding(horizontal = 8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Text(
+                                                        text = theme.name,
+                                                        color = Color.White,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.weight(1f),
+                                                        maxLines = 2
+                                                    )
+
+                                                    Spacer(modifier = Modifier.width(4.dp))
+
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                        Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(theme.accentCyan))
+                                                        Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(theme.accentPurple))
+                                                        Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(theme.accentOrange))
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -700,7 +837,6 @@ fun ThemeSelectorModal(
         }
     }
 
-    // MODAL SIMPLIFICADO CON EL BOTÓN DIRECTO DE VENTANA FLOTANTE
     if (showLauncherListModal) {
         LauncherPickerModal(
             theme = currentTheme,
@@ -712,7 +848,6 @@ fun ThemeSelectorModal(
 // =========================================================================
 // 📱 MODAL SIMPLIFICADO PARA ASIGNACIÓN DIRECTA
 // =========================================================================
-
 @Composable
 fun LauncherPickerModal(
     theme: DashboardTheme,
@@ -745,7 +880,6 @@ fun LauncherPickerModal(
                     textAlign = TextAlign.Center
                 )
 
-                // 🌟 BOTÓN ÚNICO EXCLUSIVO VERDE
                 Button(
                     onClick = {
                         LauncherManager.forceAndroidChooser(context)

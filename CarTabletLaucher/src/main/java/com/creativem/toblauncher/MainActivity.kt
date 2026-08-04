@@ -12,7 +12,6 @@ import android.os.Environment
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
-import android.text.style.AlignmentSpan
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -44,6 +43,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.android.gms.location.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import org.mapsforge.map.android.graphics.AndroidGraphicFactory
 
@@ -54,10 +54,10 @@ class MainActivity : ComponentActivity() {
         // 🛡️ BLOQUEAR EL BOTÓN ATRÁS EN LA PANTALLA PRINCIPAL DEL LAUNCHER
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                // Al dejar esto vacío, evitamos que la tableta minimice tu Launcher
-                // o se regrese al launcher original de fábrica cuando estés en el Home.
+                // Evitamos que la tableta minimice el Launcher
             }
         })
+
         // ✅ FONDO NEGRO ABSOLUTO DESDE EL PRIMER MILISEGUNDO DE ARRANQUE
         window.decorView.setBackgroundColor(android.graphics.Color.BLACK)
         // PANTALLA SIEMPRE ENCENDIDA
@@ -85,17 +85,13 @@ class MainActivity : ComponentActivity() {
                 MainScreen()
             }
         }
-
     }
 
-    // ✅ CAPTURA CUALQUIER PRESIONADO DEL BOTÓN "HOME" EN LA TABLET
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
 
-        // Si el usuario presionó la tecla HOME, nos aseguramos de traer la ventana al frente limpia
         if (Intent.ACTION_MAIN == intent.action && intent.hasCategory(Intent.CATEGORY_HOME)) {
-            // Cierra sub-pantallas o diálogos que hayan quedado abiertos
             setContent {
                 MaterialTheme {
                     MainScreen()
@@ -140,7 +136,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Función helper para verificar el estado de energía
 fun isIgnoringBatteryOptimizations(context: Context): Boolean {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
@@ -156,6 +151,7 @@ fun MainScreen() {
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var currentTheme by remember { mutableStateOf(ThemeManager.getSavedTheme(context)) }
+    var currentEqStyle by remember { mutableStateOf(ThemeManager.getSavedEqualizerStyle(context)) }
     var currentTextScale by remember { mutableFloatStateOf(ThemeManager.getSavedTextScale(context)) }
     var currentIsBold by remember { mutableStateOf(ThemeManager.getSavedIsBold(context)) }
     var currentButtonScale by remember { mutableFloatStateOf(ThemeManager.getSavedButtonScale(context)) }
@@ -173,6 +169,23 @@ fun MainScreen() {
         defaultTextStyle.copy(
             fontWeight = if (currentIsBold) FontWeight.ExtraBold else FontWeight.Normal
         )
+    }
+    // 🎛️ BUCLE DE ECUALIZADORES ALEATORIOS AUTOMÁTICO
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            val intervalSec = ThemeManager.getSavedAutoRotateEqInterval(context)
+
+            delay(intervalSec * 1000L) // Espera el tiempo configurado
+
+            if (ThemeManager.getSavedAutoRotateEqEnabled(context)) {
+                val otherStyles = EqualizerStyle.values().filter { it != currentEqStyle }
+                if (otherStyles.isNotEmpty()) {
+                    val nextStyle = otherStyles.random()
+                    currentEqStyle = nextStyle
+                    ThemeManager.saveEqualizerStyle(context, nextStyle)
+                }
+            }
+        }
     }
 
     fun calculateInitialStep(): Int {
@@ -221,7 +234,8 @@ fun MainScreen() {
         LocalDashboardTheme provides currentTheme,
         LocalIsBoldText provides currentIsBold,
         LocalButtonScale provides currentButtonScale,
-        LocalTextStyle provides customTextStyle
+        LocalTextStyle provides customTextStyle,
+        LocalEqualizerStyle provides currentEqStyle // 👈 PROVEEDOR DEL ECUALIZADOR INDEPENDIENTE
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -315,10 +329,12 @@ fun MainScreen() {
                     currentTextScale = currentTextScale,
                     currentIsBold = currentIsBold,
                     currentButtonScale = currentButtonScale,
+                    currentEqualizerStyle = currentEqStyle, // 👈 1. PASADO A CARDASHBOARD
                     onThemeChanged = { newTheme -> currentTheme = newTheme },
                     onTextScaleChanged = { newScale -> currentTextScale = newScale },
                     onIsBoldChanged = { newIsBold -> currentIsBold = newIsBold },
-                    onButtonScaleChanged = { newButtonScale -> currentButtonScale = newButtonScale }
+                    onButtonScaleChanged = { newButtonScale -> currentButtonScale = newButtonScale },
+                    onEqualizerStyleChanged = { newStyle -> currentEqStyle = newStyle } // 👈 2. CALLBACK DE CAMBIO
                 )
             }
         }
@@ -380,10 +396,12 @@ fun CarDashboard(
     currentTextScale: Float,
     currentIsBold: Boolean,
     currentButtonScale: Float,
+    currentEqualizerStyle: EqualizerStyle, // 👈 AHORA ES PARÁMETRO DE ENTRADA
     onThemeChanged: (DashboardTheme) -> Unit,
     onTextScaleChanged: (Float) -> Unit,
     onIsBoldChanged: (Boolean) -> Unit,
-    onButtonScaleChanged: (Float) -> Unit
+    onButtonScaleChanged: (Float) -> Unit,
+    onEqualizerStyleChanged: (EqualizerStyle) -> Unit // 👈 AHORA ES PARÁMETRO DE ENTRADA
 ) {
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
@@ -397,18 +415,12 @@ fun CarDashboard(
     var showFullscreenRadio by remember { mutableStateOf(false) }
 
     var activeAppDrawerTarget by remember { mutableIntStateOf(0) }
-
     var currentSpeedKmH by remember { mutableFloatStateOf(0f) }
-
     var currentBearing by remember { mutableFloatStateOf(0f) }
 
-    // =========================================================================
-    // ✅ CORRECCIÓN CLAVE: INICIALIZA DINÁMICAMENTE CON EL REPRODUCTOR #1 DEL USUARIO
-    // =========================================================================
     val initialMediaMode = remember { getSavedMediaTabOrder(context).firstOrNull() ?: MediaMode.MUSIC }
     var currentMediaMode by remember { mutableStateOf(initialMediaMode) }
 
-    // 1. INICIALIZAR Y VERIFICAR BRILLO AUTOMÁTICO DÍA/NOCHE CADA 30 SEGUNDOS
     LaunchedEffect(Unit) {
         activity?.let { act ->
             BrightnessManager.init(act)
@@ -419,7 +431,6 @@ fun CarDashboard(
         }
     }
 
-    // 2. LECTURA GPS Y ACTUALIZACIÓN CONTINUA DE BRILLO Y VELOCIDAD
     DisposableEffect(Unit) {
         val fusedClient = LocationServices.getFusedLocationProviderClient(context)
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L).build()
@@ -478,7 +489,6 @@ fun CarDashboard(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // 1. PARTE SUPERIOR: MAPA (40%) Y MULTIMEDIA (60%)
                     Row(
                         modifier = Modifier
                             .weight(1.2f)
@@ -515,7 +525,6 @@ fun CarDashboard(
                         }
                     }
 
-                    // 2. PARTE INFERIOR: VELOCÍMETRO (50%) Y APPS+RELOJ (50%)
                     Row(
                         modifier = Modifier
                             .weight(1f)
@@ -657,11 +666,13 @@ fun CarDashboard(
                 currentTextScale = currentTextScale,
                 currentIsBold = currentIsBold,
                 currentButtonScale = currentButtonScale,
+                currentEqualizerStyle = currentEqualizerStyle, // 👈 AHORA SÍ CONECTADO
                 onDismiss = { showThemeModal = false },
                 onThemeSelected = { newTheme: DashboardTheme -> onThemeChanged(newTheme) },
                 onTextScaleChanged = { newScale: Float -> onTextScaleChanged(newScale) },
                 onIsBoldChanged = { newIsBold: Boolean -> onIsBoldChanged(newIsBold) },
-                onButtonScaleChanged = { newButtonScale: Float -> onButtonScaleChanged(newButtonScale) }
+                onButtonScaleChanged = { newButtonScale: Float -> onButtonScaleChanged(newButtonScale) },
+                onEqualizerStyleChanged = { newStyle: EqualizerStyle -> onEqualizerStyleChanged(newStyle) } // 👈 AHORA SÍ CONECTADO
             )
         }
     }

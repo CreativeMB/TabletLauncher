@@ -50,7 +50,8 @@ fun FullscreenRadioPlayerWidget(
 
     // 🔍 BÚSQUEDA
     var searchQuery by remember { mutableStateOf("") }
-
+// 🎛️ RECUPERAR ESTILO DE ECUALIZADOR GUARDADO
+    val currentEqStyle = LocalEqualizerStyle.current
 
     // ⚡ AUTO-PLAY SEGURO (Solo actúa si no estaba sonando)
     LaunchedEffect(Unit) {
@@ -80,6 +81,8 @@ fun FullscreenRadioPlayerWidget(
             .background(Color(0xFF0B0B10))
             .padding(16.dp)
     ) {
+
+
         Column(modifier = Modifier.fillMaxSize()) {
             // --- 1. BARRA SUPERIOR (HEADER) ---
             Row(
@@ -155,6 +158,15 @@ fun FullscreenRadioPlayerWidget(
                         .padding(20.dp),
                     contentAlignment = Alignment.Center
                 ) {
+                    // 📊 ECUALIZADOR CON ESTILO Y COLORES DINÁMICOS
+                    EqualizerVisualizer(
+                        isPlaying = radioManager.isPlaying,
+                        primaryColor = theme.accentCyan,
+                        secondaryColor = theme.accentPurple,
+                        tertiaryColor = theme.accentOrange,
+                        style = currentEqStyle, // 👈 AHORA APLICA EL ESTILO SELECCIONADO
+                        modifier = Modifier.fillMaxSize()
+                    )
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
@@ -164,7 +176,9 @@ fun FullscreenRadioPlayerWidget(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(
-                                    if (radioManager.isPlaying) Color(0xFF00C853) else theme.accentCyan.copy(alpha = 0.2f)
+                                    if (radioManager.isPlaying) Color(0xFF00C853) else theme.accentCyan.copy(
+                                        alpha = 0.2f
+                                    )
                                 )
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
@@ -286,11 +300,17 @@ fun FullscreenRadioPlayerWidget(
                     // LISTA DE EMISORAS
                     Box(modifier = Modifier.fillMaxSize()) {
                         if (radioManager.isFetchingApi) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 CircularProgressIndicator(color = theme.accentCyan)
                             }
                         } else if (displayStations.isEmpty()) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Text(
                                     text = if (searchQuery.isNotEmpty()) "Sin resultados para \"$searchQuery\"" else "No hay emisoras disponibles",
                                     color = Color.Gray,
@@ -310,9 +330,14 @@ fun FullscreenRadioPlayerWidget(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(10.dp))
-                                            .background(if (isSelected) theme.accentCyan.copy(alpha = 0.22f) else Color(0xFF1A1A24))
+                                            .background(
+                                                if (isSelected) theme.accentCyan.copy(alpha = 0.22f) else Color(
+                                                    0xFF1A1A24
+                                                )
+                                            )
                                             .clickable {
-                                                val originalIndex = radioManager.stationList.indexOfFirst { it.id == station.id }
+                                                val originalIndex =
+                                                    radioManager.stationList.indexOfFirst { it.id == station.id }
                                                 if (originalIndex != -1) {
                                                     radioManager.playStationAtIndex(originalIndex)
                                                 }
@@ -365,7 +390,8 @@ fun FullscreenRadioPlayerWidget(
                                             // CORAZÓN DE FAVORITO
                                             IconButton(
                                                 onClick = {
-                                                    val newFavs = if (isFav) favoriteIds - station.id else (favoriteIds + station.id).distinct()
+                                                    val newFavs =
+                                                        if (isFav) favoriteIds - station.id else (favoriteIds + station.id).distinct()
                                                     favoriteIds = newFavs
                                                     radioManager.saveFavorites(newFavs)
                                                 },
@@ -406,7 +432,8 @@ fun FullscreenRadioPlayerWidget(
                     IconButton(
                         onClick = {
                             if (currentStation != null) {
-                                val newFavs = if (isFavorite) favoriteIds - currentStation.id else (favoriteIds + currentStation.id).distinct()
+                                val newFavs =
+                                    if (isFavorite) favoriteIds - currentStation.id else (favoriteIds + currentStation.id).distinct()
                                 favoriteIds = newFavs
                                 radioManager.saveFavorites(newFavs)
                             }
