@@ -30,7 +30,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -40,6 +44,7 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import androidx.activity.compose.BackHandler
+
 val iptvLogoCache = LruCache<String, Bitmap>(150)
 
 // =========================================================================
@@ -98,7 +103,6 @@ fun loadM3uAndPreserveFavorites(context: Context, iptvPlayer: SmartIptvPlayer, m
         !favoriteUrls.contains(channel.streamUrl) && !deletedUrls.contains(channel.streamUrl)
     }
 
-    // Fusión excluyendo siempre los eliminados
     val combinedList = (savedFavorites + newM3uChannels)
         .filter { !deletedUrls.contains(it.streamUrl) }
         .distinctBy { it.streamUrl }
@@ -124,18 +128,23 @@ fun loadM3uAndPreserveFavorites(context: Context, iptvPlayer: SmartIptvPlayer, m
 fun FullscreenIptvPlayerWidget(
     onClose: () -> Unit
 ) {
-    // 👈 CAPTURA EL BOTÓN FÍSICO / SISTEMA "ATRÁS" DE LA TABLETA
     BackHandler {
         onClose()
     }
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
+    val buttonScale = LocalButtonScale.current ?: 1.0f
+    val textScale = LocalDensity.current.fontScale
+
     val iptvPlayer = remember { SmartIptvPlayer.getInstance(context) }
 
     var showFolderModal by remember { mutableStateOf(false) }
     var showUIState by remember { mutableStateOf(true) }
 
-    // Carga de Favoritos y Eliminados desde el disco local
+    // 🔍 BUSCADOR DE CANALES
+    var searchQuery by remember { mutableStateOf("") }
+
+    // Carga de Favoritos y Eliminados
     var favoriteChannels by remember { mutableStateOf(getSavedIptvFavoriteChannels(context)) }
     var favoriteUrls by remember(favoriteChannels) { mutableStateOf(favoriteChannels.map { it.streamUrl }.toSet()) }
     var deletedUrls by remember { mutableStateOf(getSavedIptvDeleted(context)) }
@@ -145,7 +154,6 @@ fun FullscreenIptvPlayerWidget(
     var channelToToggleFav by remember { mutableStateOf<IptvChannel?>(null) }
 
     val currentChannel = iptvPlayer.playlist.getOrNull(iptvPlayer.currentChannelIndex)
-    val buttonScale = LocalButtonScale.current
 
     DisposableEffect(Unit) {
         iptvPlayer.isFullscreenActive = true
@@ -154,7 +162,7 @@ fun FullscreenIptvPlayerWidget(
         }
     }
 
-    // ✅ LIMPIA Y PURGA FÍSICAMENTE CANALES ELIMINADOS DE LA MEMORIA DEL REPRODUCTOR
+    // ✅ LIMPIA CANALES ELIMINADOS DE LA MEMORIA
     LaunchedEffect(favoriteChannels, deletedUrls, iptvPlayer.playlist.size) {
         val combined = (favoriteChannels + iptvPlayer.playlist)
             .distinctBy { it.streamUrl }
@@ -175,12 +183,21 @@ fun FullscreenIptvPlayerWidget(
         }
     }
 
-    // ✅ LISTA COMBINADA SIN CANALES ELIMINADOS
-    val displayedChannels = remember(favoriteChannels, iptvPlayer.playlist.size, deletedUrls) {
+    // 📋 LISTA DE CANALES FILTRADA POR BÚSQUEDA Y FAVORITOS PRIMERO
+    val displayedChannels = remember(favoriteChannels, iptvPlayer.playlist.size, deletedUrls, searchQuery) {
         val allChannels = (favoriteChannels + iptvPlayer.playlist).distinctBy { it.streamUrl }
-        allChannels
-            .filter { !deletedUrls.contains(it.streamUrl) }
-            .sortedByDescending { favoriteUrls.contains(it.streamUrl) }
+        val nonDeleted = allChannels.filter { !deletedUrls.contains(it.streamUrl) }
+
+        val filtered = if (searchQuery.isBlank()) {
+            nonDeleted
+        } else {
+            nonDeleted.filter { channel ->
+                channel.name.contains(searchQuery, ignoreCase = true) ||
+                        (channel.groupTitle?.contains(searchQuery, ignoreCase = true) == true)
+            }
+        }
+
+        filtered.sortedByDescending { favoriteUrls.contains(it.streamUrl) }
     }
 
     val sidebarWidth = 340.dp
@@ -332,7 +349,7 @@ fun FullscreenIptvPlayerWidget(
             }
         }
 
-        // BARRA LATERAL DE CANALES
+        // BARRA LATERAL DE CANALES CON BUSCADOR EN LA CABECERA
         AnimatedVisibility(
             visible = showUIState,
             enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
@@ -347,6 +364,7 @@ fun FullscreenIptvPlayerWidget(
                     .padding(12.dp)
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
+                    // CABECERA SUPERIOR
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -368,82 +386,140 @@ fun FullscreenIptvPlayerWidget(
                         }
                     }
 
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        itemsIndexed(displayedChannels) { _, channel ->
-                            val isSelected = currentChannel?.streamUrl == channel.streamUrl
-                            val isFav = favoriteUrls.contains(channel.streamUrl)
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) theme.accentCyan.copy(alpha = 0.25f) else Color(0xFF1A1A24))
-                                    .clickable {
-                                        val realIndex = iptvPlayer.playlist.indexOfFirst { it.streamUrl == channel.streamUrl }
-                                        if (realIndex != -1) {
-                                            iptvPlayer.playChannelAtIndex(realIndex)
-                                        }
-                                        showUIState = true
-                                    }
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ChannelLogoImage(
-                                    logoUrl = channel.logoUrl,
-                                    modifier = Modifier.size(32.dp),
-                                    tint = if (isSelected) theme.accentCyan else Color.Gray
-                                )
-
-                                Spacer(modifier = Modifier.width(8.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = channel.name,
-                                        color = if (isSelected) theme.accentCyan else Color.White,
-                                        fontSize = 11.sp,
-                                        lineHeight = 14.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        maxLines = 1
-                                    )
-                                    if (!channel.groupTitle.isNull_orEmpty()) {
-                                        channel.groupTitle?.let {
-                                            Text(
-                                                text = it,
-                                                color = Color.Gray,
-                                                fontSize = 9.sp,
-                                                maxLines = 1
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // 🔴 BOTÓN FAVORITO
+                    // 🔍 BUSCADOR DE CANALES IPTV EN LA CABECERA
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = {
+                            Text(
+                                text = "🔍 Buscar...",
+                                fontSize = (8 * textScale).sp,
+                                color = Color.Gray
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = (52 * buttonScale).dp)
+                            .padding(bottom = 8.dp),
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = Color.White,
+                            fontSize = (8 * textScale).sp,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = theme.accentCyan,
+                            unfocusedBorderColor = Color(0xFF282836),
+                            focusedContainerColor = Color(0xFF1E1E2A),
+                            unfocusedContainerColor = Color(0xFF181822)
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
                                 IconButton(
-                                    onClick = { channelToToggleFav = channel },
-                                    modifier = Modifier.size(28.dp)
+                                    onClick = { searchQuery = "" },
+                                    modifier = Modifier.size((10 * buttonScale).dp)
                                 ) {
                                     Icon(
-                                        imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                        contentDescription = "Favorito",
-                                        tint = if (isFav) Color.Red else Color.Gray,
-                                        modifier = Modifier.size(16.dp)
+                                        imageVector = Icons.Default.Clear,
+                                        contentDescription = "Limpiar",
+                                        tint = Color.Gray
                                     )
                                 }
+                            }
+                        }
+                    )
 
-                                // 🗑️ BOTÓN ELIMINAR
-                                IconButton(
-                                    onClick = { channelToDelete = channel },
-                                    modifier = Modifier.size(28.dp)
+                    // LISTA DE CANALES
+                    if (displayedChannels.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (searchQuery.isNotEmpty()) "Sin resultados para \"$searchQuery\"" else "No hay canales",
+                                color = Color.Gray,
+                                fontSize = 12.sp
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            itemsIndexed(displayedChannels) { _, channel ->
+                                val isSelected = currentChannel?.streamUrl == channel.streamUrl
+                                val isFav = favoriteUrls.contains(channel.streamUrl)
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) theme.accentCyan.copy(alpha = 0.25f) else Color(0xFF1A1A24))
+                                        .clickable {
+                                            val realIndex = iptvPlayer.playlist.indexOfFirst { it.streamUrl == channel.streamUrl }
+                                            if (realIndex != -1) {
+                                                iptvPlayer.playChannelAtIndex(realIndex)
+                                            }
+                                            showUIState = true
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Eliminar",
-                                        tint = Color(0xFFFF5252),
-                                        modifier = Modifier.size(16.dp)
+                                    ChannelLogoImage(
+                                        logoUrl = channel.logoUrl,
+                                        modifier = Modifier.size(32.dp),
+                                        tint = if (isSelected) theme.accentCyan else Color.Gray
                                     )
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = channel.name,
+                                            color = if (isSelected) theme.accentCyan else Color.White,
+                                            fontSize = 11.sp,
+                                            lineHeight = 14.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            maxLines = 1
+                                        )
+                                        if (!channel.groupTitle.isNull_orEmpty()) {
+                                            channel.groupTitle?.let {
+                                                Text(
+                                                    text = it,
+                                                    color = Color.Gray,
+                                                    fontSize = 9.sp,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // 🔴 BOTÓN FAVORITO
+                                    IconButton(
+                                        onClick = { channelToToggleFav = channel },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                            contentDescription = "Favorito",
+                                            tint = if (isFav) Color.Red else Color.Gray,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+
+                                    // 🗑️ BOTÓN ELIMINAR
+                                    IconButton(
+                                        onClick = { channelToDelete = channel },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Eliminar",
+                                            tint = Color(0xFFFF5252),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -453,7 +529,7 @@ fun FullscreenIptvPlayerWidget(
         }
 
         // =========================================================================
-        // 🚨 MODAL: ELIMINAR CANAL (ELIMINACIÓN DEFINITIVA Y FÍSICA)
+        // 🚨 MODAL: ELIMINAR CANAL DEFINITIVO
         // =========================================================================
         channelToDelete?.let { channel ->
             AlertDialog(
@@ -482,19 +558,16 @@ fun FullscreenIptvPlayerWidget(
                         onClick = {
                             val targetUrl = channel.streamUrl
 
-                            // 1. Guardar en registro de borrados
                             val newDeleted = deletedUrls + targetUrl
                             deletedUrls = newDeleted
                             saveIptvDeleted(context, newDeleted)
 
-                            // 2. Si estaba en favoritos, desmarcarlo
                             val updatedFavs = favoriteChannels.filter { it.streamUrl != targetUrl }
                             if (updatedFavs.size != favoriteChannels.size) {
                                 favoriteChannels = updatedFavs
                                 saveIptvFavoriteChannels(context, updatedFavs)
                             }
 
-                            // 3. REMOVER FÍSICAMENTE de la playlist del reproductor
                             try {
                                 val list = iptvPlayer.playlist
                                 if (list is MutableList<*>) {
@@ -505,7 +578,6 @@ fun FullscreenIptvPlayerWidget(
                                 e.printStackTrace()
                             }
 
-                            // 4. Si era el canal en reproducción, saltar al siguiente
                             if (currentChannel?.streamUrl == targetUrl) {
                                 iptvPlayer.playNextChannel()
                             }
