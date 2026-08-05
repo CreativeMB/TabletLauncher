@@ -332,14 +332,24 @@ fun MapsforgeWidget(
 // ==========================================
 // CONTENEDOR PRINCIPAL DEL MAPA
 // ==========================================
+// ==========================================
+// CONTENEDOR PRINCIPAL DEL MAPA Y NAVEGACIÓN
+// ==========================================
+// ==========================================
+// CONTENEDOR PRINCIPAL DEL MAPA Y NAVEGACIÓN
+// ==========================================
 @Composable
 fun MapContainerWidget(
-    onExpandClicked: () -> Unit // Callback para avisarle a MainActivity que expanda la pantalla
+    onExpandClicked: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
     val coroutineScope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("toblauncher_prefs", Context.MODE_PRIVATE) }
+
+    var isOnlineNavActive by remember {
+        mutableStateOf(prefs.getBoolean("online_nav_active_mode", false))
+    }
 
     var showMenu by remember { mutableStateOf(false) }
     var isNightMode by remember { mutableStateOf(prefs.getBoolean("night_mode", false)) }
@@ -355,9 +365,7 @@ fun MapContainerWidget(
     var loadingMessage by remember { mutableStateOf("") }
     var showNoFileManagerError by remember { mutableStateOf(false) }
 
-    // Almacena un mensaje legible sobre el fallo de inicialización
     var mapLoadError by remember { mutableStateOf<String?>(null) }
-
     var lastKnownLocation by remember { mutableStateOf<LatLong?>(null) }
     val mapRefs = remember { MapRefs() }
 
@@ -378,7 +386,7 @@ fun MapContainerWidget(
     val mapPickerLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { selectedUri ->
             isLoadingFile = true
-            mapLoadError = null // Reseteamos errores previos al cargar un nuevo archivo
+            mapLoadError = null
             loadingMessage = "Cargando mapa en la memoria del auto..."
             coroutineScope.launch(Dispatchers.IO) {
                 try {
@@ -432,19 +440,23 @@ fun MapContainerWidget(
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
 
-                MapsforgeWidget(
-                    mapRefs = mapRefs,
-                    isMapAvailable = isMapAvailable && (mapLoadError == null), // Se apaga si el mapa seleccionado tiene errores
-                    isAutoCenterEnabled = isAutoCenterEnabled,
-                    isNightMode = isNightMode,
-                    targetMapFile = targetMapFile,
-                    onLocationUpdated = { loc -> lastKnownLocation = loc },
-                    mapPickerLauncher = mapPickerLauncher,
-                    onNoFileManagerError = { showNoFileManagerError = true },
-                    onMapLoadError = { error ->
-                        mapLoadError = error
-                    }
-                )
+                if (isOnlineNavActive) {
+                    NativeAppGaugeWidget(
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    MapsforgeWidget(
+                        mapRefs = mapRefs,
+                        isMapAvailable = isMapAvailable && (mapLoadError == null),
+                        isAutoCenterEnabled = isAutoCenterEnabled,
+                        isNightMode = isNightMode,
+                        targetMapFile = targetMapFile,
+                        onLocationUpdated = { loc -> lastKnownLocation = loc },
+                        mapPickerLauncher = mapPickerLauncher,
+                        onNoFileManagerError = { showNoFileManagerError = true },
+                        onMapLoadError = { error -> mapLoadError = error }
+                    )
+                }
 
                 androidx.compose.animation.AnimatedVisibility(
                     visible = showMenu,
@@ -463,7 +475,7 @@ fun MapContainerWidget(
                 }
 
                 // ==========================================
-                // PANEL DE CONTROL (Configuración, GPS y Expandir)
+                // PANEL DE CONTROL (Configuración, GPS y Pantalla Completa)
                 // ==========================================
                 Box(
                     modifier = Modifier
@@ -483,8 +495,8 @@ fun MapContainerWidget(
                             Icon(Icons.Default.Settings, contentDescription = "Configuración", modifier = Modifier.size(22.dp))
                         }
 
-                        // 2. BOTÓN CENTRAR GPS
-                        if (isMapAvailable && mapLoadError == null) {
+                        // 2. BOTÓN CENTRAR GPS (Solo disponible en mapa Offline)
+                        if (!isOnlineNavActive && isMapAvailable && mapLoadError == null) {
                             FloatingActionButton(
                                 onClick = {
                                     isAutoCenterEnabled = true
@@ -502,20 +514,22 @@ fun MapContainerWidget(
                             }
                         }
 
-                        // 3. BOTÓN EXPANDIR (PANTALLA COMPLETA)
-                        FloatingActionButton(
-                            onClick = onExpandClicked,
-                            containerColor = Color(0xAA1E1E1E),
-                            contentColor = theme.accentCyan,
-                            modifier = Modifier.size(42.dp)
-                        ) {
-                            Icon(Icons.Default.Fullscreen, contentDescription = "Pantalla Completa", modifier = Modifier.size(24.dp))
+                        // 3. BOTÓN PANTALLA COMPLETA (Solo disponible en mapa Offline)
+                        if (!isOnlineNavActive) {
+                            FloatingActionButton(
+                                onClick = onExpandClicked,
+                                containerColor = Color(0xAA1E1E1E),
+                                contentColor = theme.accentCyan,
+                                modifier = Modifier.size(42.dp)
+                            ) {
+                                Icon(Icons.Default.Fullscreen, contentDescription = "Pantalla Completa", modifier = Modifier.size(24.dp))
+                            }
                         }
                     }
                 }
 
                 // ==========================================
-                // MENÚ LATERAL OFFLINE
+                // MENÚ LATERAL DINÁMICO
                 // ==========================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = showMenu,
@@ -532,70 +546,94 @@ fun MapContainerWidget(
                             modifier = Modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState()),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // 1. TÍTULO DEL MENÚ ("Configuración Offline")
                             Text(
-                                text = "Configuración Offline",
+                                text = if (isOnlineNavActive) "Navegación Online" else "Configuración Offline",
                                 style = MaterialTheme.typography.titleMedium,
-                                fontSize = 8.sp, // <--- AGREGA / CAMBIA ESTO (ej. 18.sp, 20.sp, etc.)
+                                fontSize = 10.sp,
                                 color = Color.White
                             )
 
                             Column(
-                                modifier = Modifier.fillMaxWidth().background(Color(0x0DFFFFFF), shape = MaterialTheme.shapes.medium).padding(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0x0DFFFFFF), shape = MaterialTheme.shapes.medium)
+                                    .padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "Modo Noche",
-                                        color = Color.White,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontSize = 8.sp // <--- AGREGA / CAMBIA ESTO (ej. 14.sp, 16.sp)
-                                    )
-
-                                    Switch(
-                                        checked = isNightMode,
-                                        onCheckedChange = {
-                                            isNightMode = it
-                                            prefs.edit().putBoolean("night_mode", it).apply()
-                                        },
-                                        colors = SwitchDefaults.colors(checkedThumbColor = theme.accentCyan)
-                                    )
-                                }
-
-                                Divider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
 
                                 Button(
-                                    onClick = { safeLaunchPicker(mapPickerLauncher) { showNoFileManagerError = true } },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x1A03DAC5), contentColor = theme.accentCyan),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    // 3. TEXTO DENTRO DEL BOTÓN MAPA ("📁 Cambiar Mapa...")
-                                    Text(
-                                        text = "📁 Mapa (.map)",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontSize = 8.sp // <--- AGREGA / CAMBIA ESTO (ej. 13.sp, 15.sp)
-                                    )
-                                }
-
-                                Button(
-                                    onClick = { safeLaunchPicker(poiPickerLauncher) { showNoFileManagerError = true } },
+                                    onClick = {
+                                        isOnlineNavActive = !isOnlineNavActive
+                                        prefs.edit().putBoolean("online_nav_active_mode", isOnlineNavActive).apply()
+                                        showMenu = false
+                                    },
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (isPoiAvailable) Color(0x1A03DAC5) else Color(0x1AFFFFFF),
-                                        contentColor = if (isPoiAvailable) theme.accentCyan else Color.White
+                                        containerColor = if (isOnlineNavActive) theme.accentCyan else Color(0xFF33CCFF),
+                                        contentColor = Color.Black
                                     ),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-
-                                    // 4. TEXTO DENTRO DEL BOTÓN POI ("📁 Cambiar Puntos...")
                                     Text(
-                                        text = if (isPoiAvailable) "📁 Puntos (.poi)" else "➕ Cargar Puntos (.poi)",
+                                        text = if (isOnlineNavActive) "🗺️ Volver a Mapa Offline" else "🌐 Navegación Online (Waze)",
                                         style = MaterialTheme.typography.bodyMedium,
-                                        fontSize = 8.sp // <--- AGREGA / CAMBIA ESTO (ej. 13.sp, 15.sp)
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
+                                }
+
+                                if (!isOnlineNavActive) {
+                                    Divider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Modo Noche",
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontSize = 8.sp
+                                        )
+
+                                        Switch(
+                                            checked = isNightMode,
+                                            onCheckedChange = {
+                                                isNightMode = it
+                                                prefs.edit().putBoolean("night_mode", it).apply()
+                                            },
+                                            colors = SwitchDefaults.colors(checkedThumbColor = theme.accentCyan)
+                                        )
+                                    }
+
+                                    Divider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
+
+                                    Button(
+                                        onClick = { safeLaunchPicker(mapPickerLauncher) { showNoFileManagerError = true } },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0x1A03DAC5), contentColor = theme.accentCyan),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = "📁 Mapa (.map)",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontSize = 8.sp
+                                        )
+                                    }
+
+                                    Button(
+                                        onClick = { safeLaunchPicker(poiPickerLauncher) { showNoFileManagerError = true } },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isPoiAvailable) Color(0x1A03DAC5) else Color(0x1AFFFFFF),
+                                            contentColor = if (isPoiAvailable) theme.accentCyan else Color.White
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = if (isPoiAvailable) "📁 Puntos (.poi)" else "➕ Cargar Puntos (.poi)",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontSize = 8.sp
+                                        )
+                                    }
                                 }
                             }
 
@@ -608,10 +646,7 @@ fun MapContainerWidget(
                     }
                 }
 
-                // ==========================================
-                // PANTALLA DE ADVERTENCIA / SELECCIÓN DE ARCHIVO DE MAPA
-                // ==========================================
-                if (mapLoadError != null) {
+                if (!isOnlineNavActive && mapLoadError != null) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -651,7 +686,6 @@ fun MapContainerWidget(
         }
     }
 }
-
 // ==========================================
 // RASTREO GPS FLUIDO
 // ==========================================
