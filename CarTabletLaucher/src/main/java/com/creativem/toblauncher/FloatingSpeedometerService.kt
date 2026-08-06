@@ -1,14 +1,10 @@
 package com.creativem.toblauncher
 
 import android.Manifest
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.pm.ServiceInfo
 import android.graphics.Color as AndroidColor
 import android.graphics.PixelFormat
 import android.graphics.Typeface
@@ -24,7 +20,6 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.*
 import androidx.compose.ui.graphics.Color as ComposeColor
-import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.*
 import kotlin.math.cos
@@ -44,7 +39,6 @@ class FloatingSpeedometerService : Service() {
     private var btnExpandView: ImageButton? = null
     private var resizeHandleView: TextView? = null
 
-    // ⏱️ Ocultar los botones de las esquinas a los 5 segundos
     private val hideControlsRunnable = Runnable {
         btnCloseView?.visibility = View.GONE
         btnExpandView?.visibility = View.GONE
@@ -61,11 +55,12 @@ class FloatingSpeedometerService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        return START_STICKY
+    }
+
     override fun onCreate() {
         super.onCreate()
-
-        // 🚨 OBLIGATORIO: Mantener servicio vivo en segundo plano para actualizar el GPS
-        startAsForegroundService()
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
@@ -89,10 +84,9 @@ class FloatingSpeedometerService : Service() {
         val responsiveWidth = (screenWidth * 0.22f).toInt().coerceIn((170 * density).toInt(), (380 * density).toInt())
         val responsiveHeight = responsiveWidth
 
-        val marginX = (screenWidth * 0.00f).toInt()
-        val marginY = (screenHeight * 0.00f).toInt()
+        val marginX = 0
+        val marginY = 0
 
-        // Posición Inicial Abajo a la Derecha
         val defaultX = screenWidth - responsiveWidth - marginX
         val defaultY = screenHeight - responsiveHeight - marginY
 
@@ -108,7 +102,6 @@ class FloatingSpeedometerService : Service() {
             y = defaultY
         }
 
-        // 1. Contenedor Raíz Marco Tech
         val rootLayout = FrameLayout(this).apply {
             background = GradientDrawable().apply {
                 setColor(AndroidColor.parseColor("#121722"))
@@ -118,7 +111,6 @@ class FloatingSpeedometerService : Service() {
             clipToOutline = true
         }
 
-        // 2. Reloj Análogo Único
         analogGaugeView = AnalogGaugeView(
             context = this,
             primaryColor = primaryAccentInt,
@@ -130,7 +122,6 @@ class FloatingSpeedometerService : Service() {
 
         rootLayout.addView(analogGaugeView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
 
-        // 🟢 3. BOTÓN CERRAR
         val btnClose = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
             background = GradientDrawable().apply {
@@ -144,12 +135,11 @@ class FloatingSpeedometerService : Service() {
             }
         }
         btnCloseView = btnClose
-        val closeParams = FrameLayout.LayoutParams((60 * density).toInt(), (60 * density).toInt(), Gravity.TOP or Gravity.START).apply {
+        val closeParams = FrameLayout.LayoutParams((26 * density).toInt(), (26 * density).toInt(), Gravity.TOP or Gravity.START).apply {
             setMargins((6 * density).toInt(), (6 * density).toInt(), 0, 0)
         }
         rootLayout.addView(btnCloseView, closeParams)
 
-        // 🟢 4. BOTÓN EXPANDIR / LAUNCHER
         val btnExpand = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_crop)
             background = GradientDrawable().apply {
@@ -166,12 +156,11 @@ class FloatingSpeedometerService : Service() {
             }
         }
         btnExpandView = btnExpand
-        val expandParams = FrameLayout.LayoutParams((60 * density).toInt(), (60 * density).toInt(), Gravity.TOP or Gravity.END).apply {
+        val expandParams = FrameLayout.LayoutParams((36 * density).toInt(), (36 * density).toInt(), Gravity.TOP or Gravity.END).apply {
             setMargins(0, (6 * density).toInt(), (6 * density).toInt(), 0)
         }
         rootLayout.addView(btnExpandView, expandParams)
 
-        // 🖐️ 5. ARRASTRE FLOTANTE
         rootLayout.setOnTouchListener(object : View.OnTouchListener {
             private var dragWindowX = 0
             private var dragWindowY = 0
@@ -220,11 +209,10 @@ class FloatingSpeedometerService : Service() {
             }
         })
 
-        // ↘️ 6. MANIJA DE REDIMENSIONAR
         val handle = TextView(this).apply {
             text = " ↘ "
             setTextColor(primaryAccentInt)
-            textSize = 30f
+            textSize = 18f
             typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
                 setColor(AndroidColor.parseColor("#AA000000"))
@@ -287,33 +275,6 @@ class FloatingSpeedometerService : Service() {
         startGpsUpdates()
     }
 
-    private fun startAsForegroundService() {
-        val channelId = "floating_speedometer_channel"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId,
-                "Velocímetro Flotante GPS",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(channel)
-        }
-
-        val notification: Notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Velocímetro GPS Activo")
-            .setContentText("Midiendo velocidad en vivo...")
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
-            .build()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(1001, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-        } else {
-            startForeground(1001, notification)
-        }
-    }
-
     private fun startGpsUpdates() {
         val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -369,11 +330,7 @@ class FloatingSpeedometerService : Service() {
         fun start(context: Context) {
             try {
                 val intent = Intent(context, FloatingSpeedometerService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    ContextCompat.startForegroundService(context, intent)
-                } else {
-                    context.startService(intent)
-                }
+                context.startService(intent) // 🚀 Servicio estándar sin riesgo de crash
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -390,7 +347,6 @@ class FloatingSpeedometerService : Service() {
     }
 }
 
-// 🎨 Función de extensión para convertir Compose Color a Android Color Int
 private fun ComposeColor.toAndroidColorInt(): Int {
     return AndroidColor.argb(
         (this.alpha * 255).toInt(),
@@ -400,7 +356,6 @@ private fun ComposeColor.toAndroidColorInt(): Int {
     )
 }
 
-// ⏱️ Vista Personalizada para el Reloj Análogo
 class AnalogGaugeView(
     context: Context,
     var primaryColor: Int = AndroidColor.parseColor("#00E5FF"),

@@ -135,7 +135,7 @@ class FloatingMediaService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-        val initialWidth = (screenWidth * 0.60f).toInt().coerceIn((200 * density).toInt(), (450 * density).toInt())
+        val initialWidth = (screenWidth * 0.50f).toInt().coerceIn((200 * density).toInt(), (800 * density).toInt())
         val initialHeight = if (activeMode == MediaMode.VIDEO || activeMode == MediaMode.IPTV) {
             (initialWidth * 9) / 16
         } else {
@@ -168,7 +168,7 @@ class FloatingMediaService : Service() {
 
         setupContent(rootLayout, activeMode, videoPlayer, iptvPlayer, musicPlayer, radioPlayer, theme, density)
 
-        // 🟢 BOTÓN CERRAR (Pausa la música porque el usuario quiere cerrar todo)
+        // 🟢 BOTÓN CERRAR (Solo cierra la ventana flotante, NO PAUSA EL AUDIO/VIDEO)
         val btnClose = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
             background = GradientDrawable().apply {
@@ -178,13 +178,7 @@ class FloatingMediaService : Service() {
             setColorFilter(AndroidColor.parseColor("#FF5252"))
             setPadding((4 * density).toInt(), (4 * density).toInt(), (4 * density).toInt(), (4 * density).toInt())
             setOnClickListener {
-                when (activeMode) {
-                    MediaMode.VIDEO -> videoPlayer.pausePlayback()
-                    MediaMode.IPTV -> iptvPlayer.pausePlayback()
-                    MediaMode.MUSIC -> musicPlayer.pausePlayback()
-                    MediaMode.RADIO -> radioPlayer.stopPlayback()
-                }
-                stopSelf()
+                stopSelf() // 🚀 Solo quita el widget flotante, la música o video continúa reproduciéndose
             }
         }
         btnCloseView = btnClose
