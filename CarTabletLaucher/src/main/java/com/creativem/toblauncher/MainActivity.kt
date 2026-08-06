@@ -113,6 +113,23 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+
+        val videoPlayer = SmartVideoPlayer.getInstance(this)
+        val musicPlayer = SmartMusicPlayer.getInstance(this)
+        val radioPlayer = SmartRadioManager.getInstance(this)
+        val iptvPlayer = SmartIptvPlayer.getInstance(this)
+
+        // 🎵 1. El flotante de MEDIOS solo arranca si hay audio/video reproduciéndose:
+        if (videoPlayer.isPlaying || musicPlayer.isPlaying || radioPlayer.isPlaying || iptvPlayer.isPlaying) {
+            FloatingMediaService.start(this)
+        }
+
+        // ⏱️ 2. El VELOCÍMETRO arranca SIEMPRE (va fuera del if):
+        FloatingSpeedometerService.start(this)
+    }
     override fun onResume() {
         super.onResume()
         // 1. Detener la ventana flotante

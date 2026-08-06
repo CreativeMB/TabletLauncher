@@ -135,15 +135,15 @@ class FloatingMediaService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-        val initialWidth = (screenWidth * 0.28f).toInt().coerceIn((200 * density).toInt(), (450 * density).toInt())
+        val initialWidth = (screenWidth * 0.60f).toInt().coerceIn((200 * density).toInt(), (450 * density).toInt())
         val initialHeight = if (activeMode == MediaMode.VIDEO || activeMode == MediaMode.IPTV) {
             (initialWidth * 9) / 16
         } else {
             (100 * density).toInt()
         }
 
-        val defaultX = screenWidth - initialWidth - (20 * density).toInt()
-        val defaultY = (20 * density).toInt()
+        val defaultX = screenWidth - initialWidth - (0 * density).toInt()
+        val defaultY = (60 * density).toInt()
 
         val params = WindowManager.LayoutParams(
             initialWidth,
@@ -188,7 +188,7 @@ class FloatingMediaService : Service() {
             }
         }
         btnCloseView = btnClose
-        val closeParams = FrameLayout.LayoutParams((26 * density).toInt(), (26 * density).toInt(), Gravity.TOP or Gravity.START).apply {
+        val closeParams = FrameLayout.LayoutParams((60 * density).toInt(), (60 * density).toInt(), Gravity.TOP or Gravity.START).apply {
             setMargins((6 * density).toInt(), (6 * density).toInt(), 0, 0)
         }
         rootLayout.addView(btnCloseView, closeParams)
@@ -218,7 +218,7 @@ class FloatingMediaService : Service() {
             }
         }
         btnExpandView = btnExpand
-        val expandParams = FrameLayout.LayoutParams((26 * density).toInt(), (26 * density).toInt(), Gravity.TOP or Gravity.END).apply {
+        val expandParams = FrameLayout.LayoutParams((60 * density).toInt(), (60 * density).toInt(), Gravity.TOP or Gravity.END).apply {
             setMargins(0, (6 * density).toInt(), (6 * density).toInt(), 0)
         }
         rootLayout.addView(btnExpandView, expandParams)
@@ -280,7 +280,7 @@ class FloatingMediaService : Service() {
         val handle = TextView(this).apply {
             text = " ↘ "
             setTextColor(primaryColorInt)
-            textSize = 14f
+            textSize = 30f
             typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
                 setColor(AndroidColor.parseColor("#88000000"))

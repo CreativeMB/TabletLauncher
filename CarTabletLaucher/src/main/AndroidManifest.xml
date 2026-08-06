@@ -14,6 +14,7 @@
     <!-- ========================================== -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <!-- ========================================== -->
     <!-- 3. PERMISOS DE ALMACENAMIENTO              -->
@@ -111,8 +112,10 @@
             android:exported="false" />
         <service
             android:name=".FloatingSpeedometerService"
+            android:foregroundServiceType="location"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false"
+            />
 
     </application>
 
