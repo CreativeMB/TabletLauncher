@@ -614,19 +614,7 @@ fun CarDashboard(
                                 .fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            ModernDashboardCard(
-                                modifier = Modifier.weight(1f),
-                                title = null
-                            ) {
-                                ModernSpeedometerWidget(
-                                    speedKmH = currentSpeedKmH,
-                                    bearing = currentBearing,
-                                    onRequestAppSelection = { slot: Int ->
-                                        activeAppDrawerTarget = slot
-                                    }
-                                )
-                            }
-
+                            // 1. APLICACIONES Y RELOJ (LADO IZQUIERDO)
                             Row(
                                 modifier = Modifier.weight(1f),
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -661,23 +649,40 @@ fun CarDashboard(
                                     ModernClockWidget()
                                 }
                             }
-                        }
-                    }
 
-                    FloatingActionButton(
-                        onClick = { showThemeModal = true },
-                        containerColor = theme.cardBackground,
-                        contentColor = theme.accentCyan,
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(start = 24.dp, bottom = 24.dp)
-                            .size(42.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Palette,
-                            contentDescription = "Mundo de Colores",
-                            modifier = Modifier.size(22.dp)
-                        )
+                            // 2. VELOCÍMETRO + BOTÓN DE TEMAS INTEGRADO (LADO DERECHO)
+                            ModernDashboardCard(
+                                modifier = Modifier.weight(1f),
+                                title = null
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    ModernSpeedometerWidget(
+                                        speedKmH = currentSpeedKmH,
+                                        bearing = currentBearing,
+                                        onRequestAppSelection = { slot: Int ->
+                                            activeAppDrawerTarget = slot
+                                        }
+                                    )
+
+                                    // 🎨 BOTÓN DE TEMAS INSCRITO DENTRO DEL MISMO GADGET DE VELOCIDAD
+                                    FloatingActionButton(
+                                        onClick = { showThemeModal = true },
+                                        containerColor = theme.cardBackground,
+                                        contentColor = theme.accentCyan,
+                                        modifier = Modifier
+                                            .align(Alignment.BottomStart)
+                                            .padding(8.dp)
+                                            .size(38.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Palette,
+                                            contentDescription = "Mundo de Colores",
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
