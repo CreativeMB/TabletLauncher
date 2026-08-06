@@ -23,9 +23,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Settings
@@ -35,7 +44,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -54,8 +62,6 @@ import org.mapsforge.map.android.view.MapView
 import org.mapsforge.map.layer.overlay.Marker
 import java.io.File
 import java.io.FileOutputStream
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
@@ -128,6 +134,7 @@ fun MapsforgeWidget(
     mapPickerLauncher: ActivityResultLauncher<String>,
     onNoFileManagerError: () -> Unit,
     onMapLoadError: (String) -> Unit, // Callback para reportar fallos de lectura del .map
+    onOpenCustomExplorer: () -> Unit = {},
     onClose: () -> Unit = {}
 ) {
     // 👈 2. Y AQUÍ USAS EL BACKHANDLER LLAMANDO A onClose()
@@ -178,97 +185,115 @@ fun MapsforgeWidget(
     }
 
     Box(modifier = Modifier.fillMaxSize().clipToBounds().clip(RoundedCornerShape(16.dp))) {
-        if (isMapAvailable) {
-            AndroidView(
-                factory = { ctx ->
-                    try {
-                        AndroidGraphicFactory.createInstance(ctx.applicationContext)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
-                    val mapView = MapView(ctx).apply {
-                        keepScreenOn = true
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        model.frameBufferModel.overdrawFactor = 1.3
-
-                        scaleX = 1.35f
-                        scaleY = 1.35f
-
-                        setZoomLevelMin(3.toByte())
-                        setZoomLevelMax(22.toByte())
-                        model.mapViewPosition.setMapPosition(
-                            MapPosition(LatLong(4.6018403, -74.0796899), 16.toByte())
-                        )
-                    }
-
-                    try {
-                        mapView.mapScaleBar.setVisible(false)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
-                    // Se realiza una carga segura para prevenir cierres inesperados (Magic Byte check)
-                    val mapFile = try {
-                        org.mapsforge.map.reader.MapFile(targetMapFile)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        onMapLoadError("El archivo seleccionado no es válido (¿es un .zip comprimido o está dañado?)")
-                        null
-                    }
-
-                    if (mapFile != null) {
-                        val tileCache = AndroidUtil.createTileCache(
-                            ctx,
-                            "mapcache",
-                            mapView.model.displayModel.tileSize,
-                            1f,
-                            1.3
-                        )
-
-                        val rendererLayer = org.mapsforge.map.layer.renderer.TileRendererLayer(
-                            tileCache,
-                            mapFile,
-                            mapView.model.mapViewPosition,
-                            AndroidGraphicFactory.INSTANCE
-                        ).apply {
-                            setXmlRenderTheme(org.mapsforge.map.rendertheme.InternalRenderTheme.DEFAULT)
+        if (isMapAvailable && targetMapFile.exists() && targetMapFile.length() > 0) {
+            // 🚀 Clave para forzar a Compose a renderizar el MapView cuando cambia o se actualiza el mapa
+            key(targetMapFile.absolutePath, targetMapFile.lastModified(), targetMapFile.length()) {
+                AndroidView(
+                    factory = { ctx ->
+                        try {
+                            AndroidGraphicFactory.createInstance(ctx.applicationContext)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
                         }
 
-                        mapView.layerManager.layers.add(rendererLayer)
-                    }
+                        val mapView = MapView(ctx).apply {
+                            keepScreenOn = true
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            model.frameBufferModel.overdrawFactor = 1.3
 
-                    val staticGpsBitmap = createStaticGpsBitmap()
-                    val mapsforgeDrawable = AndroidBitmap(staticGpsBitmap)
+                            scaleX = 1.35f
+                            scaleY = 1.35f
 
-                    val cartMarker = Marker(
-                        LatLong(4.6018403, -74.0796899),
-                        mapsforgeDrawable,
-                        0,
-                        0
-                    )
+                            setZoomLevelMin(3.toByte())
+                            setZoomLevelMax(18.toByte())
+                            model.mapViewPosition.setMapPosition(
+                                MapPosition(LatLong(4.6018403, -74.0796899), 16.toByte())
+                            )
+                        }
 
-                    mapView.layerManager.layers.add(cartMarker)
+                        try {
+                            mapView.mapScaleBar.setVisible(false)
+                            mapView.mapZoomControls.setShowMapZoomControls(false)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
 
-                    val callback = startSmoothLocationTracking(
-                        ctx,
-                        mapRefs,
-                        cartMarker,
-                        isAutoCenterSupplier = { currentAutoCenterEnabled },
-                        onLocationUpdated = onLocationUpdated
-                    )
+                        // Se realiza una carga segura para prevenir cierres inesperados
+                        val mapFile = try {
+                            if (targetMapFile.exists() && targetMapFile.length() > 0) {
+                                org.mapsforge.map.reader.MapFile(targetMapFile)
+                            } else null
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            onMapLoadError("El archivo seleccionado no es válido (¿es un .zip comprimido o está dañado?)")
+                            null
+                        }
 
-                    mapRefs.mapView = mapView
-                    mapRefs.marker = cartMarker
-                    mapRefs.locationCallback = callback
+                        if (mapFile != null) {
+                            val tileCache = AndroidUtil.createTileCache(
+                                ctx,
+                                "mapcache",
+                                mapView.model.displayModel.tileSize,
+                                1f,
+                                1.3
+                            )
 
-                    mapView
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+                            val rendererLayer = org.mapsforge.map.layer.renderer.TileRendererLayer(
+                                tileCache,
+                                mapFile,
+                                mapView.model.mapViewPosition,
+                                AndroidGraphicFactory.INSTANCE
+                            ).apply {
+                                setXmlRenderTheme(org.mapsforge.map.rendertheme.InternalRenderTheme.DEFAULT)
+                                setTextScale(1.25f) // 👈 LÍNEA PARA AGRANDAR LAS LETRAS
+                            }
+
+                            mapView.layerManager.layers.add(rendererLayer)
+
+                            try {
+                                val startPos = mapFile.mapFileInfo?.startPosition ?: mapFile.mapFileInfo?.boundingBox?.centerPoint
+                                if (startPos != null) {
+                                    mapView.model.mapViewPosition.setMapPosition(
+                                        MapPosition(startPos, 17.toByte())
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+
+                        val staticGpsBitmap = createStaticGpsBitmap()
+                        val mapsforgeDrawable = AndroidBitmap(staticGpsBitmap)
+
+                        val cartMarker = Marker(
+                            LatLong(4.6018403, -74.0796899),
+                            mapsforgeDrawable,
+                            0,
+                            0
+                        )
+
+                        mapView.layerManager.layers.add(cartMarker)
+
+                        val callback = startSmoothLocationTracking(
+                            ctx,
+                            mapRefs,
+                            cartMarker,
+                            isAutoCenterSupplier = { currentAutoCenterEnabled },
+                            onLocationUpdated = onLocationUpdated
+                        )
+
+                        mapRefs.mapView = mapView
+                        mapRefs.marker = cartMarker
+                        mapRefs.locationCallback = callback
+
+                        mapView
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
 
             // ==========================================
             // BOTONES FLOTANTES DE ZOOM (+ y -) PEGADOS A LA DERECHA
@@ -314,11 +339,7 @@ fun MapsforgeWidget(
 
                 Button(
                     onClick = {
-                        try {
-                            mapPickerLauncher.launch("*/*")
-                        } catch (e: Exception) {
-                            onNoFileManagerError()
-                        }
+                        onOpenCustomExplorer()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF03DAC5))
                 ) {
@@ -329,12 +350,6 @@ fun MapsforgeWidget(
     }
 }
 
-// ==========================================
-// CONTENEDOR PRINCIPAL DEL MAPA
-// ==========================================
-// ==========================================
-// CONTENEDOR PRINCIPAL DEL MAPA Y NAVEGACIÓN
-// ==========================================
 // ==========================================
 // CONTENEDOR PRINCIPAL DEL MAPA Y NAVEGACIÓN
 // ==========================================
@@ -354,6 +369,9 @@ fun MapContainerWidget(
     var showMenu by remember { mutableStateOf(false) }
     var isNightMode by remember { mutableStateOf(prefs.getBoolean("night_mode", false)) }
     var isAutoCenterEnabled by remember { mutableStateOf(prefs.getBoolean("auto_center", true)) }
+
+    // Estado del explorador nativo: "map", "poi" o null
+    var customExplorerType by remember { mutableStateOf<String?>(null) }
 
     val targetMapFile = remember { OfflineMapManager.getMapFile(context) }
     val targetPoiFile = remember { OfflineMapManager.getPoiFile(context) }
@@ -383,6 +401,39 @@ fun MapContainerWidget(
         }
     }
 
+    // Copia segura desde el explorador nativo USB
+    fun processSelectedFile(file: File, isPoi: Boolean) {
+        isLoadingFile = true
+        mapLoadError = null
+        loadingMessage = if (isPoi) "Cargando Puntos de Interés (POI)..." else "Cargando mapa en la memoria del auto..."
+
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val destFile = if (isPoi) targetPoiFile else targetMapFile
+                file.inputStream().use { input ->
+                    FileOutputStream(destFile).use { output ->
+                        input.copyTo(output)
+                        output.flush()
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    if (isPoi) {
+                        isPoiAvailable = OfflineMapManager.isPoiDownloaded(context)
+                    } else {
+                        isMapAvailable = OfflineMapManager.isMapDownloaded(context)
+                    }
+                    isLoadingFile = false
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    isLoadingFile = false
+                    if (!isPoi) mapLoadError = "Error al copiar archivo: ${e.localizedMessage}"
+                }
+            }
+        }
+    }
+
     val mapPickerLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { selectedUri ->
             isLoadingFile = true
@@ -393,7 +444,10 @@ fun MapContainerWidget(
                     context.contentResolver.takePersistableUriPermission(selectedUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 } catch (e: Exception) {}
                 context.contentResolver.openInputStream(selectedUri)?.use { input ->
-                    FileOutputStream(targetMapFile).use { output -> input.copyTo(output) }
+                    FileOutputStream(targetMapFile).use { output ->
+                        input.copyTo(output)
+                        output.flush()
+                    }
                 }
                 withContext(Dispatchers.Main) {
                     if (OfflineMapManager.isMapDownloaded(context)) {
@@ -414,7 +468,10 @@ fun MapContainerWidget(
                     context.contentResolver.takePersistableUriPermission(selectedUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 } catch (e: Exception) {}
                 context.contentResolver.openInputStream(selectedUri)?.use { input ->
-                    FileOutputStream(targetPoiFile).use { output -> input.copyTo(output) }
+                    FileOutputStream(targetPoiFile).use { output ->
+                        input.copyTo(output)
+                        output.flush()
+                    }
                 }
                 withContext(Dispatchers.Main) {
                     if (OfflineMapManager.isPoiDownloaded(context)) isPoiAvailable = true
@@ -454,7 +511,8 @@ fun MapContainerWidget(
                         onLocationUpdated = { loc -> lastKnownLocation = loc },
                         mapPickerLauncher = mapPickerLauncher,
                         onNoFileManagerError = { showNoFileManagerError = true },
-                        onMapLoadError = { error -> mapLoadError = error }
+                        onMapLoadError = { error -> mapLoadError = error },
+                        onOpenCustomExplorer = { customExplorerType = "map" }
                     )
                 }
 
@@ -609,7 +667,10 @@ fun MapContainerWidget(
                                     Divider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
 
                                     Button(
-                                        onClick = { safeLaunchPicker(mapPickerLauncher) { showNoFileManagerError = true } },
+                                        onClick = {
+                                            showMenu = false
+                                            customExplorerType = "map"
+                                        },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0x1A03DAC5), contentColor = theme.accentCyan),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
@@ -621,7 +682,10 @@ fun MapContainerWidget(
                                     }
 
                                     Button(
-                                        onClick = { safeLaunchPicker(poiPickerLauncher) { showNoFileManagerError = true } },
+                                        onClick = {
+                                            showMenu = false
+                                            customExplorerType = "poi"
+                                        },
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = if (isPoiAvailable) Color(0x1A03DAC5) else Color(0x1AFFFFFF),
                                             contentColor = if (isPoiAvailable) theme.accentCyan else Color.White
@@ -666,7 +730,7 @@ fun MapContainerWidget(
                         Spacer(modifier = Modifier.height(24.dp))
 
                         Button(
-                            onClick = { safeLaunchPicker(mapPickerLauncher) { showNoFileManagerError = true } },
+                            onClick = { customExplorerType = "map" },
                             colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan)
                         ) {
                             Text("Seleccionar otro archivo .map", color = Color.Black, fontWeight = FontWeight.Bold)
@@ -684,8 +748,242 @@ fun MapContainerWidget(
                 confirmButton = { Button(onClick = { showNoFileManagerError = false }) { Text("Aceptar") } }
             )
         }
+
+        // ==========================================
+        // EXPLORADOR NATIVO INTEGRADO (USB / MEMORIA)
+        // ==========================================
+        if (customExplorerType != null) {
+            val isPoi = customExplorerType == "poi"
+            CustomUsbExplorerModal(
+                extension = if (isPoi) ".poi" else ".map",
+                onDismiss = { customExplorerType = null },
+                onSystemPickerFallback = {
+                    val type = customExplorerType
+                    customExplorerType = null
+                    if (type == "poi") {
+                        safeLaunchPicker(poiPickerLauncher) { showNoFileManagerError = true }
+                    } else {
+                        safeLaunchPicker(mapPickerLauncher) { showNoFileManagerError = true }
+                    }
+                },
+                onFileSelected = { selectedFile ->
+                    customExplorerType = null
+                    processSelectedFile(selectedFile, isPoi)
+                }
+            )
+        }
     }
 }
+
+// ==========================================
+// MODAL EXPLORADOR NATIVO USB
+// ==========================================
+@Composable
+fun CustomUsbExplorerModal(
+    extension: String,
+    onDismiss: () -> Unit,
+    onSystemPickerFallback: () -> Unit,
+    onFileSelected: (File) -> Unit
+) {
+    var currentDir by remember { mutableStateOf<File?>(null) }
+    var detectedFiles by remember { mutableStateOf<List<File>>(emptyList()) }
+    var isScanning by remember { mutableStateOf(true) }
+
+    LaunchedEffect(extension) {
+        withContext(Dispatchers.IO) {
+            val list = mutableListOf<File>()
+            val searchRoots = listOf(
+                File("/storage"),
+                File("/sdcard"),
+                File("/storage/emulated/0")
+            )
+
+            fun scanDir(dir: File, depth: Int = 0) {
+                if (depth > 4 || !dir.canRead()) return
+                val files = dir.listFiles() ?: return
+                for (f in files) {
+                    if (f.isDirectory && !f.name.startsWith(".")) {
+                        scanDir(f, depth + 1)
+                    } else if (f.isFile && f.name.endsWith(extension, ignoreCase = true)) {
+                        list.add(f)
+                    }
+                }
+            }
+
+            for (root in searchRoots) {
+                if (root.exists()) scanDir(root)
+            }
+            detectedFiles = list
+            isScanning = false
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {},
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onSystemPickerFallback) {
+                    Text("Usar Explorador del Sistema", color = Color(0xFF03DAC5), fontSize = 11.sp)
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Cancelar", color = Color.Gray, fontSize = 11.sp)
+                }
+            }
+        },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.FolderOpen,
+                    contentDescription = null,
+                    tint = Color(0xFF03DAC5),
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text("Seleccionar $extension", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Explorador de Memoria USB / Tablet", fontSize = 11.sp, color = Color.Gray)
+                }
+            }
+        },
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(300.dp)
+                    .background(Color(0xFF121212), shape = RoundedCornerShape(12.dp))
+                    .padding(8.dp)
+            ) {
+                if (isScanning) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(color = Color(0xFF03DAC5))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Buscando archivos $extension...", color = Color.LightGray, fontSize = 12.sp)
+                    }
+                } else if (currentDir == null) {
+                    if (detectedFiles.isEmpty()) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text("No se encontraron archivos $extension", color = Color.Gray, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = { currentDir = File("/storage") },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF222222))
+                            ) {
+                                Text("Explorar Carpetas Manualmente", color = Color.White, fontSize = 11.sp)
+                            }
+                        }
+                    } else {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Archivos Encontrados (${detectedFiles.size})", color = Color(0xFF03DAC5), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                TextButton(onClick = { currentDir = File("/storage") }) {
+                                    Text("Explorar USB >", color = Color.Gray, fontSize = 10.sp)
+                                }
+                            }
+                            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                items(detectedFiles) { file ->
+                                    MapFileItemRow(file = file, onSelect = { onFileSelected(file) })
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    val filesInDir = remember(currentDir) {
+                        currentDir?.listFiles()?.filter { f ->
+                            f.isDirectory || f.name.endsWith(extension, ignoreCase = true)
+                        }?.sortedWith(compareBy({ !it.isDirectory }, { it.name })) ?: emptyList()
+                    }
+
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    val parent = currentDir?.parentFile
+                                    if (parent != null && parent.path != "/") {
+                                        currentDir = parent
+                                    } else {
+                                        currentDir = null
+                                    }
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = Color.White)
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = currentDir?.name ?: "Almacenamiento",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
+
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            items(filesInDir) { f ->
+                                if (f.isDirectory) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { currentDir = f }
+                                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Folder, contentDescription = null, tint = Color(0xFFFFC107), modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Text(f.name, color = Color.White, fontSize = 12.sp)
+                                    }
+                                } else {
+                                    MapFileItemRow(file = f, onSelect = { onFileSelected(f) })
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        containerColor = Color(0xFF1E1E1E)
+    )
+}
+
+@Composable
+fun MapFileItemRow(file: File, onSelect: () -> Unit) {
+    val sizeMb = remember(file) { file.length() / (1024 * 1024) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onSelect() }
+            .padding(vertical = 8.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Default.Map, contentDescription = null, tint = Color(0xFF03DAC5), modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                Text(file.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(file.parent ?: "", color = Color.Gray, fontSize = 9.sp, maxLines = 1)
+            }
+        }
+        Text("${sizeMb} MB", color = Color(0xFF03DAC5), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
 // ==========================================
 // RASTREO GPS FLUIDO
 // ==========================================

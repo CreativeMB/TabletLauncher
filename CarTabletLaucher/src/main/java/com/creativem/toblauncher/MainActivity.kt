@@ -54,8 +54,10 @@ class MainActivity : ComponentActivity() {
         // 🛡️ BLOQUEAR EL BOTÓN ATRÁS EN LA PANTALLA PRINCIPAL DEL LAUNCHER
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                android.util.Log.d("PRUEBA_CLICK", "✅ LA APLICACIÓN ARRANCÓ CORRECTAMENTE Y LOS LOGS FUNCIONAN")
                 // Evitamos que la tableta minimice el Launcher
             }
+
         })
 
         // ✅ FONDO NEGRO ABSOLUTO DESDE EL PRIMER MILISEGUNDO DE ARRANQUE
@@ -86,6 +88,18 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: android.content.res.Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        val videoPlayer = SmartVideoPlayer.getInstance(this)
+        if (!isInPictureInPictureMode) {
+            // Al salir de PiP y regresar al launcher, desactiva la pantalla completa forzada
+            videoPlayer.isFullscreenActive = false
+            videoPlayer.showControls = true
+        }
+    }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -99,6 +113,28 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    override fun onResume() {
+        super.onResume()
+        // 1. Detener la ventana flotante
+        FloatingMediaService.stop(this)
+        FloatingSpeedometerService.stop(this)
+
+        // 2. Restablecer la pantalla y reconectar el video en el Launcher
+        val videoPlayer = SmartVideoPlayer.getInstance(this)
+        videoPlayer.isFullscreenActive = false
+        videoPlayer.forceRebind()
+
+        try {
+            // Esto garantiza que los gestos se desbloqueen al regresar al Launcher
+            // ya sea por el botón Home, deslizando, o porque se cerró la ventana flotante.
+            SmartMusicPlayer.getInstance(this).deactivateMediaSession()
+
+            // También forzamos el refresco del video por si acaso
+            SmartVideoPlayer.getInstance(this).forceRebind()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
     override fun onDestroy() {
         super.onDestroy()
@@ -108,6 +144,7 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
     }
+
 
     private fun isCurrentlyDefaultLauncher(context: Context): Boolean {
         val intent = Intent(Intent.ACTION_MAIN).apply {
@@ -144,7 +181,13 @@ fun isIgnoringBatteryOptimizations(context: Context): Boolean {
         true
     }
 }
-
+fun hasOverlayPermission(context: Context): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        Settings.canDrawOverlays(context)
+    } else {
+        true
+    }
+}
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
@@ -197,6 +240,7 @@ fun MainScreen() {
         }
         val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         val hasBrightness = BrightnessManager.hasWriteSettingsPermission(context)
+        val hasOverlay = hasOverlayPermission(context)
         val hasBatteryExemption = isIgnoringBatteryOptimizations(context)
 
         return when {
@@ -204,7 +248,8 @@ fun MainScreen() {
             !hasStorage -> 2
             !hasMic -> 3
             !hasBrightness -> 4
-            !hasBatteryExemption -> 5
+            !hasOverlay -> 5
+            !hasBatteryExemption -> 6
             else -> 0
         }
     }
@@ -298,6 +343,29 @@ fun MainScreen() {
                 )
 
                 5 -> PermissionStepScreen(
+                    title = "Permiso de Ventana Flotante",
+                    description = "Permite que el reproductor de video continúe flotando en una esquina mientras usas Waze, Google Maps u otras aplicaciones.",
+                    icon = Icons.Default.PictureInPicture,
+                    permissionsToRequest = emptyArray(),
+                    onPermissionGranted = { currentStep = calculateInitialStep() },
+                    customAction = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            try {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:${context.packageName}")
+                                )
+                                systemSettingsLauncher.launch(intent)
+                            } catch (e: Exception) {
+                                currentStep = calculateInitialStep()
+                            }
+                        } else {
+                            currentStep = calculateInitialStep()
+                        }
+                    }
+                )
+
+                6 -> PermissionStepScreen(
                     title = "Modo Alto Rendimiento Auto",
                     description = "Como la tablet funciona con la energía del vehículo, quita los límites de energía para que el Launcher, la Radio y los Mapas NUNCA se detengan.",
                     icon = Icons.Default.FlashOn,
@@ -311,19 +379,13 @@ fun MainScreen() {
                                 }
                                 systemSettingsLauncher.launch(intent)
                             } catch (e: Exception) {
-                                try {
-                                    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                                    systemSettingsLauncher.launch(intent)
-                                } catch (ex: Exception) {
-                                    currentStep = 0
-                                }
+                                currentStep = 0
                             }
                         } else {
                             currentStep = 0
                         }
                     }
                 )
-
                 0 -> CarDashboard(
                     currentTheme = currentTheme,
                     currentTextScale = currentTextScale,
@@ -656,8 +718,8 @@ fun CarDashboard(
                                 .apply()
                         }
                         else -> {
-                            val launchIntent = context.packageManager.getLaunchIntentForPackage(selectedPackage)
-                            if (launchIntent != null) context.startActivity(launchIntent)
+                            android.util.Log.d("PRUEBA_CLICK", "🚀 Loteando AppLauncher con: $selectedPackage")
+                            AppLauncher.launchKeepingVideo(context, selectedPackage)
                         }
                     }
                     activeAppDrawerTarget = 0
@@ -681,4 +743,5 @@ fun CarDashboard(
             )
         }
     }
+
 }

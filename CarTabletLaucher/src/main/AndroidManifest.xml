@@ -7,6 +7,7 @@
     <!-- ========================================== -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- ========================================== -->
     <!-- 2. PERMISOS DE UBICACIÓN (GPS)             -->
@@ -26,6 +27,8 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
+
+
 
     <!-- ========================================== -->
     <!-- 4. PERMISOS DE MICRÓFONO Y SERVICIOS       -->
@@ -85,9 +88,13 @@
             android:excludeFromRecents="true"
             android:stateNotNeeded="true"
             android:clearTaskOnLaunch="true"
+            android:allowBackup="true"
+            android:requestLegacyExternalStorage="true"
             android:screenOrientation="landscape"
             android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode"
-            android:windowSoftInputMode="adjustPan">
+            android:windowSoftInputMode="adjustPan"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true">
 
             <!-- 🎯 INTENT-FILTER OFICIAL PARA SER EL LAUNCHER DEFAULT Y EXCLUSIVO -->
             <intent-filter android:priority="1000">
@@ -99,14 +106,13 @@
             </intent-filter>
         </activity>
         <service
-            android:name=".WazeNotificationService"
-            android:label="HUD de Navegación Waze"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
+            android:name=".FloatingMediaService"
+            android:enabled="true"
+            android:exported="false" />
+        <service
+            android:name=".FloatingSpeedometerService"
+            android:enabled="true"
+            android:exported="false" />
 
     </application>
 

@@ -59,22 +59,36 @@ class SmartMusicPlayer private constructor(private val context: Context) {
     var currentTrackIndex by mutableIntStateOf(-1)
         private set
 
+    // 🚀 DISPARADOR PARA REINICIAR LOS GESTOS DE COMPOSE
+    var gestureResetTrigger by mutableIntStateOf(0)
+        private set
+
     private val _isPlaying = mutableStateOf(false)
 
-    // CORREGIDO: Propiedad sincronizada correctamente con MediaSession
+    // 2. En el setter de isPlaying, gestiona el isActive de la sesión
     var isPlaying: Boolean
         get() = _isPlaying.value
         set(value) {
             _isPlaying.value = value
             if (value) {
+                // 🚀 QUITA O COMENTA ESTA LÍNEA PARA QUE NO BLOQUEE AL DARLE PLAY
+                // mediaSession?.isActive = true
                 updatePlaybackState(PlaybackState.STATE_PLAYING)
                 startProgressTracker()
             } else {
+                mediaSession?.isActive = false
                 updatePlaybackState(PlaybackState.STATE_PAUSED)
                 progressJob?.cancel()
             }
         }
-
+    fun deactivateMediaSession() {
+        try {
+            // Esto le dice al sistema que suelte los gestos de Compose
+            mediaSession?.isActive = false
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
     var currentPositionMs by mutableLongStateOf(0L)
         private set
 
@@ -141,7 +155,6 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                             }
                         }
 
-                        // CORREGIDO: Llama a la propiedad sincronizada isPlaying
                         override fun onIsPlayingChanged(playing: Boolean) {
                             this@SmartMusicPlayer.isPlaying = playing
                         }
@@ -213,12 +226,13 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         shuffledDeck.addAll(indices)
     }
 
-    // CORREGIDO: MediaSession soporta todos los gestos de tablets de auto
+    // --- DENTRO DE SmartMusicPlayer.kt ---
+
+    // 1. En setupMediaSession, cambia isActive a false
     private fun setupMediaSession() {
         try {
             mediaSession = MediaSession(context, "SmartMusicPlayer").apply {
                 setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
-
                 setCallback(object : MediaSession.Callback() {
                     override fun onPlay() { togglePlayPause() }
                     override fun onPause() { pausePlayback() }
@@ -227,7 +241,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                     override fun onSeekTo(pos: Long) { seekTo(pos) }
                     override fun onStop() { pausePlayback() }
                 })
-                isActive = true // SIEMPRE ACTIVO PARA GESTOS
+                isActive = false // <--- CAMBIAR DE true A false
             }
             updatePlaybackState(PlaybackState.STATE_NONE)
         } catch (e: Exception) {
@@ -235,7 +249,6 @@ class SmartMusicPlayer private constructor(private val context: Context) {
         }
     }
 
-    // CORREGIDO: Acciones de PlaybackState completas y velocidad dinámica (0.0f pausado, 1.0f reproduciendo)
     private fun updatePlaybackState(state: Int) {
         try {
             val speed = if (state == PlaybackState.STATE_PLAYING) 1.0f else 0.0f
@@ -251,7 +264,7 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                 )
                 .setState(state, currentPositionMs, speed)
 
-            mediaSession?.isActive = true // Mantiene conexión con la tablet
+            mediaSession?.isActive = true
             mediaSession?.setPlaybackState(stateBuilder.build())
         } catch (e: Exception) {
             e.printStackTrace()
@@ -745,6 +758,11 @@ class SmartMusicPlayer private constructor(private val context: Context) {
                 .putLong("last_position_ms", currentPositionMs)
                 .apply()
         }
+    }
+
+    fun notifyChange() {
+        // 🚀 AUMENTA EL CONTADOR PARA FORZAR LA RECOMPOSICIÓN DE GESTOS EN COMPOSE
+        gestureResetTrigger++
     }
 
     fun release() {

@@ -3,6 +3,7 @@ package com.creativem.toblauncher
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -24,6 +25,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+
+private const val TAG = "TOBLauncher_Debug"
 
 @Composable
 fun CustomApps3DGridWidget(
@@ -56,7 +59,7 @@ fun CustomApps3DGridWidget(
 
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(6.dp) // Espaciado optimizado para 3 filas
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         for (row in 0 until totalRows) {
             Row(
@@ -67,10 +70,9 @@ fun CustomApps3DGridWidget(
                     val index = row * totalCols + col
                     val slotId = 101 + index // Slots de 101 a 109
 
-                    // Obtiene la app guardada respetando el trigger de actualización
                     val packageName = remember(prefUpdateTrigger, slotId) {
                         prefs.getString("grid_slot_$slotId", null)
-                            ?: prefs.getString("grid_slot_${index + 1}", null) // Compatibilidad antigua
+                            ?: prefs.getString("grid_slot_${index + 1}", null)
                             ?: ""
                     }
 
@@ -81,7 +83,10 @@ fun CustomApps3DGridWidget(
                         packageName = packageName,
                         themeAccent = accentColor,
                         onClick = { launchOrAssign(context, packageName, slotId, onRequestAppSelection) },
-                        onLongClick = { onRequestAppSelection(slotId) }
+                        onLongClick = {
+                            Log.d(TAG, "👆 Clic largo en Slot $slotId. Solicitando selector de app...")
+                            onRequestAppSelection(slotId)
+                        }
                     )
                 }
             }
@@ -95,14 +100,20 @@ private fun launchOrAssign(
     slotId: Int,
     onRequestAppSelection: (slot: Int) -> Unit
 ) {
+    Log.d(TAG, "👉 Tocaste la casilla Slot $slotId | Package: '$packageName'")
+
     if (packageName.isNotEmpty()) {
-        val intent = context.packageManager.getLaunchIntentForPackage(packageName)
-        if (intent != null) {
-            context.startActivity(intent)
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+        if (launchIntent != null) {
+            Log.d(TAG, "🚀 Abriendo app '$packageName' mediante AppLauncher (con soporte PiP)...")
+            // 🟢 AQUÍ: Ahora sí usa AppLauncher para abrir con ventana flotante
+            AppLauncher.launchKeepingVideo(context, packageName)
         } else {
+            Log.w(TAG, "⚠️ La app '$packageName' no existe o fue desinstalada. Asignando nueva app...")
             onRequestAppSelection(slotId)
         }
     } else {
+        Log.d(TAG, "➕ La casilla Slot $slotId está vacía. Abriendo selector...")
         onRequestAppSelection(slotId)
     }
 }
@@ -119,7 +130,6 @@ private fun LargeApp3DButton(
     val context = LocalContext.current
     val buttonShape = RoundedCornerShape(14.dp)
 
-    // Carga dinámica del icono al cambiar la app seleccionada
     val appIcon = remember(packageName) {
         if (packageName.isEmpty()) null else {
             try {
@@ -167,7 +177,6 @@ private fun LargeApp3DButton(
                     .clip(buttonShape)
             )
         } else {
-            // Icono (+) si la ranura está libre
             Icon(
                 imageVector = Icons.Default.Add,
                 contentDescription = "Asignar App",

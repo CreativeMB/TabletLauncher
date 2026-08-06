@@ -47,6 +47,14 @@ class SmartVideoPlayer private constructor(private val context: Context) {
     private val shuffledDeck = mutableListOf<Int>()
     private val historyStack = mutableListOf<Int>()
 
+    // 🔴 DISPARADOR REACTIVO PARA RECONECTAR LA SUPERFICIE DE VIDEO EN COMPOSE
+    var rebindTrigger by mutableIntStateOf(0)
+        private set
+
+    fun forceRebind() {
+        rebindTrigger++
+    }
+
     var isShuffleMode by mutableStateOf(prefs.getBoolean("is_shuffle_mode", false))
         private set
 
@@ -657,7 +665,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
             e.printStackTrace()
         }
     }
-    // 💥 AGREGAR ESTA FUNCIÓN EN SmartVideoPlayer.kt
+
     fun forcePlay() {
         val player = getOrCreatePlayer()
         if (!player.isPlaying) {
@@ -670,6 +678,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
             resetControlsTimer()
         }
     }
+
     private fun startProgressTracker() {
         progressJob?.cancel()
         progressJob = scope.launch {

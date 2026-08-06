@@ -93,28 +93,33 @@ fun saveIptvDeleted(context: Context, deleted: Set<String>) {
 // 🔄 FUSIÓN INTELIGENTE DE M3U Y FAVORITOS AL CARGAR USB
 // =========================================================================
 fun loadM3uAndPreserveFavorites(context: Context, iptvPlayer: SmartIptvPlayer, m3uFile: File) {
+    // 1. Obtenemos los favoritos (estos SÍ queremos que se mantengan)
     val savedFavorites = getSavedIptvFavoriteChannels(context)
-    val favoriteUrls = savedFavorites.map { it.streamUrl }.toSet()
-    val deletedUrls = getSavedIptvDeleted(context)
 
+    // 2. ¡IMPORTANTE! Al cargar una lista nueva, limpiamos la lista de eliminados.
+    // Esto hace que los canales que borraste de la lista anterior vuelvan a aparecer
+    // si vienen en esta nueva lista.
+    saveIptvDeleted(context, emptySet())
+    val deletedUrls = emptySet<String>() // Usamos un set vacío para la carga actual
+
+    // 3. Cargamos el nuevo archivo M3U
     iptvPlayer.parseAndLoadM3uFile(m3uFile)
 
-    val newM3uChannels = iptvPlayer.playlist.toList().filter { channel ->
-        !favoriteUrls.contains(channel.streamUrl) && !deletedUrls.contains(channel.streamUrl)
-    }
+    // 4. Obtenemos los canales del nuevo archivo
+    val m3uChannels = iptvPlayer.playlist.toList()
 
-    val combinedList = (savedFavorites + newM3uChannels)
-        .filter { !deletedUrls.contains(it.streamUrl) }
-        .distinctBy { it.streamUrl }
-        .toMutableList()
+    // 5. Combinamos: Canales del archivo + Tus Favoritos
+    // Usamos distinctBy para que si un favorito ya está en la lista, no se duplique
+    val combined = (m3uChannels + savedFavorites).distinctBy { it.streamUrl }
 
+    // 6. Actualizamos el reproductor
     try {
         val list = iptvPlayer.playlist
         if (list is MutableList<*>) {
             @Suppress("UNCHECKED_CAST")
             val mutableList = list as MutableList<IptvChannel>
             mutableList.clear()
-            mutableList.addAll(combinedList)
+            mutableList.addAll(combined)
         }
     } catch (e: Exception) {
         e.printStackTrace()
@@ -416,6 +421,9 @@ fun FullscreenIptvPlayerWidget(
                         shape = RoundedCornerShape(10.dp),
                         trailingIcon = {
                             if (searchQuery.isNotEmpty()) {
+
+
+
                                 IconButton(
                                     onClick = { searchQuery = "" },
                                     modifier = Modifier.size((10 * buttonScale).dp)
@@ -466,14 +474,29 @@ fun FullscreenIptvPlayerWidget(
                                         .padding(horizontal = 8.dp, vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    // 1. EL LOGO
                                     ChannelLogoImage(
                                         logoUrl = channel.logoUrl,
                                         modifier = Modifier.size(32.dp),
                                         tint = if (isSelected) theme.accentCyan else Color.Gray
                                     )
 
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    // 2. EL CORAZÓN (AL PRINCIPIO, JUNTO AL LOGO)
+                                    IconButton(
+                                        onClick = { channelToToggleFav = channel },
+                                        modifier = Modifier.size(30.dp) // Un poco más de espacio para tocar fácil
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                            contentDescription = "Favorito",
+                                            tint = if (isFav) Color.Red else Color.Gray,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
 
+                                    Spacer(modifier = Modifier.width(4.dp)) // Espacio pequeño entre corazón y nombre
+
+                                    // 3. EL NOMBRE Y GRUPO (ESTO OCUPA TODO EL ESPACIO CENTRAL)
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = channel.name,
@@ -483,7 +506,8 @@ fun FullscreenIptvPlayerWidget(
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                             maxLines = 1
                                         )
-                                        if (!channel.groupTitle.isNull_orEmpty()) {
+                                        // AQUÍ ESTÁ LA CORRECCIÓN: isNull_or_empty (con e minúscula)
+                                        if (!channel.groupTitle.isNull_or_empty()) {
                                             channel.groupTitle?.let {
                                                 Text(
                                                     text = it,
@@ -495,29 +519,16 @@ fun FullscreenIptvPlayerWidget(
                                         }
                                     }
 
-                                    // 🔴 BOTÓN FAVORITO
-                                    IconButton(
-                                        onClick = { channelToToggleFav = channel },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                            contentDescription = "Favorito",
-                                            tint = if (isFav) Color.Red else Color.Gray,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-
-                                    // 🗑️ BOTÓN ELIMINAR
+                                    // 4. LA PAPELERA (AL FINAL DE TODO)
                                     IconButton(
                                         onClick = { channelToDelete = channel },
-                                        modifier = Modifier.size(28.dp)
+                                        modifier = Modifier.size(30.dp)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Delete,
                                             contentDescription = "Eliminar",
                                             tint = Color(0xFFFF5252),
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(18.dp)
                                         )
                                     }
                                 }
@@ -743,4 +754,4 @@ fun ChannelLogoImage(
     }
 }
 
-fun String?.isNull_orEmpty(): Boolean = this == null || this.trim().isEmpty()
+fun String?.isNull_or_empty(): Boolean = this == null || this.trim().isEmpty()

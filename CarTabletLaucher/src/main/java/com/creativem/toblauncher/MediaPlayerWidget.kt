@@ -1348,6 +1348,7 @@ fun VideoPlayerView(
     var isDraggingSlider by remember { mutableStateOf(false) }
     var sliderPosition by remember { mutableFloatStateOf(0f) }
 
+    val rebindTrigger = videoPlayer.rebindTrigger
     // ✅ AUTO-ARRANQUE GARANTIZADO ÚNICO (EVITA QUE SE PAUSE TRAS 1 SEGUNDO)
     var hasAutoPlayedForCurrentVideo by remember(currentVideo) { mutableStateOf(false) }
 
@@ -1396,8 +1397,9 @@ fun VideoPlayerView(
                 },
                 update = { playerView ->
                     val player = if (!videoPlayer.isFullscreenActive) videoPlayer.getOrCreatePlayer() else null
-                    if (playerView.player != player) {
-                        playerView.player = player
+                    if (rebindTrigger >= 0 && player != null) {
+                        playerView.player = null // Desconecta la superficie vieja
+                        playerView.player = player // Reconecta la superficie activa
                     }
                 },
                 modifier = Modifier.fillMaxSize()
