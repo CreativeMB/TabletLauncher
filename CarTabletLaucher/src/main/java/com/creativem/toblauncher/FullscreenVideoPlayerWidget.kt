@@ -1,6 +1,6 @@
 package com.creativem.toblauncher
 
-import android.widget.VideoView
+import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -27,47 +27,41 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import kotlinx.coroutines.delay
-
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
+import androidx.activity.compose.BackHandler
+@OptIn(UnstableApi::class)
 @Composable
 fun FullscreenVideoPlayerWidget(
     onClose: () -> Unit
 ) {
+    BackHandler {
+        onClose()
+    }
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
 
-    // Instancia global única y compartida del reproductor de video
     val videoPlayer = remember { SmartVideoPlayer.getInstance(context) }
 
     var showFolderModal by remember { mutableStateOf(false) }
     var showUIState by remember { mutableStateOf(true) }
 
-    // ESTADOS PARA LA BARRA DESPLAZABLE TÁCTIL (SEEK BAR)
     var isDraggingSlider by remember { mutableStateOf(false) }
     var sliderPosition by remember { mutableFloatStateOf(0f) }
 
     val currentVideo = videoPlayer.playlist.getOrNull(videoPlayer.currentTrackIndex)
     val interactionSource = remember { MutableInteractionSource() }
-
     val buttonScale = LocalButtonScale.current
 
-    // TEMPORIZADOR DE 5 SEGUNDOS (No se oculta mientras el usuario arrastra la barra)
-    LaunchedEffect(showUIState, videoPlayer.isPlaying, isDraggingSlider) {
-        if (showUIState && videoPlayer.isPlaying && !isDraggingSlider) {
-            delay(5000L)
-            showUIState = false
-        }
-    }
     DisposableEffect(Unit) {
         videoPlayer.isFullscreenActive = true
         onDispose {
             videoPlayer.isFullscreenActive = false
         }
     }
-    // El ancho físico que ocupará la lista lateral derecha
-    val sidebarWidth = 320.dp
 
-    // Cálculo dinámico del margen derecho para que la barra inferior y el video respeten la lista
+    val sidebarWidth = 320.dp
     val endPadding = if (showUIState) sidebarWidth else 0.dp
 
     Box(
@@ -78,50 +72,30 @@ fun FullscreenVideoPlayerWidget(
                 interactionSource = interactionSource,
                 indication = null
             ) {
+                // Alterna visibilidad solo con el toque
                 showUIState = !showUIState
             }
     ) {
         // ==========================================
-        // 1. ÁREA DE VIDEO Y CONTROLES (IZQUIERDA / DESPLAZAMIENTO DINÁMICO)
+        // 1. ÁREA DE VIDEO (REPRODUCTOR EXOPLAYER)
         // ==========================================
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(end = endPadding),
-            contentAlignment = Alignment.BottomCenter
+            contentAlignment = Alignment.Center
         ) {
-            // Renderizador nativo del video
             if (currentVideo != null) {
                 AndroidView(
                     factory = { ctx ->
-                        object : VideoView(ctx) {
-                            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                                val width = MeasureSpec.getSize(widthMeasureSpec)
-                                val height = MeasureSpec.getSize(heightMeasureSpec)
-                                setMeasuredDimension(width, height)
-                            }
-                        }.apply {
-                            setVideoURI(currentVideo.uri)
-                            setOnPreparedListener { mp ->
-                                videoPlayer.bindMediaPlayer(mp)
-                                mp.seekTo(0)
-                                mp.start()
-                            }
-                            setOnCompletionListener {
-                                videoPlayer.playNextVideo()
-                            }
+                        PlayerView(ctx).apply {
+                            useController = false // Usamos nuestros propios botones Compose
+                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+                            player = videoPlayer.getOrCreatePlayer()
                         }
                     },
-                    update = { view ->
-                        val currentPlayingUri = view.tag as? String
-                        val newUri = currentVideo.uri.toString()
-
-                        if (currentPlayingUri != newUri) {
-                            view.tag = newUri
-                            view.setVideoURI(currentVideo.uri)
-                            view.seekTo(0)
-                            view.start()
-                        }
+                    update = { playerView ->
+                        playerView.player = videoPlayer.getOrCreatePlayer()
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -131,7 +105,7 @@ fun FullscreenVideoPlayerWidget(
                 }
             }
 
-            // Barra inferior de controles
+            // BARRA INFERIOR DE CONTROLES
             AnimatedVisibility(
                 visible = showUIState,
                 enter = fadeIn(),
@@ -147,11 +121,13 @@ fun FullscreenVideoPlayerWidget(
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        // Tiempos (Transcurrido dinámico vs Total)
+
+                        val totalMs = videoPlayer.totalDurationMs.coerceAtLeast(1L)
+
                         val displayPositionMs = if (isDraggingSlider) {
-                            (sliderPosition * videoPlayer.totalDurationMs).toLong()
+                            (sliderPosition * totalMs).toLong()
                         } else {
-                            videoPlayer.currentPositionMs
+                            videoPlayer.currentPositionMs.coerceIn(0L, totalMs)
                         }
 
                         Row(
@@ -167,23 +143,23 @@ fun FullscreenVideoPlayerWidget(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = formatMs(videoPlayer.totalDurationMs),
+                                text = formatMs(totalMs),
                                 color = Color.Gray,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
 
-                        val currentProgress = if (isDraggingSlider) {
+                        val currentProgress = if (totalMs <= 1L) {
+                            0f // Protege la barra para que NUNCA se llene sola si no hay duración
+                        } else if (isDraggingSlider) {
                             sliderPosition
                         } else {
-                            if (videoPlayer.totalDurationMs > 0L) {
-                                (videoPlayer.currentPositionMs.toFloat() / videoPlayer.totalDurationMs.toFloat()).coerceIn(0f, 1f)
-                            } else 0f
+                            (displayPositionMs.toFloat() / totalMs.toFloat()).coerceIn(0f, 1f)
                         }
 
                         // ==========================================
-                        // SLIDER TÁCTIL INTERACTIVO (DESPLAZABLE CON EL DEDO)
+                        // SLIDER TÁCTIL FLUIDO E INSTANTÁNEO
                         // ==========================================
                         Slider(
                             value = currentProgress,
@@ -192,12 +168,8 @@ fun FullscreenVideoPlayerWidget(
                                 sliderPosition = newValue
                             },
                             onValueChangeFinished = {
-                                val targetMs = (sliderPosition * videoPlayer.totalDurationMs).toLong()
-                                try {
-                                    videoPlayer.mediaPlayer?.seekTo(targetMs.toInt())
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
+                                val targetMs = (sliderPosition * totalMs).toLong()
+                                videoPlayer.seekTo(targetMs)
                                 isDraggingSlider = false
                             },
                             modifier = Modifier
@@ -212,13 +184,12 @@ fun FullscreenVideoPlayerWidget(
 
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        // Botonera de Control
+                        // BOTONERA DE CONTROL
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Modo Shuffle
                             IconButton(
                                 onClick = { videoPlayer.toggleShuffle() },
                                 modifier = Modifier.size((40 * buttonScale).dp)
@@ -231,7 +202,6 @@ fun FullscreenVideoPlayerWidget(
                                 )
                             }
 
-                            // Anterior
                             IconButton(
                                 onClick = { videoPlayer.playPreviousVideo() },
                                 modifier = Modifier
@@ -246,9 +216,8 @@ fun FullscreenVideoPlayerWidget(
                                 )
                             }
 
-                            // Play / Pausa
                             IconButton(
-                                onClick = { videoPlayer.togglePlayPause(currentVideo?.uri?.toString() ?: "") },
+                                onClick = { videoPlayer.togglePlayPause() },
                                 modifier = Modifier
                                     .size((56 * buttonScale).dp)
                                     .background(theme.accentCyan, CircleShape)
@@ -261,7 +230,6 @@ fun FullscreenVideoPlayerWidget(
                                 )
                             }
 
-                            // Siguiente
                             IconButton(
                                 onClick = { videoPlayer.playNextVideo() },
                                 modifier = Modifier
@@ -276,22 +244,9 @@ fun FullscreenVideoPlayerWidget(
                                 )
                             }
 
-                            // BOTÓN SALIR DE PANTALLA COMPLETA
                             IconButton(
                                 onClick = {
-                                    val safePosition = try {
-                                        videoPlayer.mediaPlayer?.currentPosition?.toLong() ?: 0L
-                                    } catch (e: Exception) {
-                                        0L
-                                    }
-                                    videoPlayer.savedPlaybackPosition = safePosition
-
-                                    try {
-                                        videoPlayer.mediaPlayer?.pause()
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                    }
-
+                                    videoPlayer.pausePlayback()
                                     onClose()
                                 },
                                 modifier = Modifier.size((40 * buttonScale).dp)
@@ -334,19 +289,7 @@ fun FullscreenVideoPlayerWidget(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = {
-                            val safePosition = try {
-                                videoPlayer.mediaPlayer?.currentPosition?.toLong() ?: 0L
-                            } catch (e: Exception) {
-                                0L
-                            }
-                            videoPlayer.savedPlaybackPosition = safePosition
-
-                            try {
-                                videoPlayer.mediaPlayer?.pause()
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
-
+                            videoPlayer.pausePlayback()
                             onClose()
                         }) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "Cerrar", tint = Color.White)

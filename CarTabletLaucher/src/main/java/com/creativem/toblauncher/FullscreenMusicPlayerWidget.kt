@@ -23,18 +23,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
-
+import androidx.activity.compose.BackHandler
 @Composable
 fun FullscreenMusicPlayerWidget(
     onClose: () -> Unit
 ) {
+    BackHandler {
+        onClose()
+    }
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
     val musicPlayer = remember { SmartMusicPlayer.getInstance(context) }
     val currentTrack = musicPlayer.playlist.getOrNull(musicPlayer.currentTrackIndex)
 
     var showFolderModal by remember { mutableStateOf(false) }
-
+    // 🎛️ RECUPERAR ESTILO DE ECUALIZADOR GUARDADO
+    val currentEqStyle = LocalEqualizerStyle.current
     // PANTALLA COMPLETA TOTAL
     Box(
         modifier = Modifier
@@ -115,6 +119,15 @@ fun FullscreenMusicPlayerWidget(
                         .padding(20.dp),
                     contentAlignment = Alignment.Center
                 ) {
+                    // 📊 ECUALIZADOR CON ESTILO Y COLORES DINÁMICOS DEL TEMA
+                    EqualizerVisualizer(
+                        isPlaying = musicPlayer.isPlaying,
+                        primaryColor = theme.accentCyan,
+                        secondaryColor = theme.accentPurple,
+                        tertiaryColor = theme.accentOrange,
+                        style = currentEqStyle, // 👈 AHORA APLICA EL ESTILO SELECCIONADO
+                        modifier = Modifier.fillMaxSize()
+                    )
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center

@@ -5,10 +5,15 @@ import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,13 +39,29 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.android.gms.location.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import org.mapsforge.map.android.graphics.AndroidGraphicFactory
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // 🛡️ BLOQUEAR EL BOTÓN ATRÁS EN LA PANTALLA PRINCIPAL DEL LAUNCHER
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                android.util.Log.d("PRUEBA_CLICK", "✅ LA APLICACIÓN ARRANCÓ CORRECTAMENTE Y LOS LOGS FUNCIONAN")
+                // Evitamos que la tableta minimice el Launcher
+            }
+
+        })
+
+        // ✅ FONDO NEGRO ABSOLUTO DESDE EL PRIMER MILISEGUNDO DE ARRANQUE
+        window.decorView.setBackgroundColor(android.graphics.Color.BLACK)
         // PANTALLA SIEMPRE ENCENDIDA
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
@@ -56,7 +77,10 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
 
-        promptDefaultLauncherSelection(this)
+        // Solo solicitar launcher por defecto si NO es el launcher actual
+        if (!isCurrentlyDefaultLauncher(this)) {
+            promptDefaultLauncherSelection(this)
+        }
 
         setContent {
             MaterialTheme {
@@ -64,14 +88,87 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: android.content.res.Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        val videoPlayer = SmartVideoPlayer.getInstance(this)
+        if (!isInPictureInPictureMode) {
+            // Al salir de PiP y regresar al launcher, desactiva la pantalla completa forzada
+            videoPlayer.isFullscreenActive = false
+            videoPlayer.showControls = true
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+
+        if (Intent.ACTION_MAIN == intent.action && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            setContent {
+                MaterialTheme {
+                    MainScreen()
+                }
+            }
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+
+        val videoPlayer = SmartVideoPlayer.getInstance(this)
+        val musicPlayer = SmartMusicPlayer.getInstance(this)
+        val radioPlayer = SmartRadioManager.getInstance(this)
+        val iptvPlayer = SmartIptvPlayer.getInstance(this)
+
+        // 🎵 1. El flotante de MEDIOS solo arranca si hay audio/video reproduciéndose:
+        if (videoPlayer.isPlaying || musicPlayer.isPlaying || radioPlayer.isPlaying || iptvPlayer.isPlaying) {
+            FloatingMediaService.start(this)
+        }
+
+        // ⏱️ 2. El VELOCÍMETRO arranca SIEMPRE (va fuera del if):
+        FloatingSpeedometerService.start(this)
+    }
+    override fun onResume() {
+        super.onResume()
+        // 1. Detener la ventana flotante
+        FloatingMediaService.stop(this)
+        FloatingSpeedometerService.stop(this)
+
+        // 2. Restablecer la pantalla y reconectar el video en el Launcher
+        val videoPlayer = SmartVideoPlayer.getInstance(this)
+        videoPlayer.isFullscreenActive = false
+        videoPlayer.forceRebind()
+
+        try {
+            // Esto garantiza que los gestos se desbloqueen al regresar al Launcher
+            // ya sea por el botón Home, deslizando, o porque se cerró la ventana flotante.
+            SmartMusicPlayer.getInstance(this).deactivateMediaSession()
+
+            // También forzamos el refresco del video por si acaso
+            SmartVideoPlayer.getInstance(this).forceRebind()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         try {
-            // Liberamos de forma segura el reproductor y la sesión de medios al destruir la actividad
             SmartMusicPlayer.getInstance(this).release()
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+
+    private fun isCurrentlyDefaultLauncher(context: Context): Boolean {
+        val intent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+        }
+        val resolveInfo = context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        return resolveInfo?.activityInfo?.packageName == context.packageName
     }
 
     private fun promptDefaultLauncherSelection(context: Context) {
@@ -93,12 +190,28 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+fun isIgnoringBatteryOptimizations(context: Context): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true
+    } else {
+        true
+    }
+}
+fun hasOverlayPermission(context: Context): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        Settings.canDrawOverlays(context)
+    } else {
+        true
+    }
+}
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    // ESTADOS DEL TEMA DE COLORES, ESCALA DE TEXTO Y BOTONES
     var currentTheme by remember { mutableStateOf(ThemeManager.getSavedTheme(context)) }
+    var currentEqStyle by remember { mutableStateOf(ThemeManager.getSavedEqualizerStyle(context)) }
     var currentTextScale by remember { mutableFloatStateOf(ThemeManager.getSavedTextScale(context)) }
     var currentIsBold by remember { mutableStateOf(ThemeManager.getSavedIsBold(context)) }
     var currentButtonScale by remember { mutableFloatStateOf(ThemeManager.getSavedButtonScale(context)) }
@@ -117,34 +230,74 @@ fun MainScreen() {
             fontWeight = if (currentIsBold) FontWeight.ExtraBold else FontWeight.Normal
         )
     }
+    // 🎛️ BUCLE DE ECUALIZADORES ALEATORIOS AUTOMÁTICO
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            val intervalSec = ThemeManager.getSavedAutoRotateEqInterval(context)
 
-    val initialStep = remember {
+            delay(intervalSec * 1000L) // Espera el tiempo configurado
+
+            if (ThemeManager.getSavedAutoRotateEqEnabled(context)) {
+                val otherStyles = EqualizerStyle.values().filter { it != currentEqStyle }
+                if (otherStyles.isNotEmpty()) {
+                    val nextStyle = otherStyles.random()
+                    currentEqStyle = nextStyle
+                    ThemeManager.saveEqualizerStyle(context, nextStyle)
+                }
+            }
+        }
+    }
+
+    fun calculateInitialStep(): Int {
         val hasLocation = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-
         val hasStorage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            android.os.Environment.isExternalStorageManager()
+            Environment.isExternalStorageManager()
         } else {
             ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
         }
-
         val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val hasBrightness = BrightnessManager.hasWriteSettingsPermission(context)
+        val hasOverlay = hasOverlayPermission(context)
+        val hasBatteryExemption = isIgnoringBatteryOptimizations(context)
 
-        when {
+        return when {
             !hasLocation -> 1
             !hasStorage -> 2
             !hasMic -> 3
+            !hasBrightness -> 4
+            !hasOverlay -> 5
+            !hasBatteryExemption -> 6
             else -> 0
         }
     }
 
-    var currentStep by remember { mutableStateOf(initialStep) }
+    var currentStep by remember { mutableIntStateOf(calculateInitialStep()) }
+
+    val systemSettingsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        currentStep = calculateInitialStep()
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                currentStep = calculateInitialStep()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     CompositionLocalProvider(
         LocalDensity provides customDensity,
         LocalDashboardTheme provides currentTheme,
         LocalIsBoldText provides currentIsBold,
         LocalButtonScale provides currentButtonScale,
-        LocalTextStyle provides customTextStyle
+        LocalTextStyle provides customTextStyle,
+        LocalEqualizerStyle provides currentEqStyle // 👈 PROVEEDOR DEL ECUALIZADOR INDEPENDIENTE
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -156,67 +309,111 @@ fun MainScreen() {
                     description = "Necesitamos tu ubicación exacta para el mapa y velocímetro.",
                     icon = Icons.Default.LocationOn,
                     permissionsToRequest = arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-                    onPermissionGranted = { currentStep = 2 }
+                    onPermissionGranted = { currentStep = calculateInitialStep() }
                 )
+
                 2 -> {
                     val isAndroid11OrAbove = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
-                    val manageStorageLauncher = rememberLauncherForActivityResult(
-                        contract = ActivityResultContracts.StartActivityForResult()
-                    ) {
-                        if (isAndroid11OrAbove && android.os.Environment.isExternalStorageManager()) {
-                            currentStep = 3
-                        }
-                    }
-
-                    if (isAndroid11OrAbove) {
-                        PermissionStepScreen(
-                            title = "Acceso Total a USB",
-                            description = "Para leer videos y música desde memorias USB, Android requiere acceso a todos los archivos.",
-                            icon = Icons.Default.Folder,
-                            permissionsToRequest = emptyArray(),
-                            onPermissionGranted = { currentStep = 3 },
-                            customAction = {
-                                if (android.os.Environment.isExternalStorageManager()) {
-                                    currentStep = 3
-                                } else {
-                                    try {
-                                        val intent = Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                                        intent.data = android.net.Uri.parse("package:${context.packageName}")
-                                        manageStorageLauncher.launch(intent)
-                                    } catch (e: Exception) {
-                                        val intent = Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                                        manageStorageLauncher.launch(intent)
+                    PermissionStepScreen(
+                        title = if (isAndroid11OrAbove) "Acceso Total a USB" else "Acceso a Multimedia",
+                        description = if (isAndroid11OrAbove)
+                            "Para leer videos y música desde memorias USB, Android requiere acceso a todos los archivos."
+                        else
+                            "Permite acceso a tu música, videos y mapas.",
+                        icon = if (isAndroid11OrAbove) Icons.Default.Folder else Icons.Default.LibraryMusic,
+                        permissionsToRequest = if (isAndroid11OrAbove) emptyArray() else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                        onPermissionGranted = { currentStep = calculateInitialStep() },
+                        customAction = if (isAndroid11OrAbove) {
+                            {
+                                try {
+                                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                        data = Uri.parse("package:${context.packageName}")
                                     }
+                                    systemSettingsLauncher.launch(intent)
+                                } catch (e: Exception) {
+                                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                    systemSettingsLauncher.launch(intent)
                                 }
                             }
-                        )
-                    } else {
-                        PermissionStepScreen(
-                            title = "Acceso a Multimedia",
-                            description = "Permite acceso a tu música, videos y mapas.",
-                            icon = Icons.Default.LibraryMusic,
-                            permissionsToRequest = arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE),
-                            onPermissionGranted = { currentStep = 3 }
-                        )
-                    }
+                        } else null
+                    )
                 }
+
                 3 -> PermissionStepScreen(
                     title = "Permiso de Micrófono",
                     description = "Necesario para comandos de voz mientras conduces.",
                     icon = Icons.Default.Mic,
                     permissionsToRequest = arrayOf(Manifest.permission.RECORD_AUDIO),
-                    onPermissionGranted = { currentStep = 0 }
+                    onPermissionGranted = { currentStep = calculateInitialStep() }
+                )
+
+                4 -> PermissionStepScreen(
+                    title = "Control de Brillo para Tablet",
+                    description = "Permite ajustar automáticamente la pantalla para que no encandile de Noche (6 PM) y sea visible de Día (6 AM).",
+                    icon = Icons.Default.Brightness6,
+                    permissionsToRequest = emptyArray(),
+                    onPermissionGranted = { currentStep = calculateInitialStep() },
+                    customAction = {
+                        BrightnessManager.requestWriteSettingsPermission(context)
+                    }
+                )
+
+                5 -> PermissionStepScreen(
+                    title = "Permiso de Ventana Flotante",
+                    description = "Permite que el reproductor de video continúe flotando en una esquina mientras usas Waze, Google Maps u otras aplicaciones.",
+                    icon = Icons.Default.PictureInPicture,
+                    permissionsToRequest = emptyArray(),
+                    onPermissionGranted = { currentStep = calculateInitialStep() },
+                    customAction = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            try {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:${context.packageName}")
+                                )
+                                systemSettingsLauncher.launch(intent)
+                            } catch (e: Exception) {
+                                currentStep = calculateInitialStep()
+                            }
+                        } else {
+                            currentStep = calculateInitialStep()
+                        }
+                    }
+                )
+
+                6 -> PermissionStepScreen(
+                    title = "Modo Alto Rendimiento Auto",
+                    description = "Como la tablet funciona con la energía del vehículo, quita los límites de energía para que el Launcher, la Radio y los Mapas NUNCA se detengan.",
+                    icon = Icons.Default.FlashOn,
+                    permissionsToRequest = emptyArray(),
+                    onPermissionGranted = { currentStep = 0 },
+                    customAction = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            try {
+                                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                }
+                                systemSettingsLauncher.launch(intent)
+                            } catch (e: Exception) {
+                                currentStep = 0
+                            }
+                        } else {
+                            currentStep = 0
+                        }
+                    }
                 )
                 0 -> CarDashboard(
                     currentTheme = currentTheme,
                     currentTextScale = currentTextScale,
                     currentIsBold = currentIsBold,
                     currentButtonScale = currentButtonScale,
+                    currentEqualizerStyle = currentEqStyle, // 👈 1. PASADO A CARDASHBOARD
                     onThemeChanged = { newTheme -> currentTheme = newTheme },
                     onTextScaleChanged = { newScale -> currentTextScale = newScale },
                     onIsBoldChanged = { newIsBold -> currentIsBold = newIsBold },
-                    onButtonScaleChanged = { newButtonScale -> currentButtonScale = newButtonScale }
+                    onButtonScaleChanged = { newButtonScale -> currentButtonScale = newButtonScale },
+                    onEqualizerStyleChanged = { newStyle -> currentEqStyle = newStyle } // 👈 2. CALLBACK DE CAMBIO
                 )
             }
         }
@@ -278,24 +475,40 @@ fun CarDashboard(
     currentTextScale: Float,
     currentIsBold: Boolean,
     currentButtonScale: Float,
+    currentEqualizerStyle: EqualizerStyle,
     onThemeChanged: (DashboardTheme) -> Unit,
     onTextScaleChanged: (Float) -> Unit,
     onIsBoldChanged: (Boolean) -> Unit,
-    onButtonScaleChanged: (Float) -> Unit
+    onButtonScaleChanged: (Float) -> Unit,
+    onEqualizerStyleChanged: (EqualizerStyle) -> Unit
 ) {
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
+    val activity = context as? android.app.Activity
 
     var isMapExpanded by remember { mutableStateOf(false) }
     var showThemeModal by remember { mutableStateOf(false) }
     var showFullscreenMusic by remember { mutableStateOf(false) }
     var showFullscreenVideo by remember { mutableStateOf(false) }
-    var activeAppDrawerTarget by remember { mutableIntStateOf(0) }
+    var showFullscreenIptv by remember { mutableStateOf(false) }
+    var showFullscreenRadio by remember { mutableStateOf(false) }
 
+    var activeAppDrawerTarget by remember { mutableIntStateOf(0) }
     var currentSpeedKmH by remember { mutableFloatStateOf(0f) }
     var currentBearing by remember { mutableFloatStateOf(0f) }
 
-    var currentMediaMode by remember { mutableStateOf(MediaMode.MUSIC) }
+    val initialMediaMode = remember { getSavedMediaTabOrder(context).firstOrNull() ?: MediaMode.MUSIC }
+    var currentMediaMode by remember { mutableStateOf(initialMediaMode) }
+
+    LaunchedEffect(Unit) {
+        activity?.let { act ->
+            BrightnessManager.init(act)
+            while (isActive) {
+                BrightnessManager.applyBrightnessToActivity(act)
+                kotlinx.coroutines.delay(30000L)
+            }
+        }
+    }
 
     DisposableEffect(Unit) {
         val fusedClient = LocationServices.getFusedLocationProviderClient(context)
@@ -306,6 +519,10 @@ fun CarDashboard(
                 currentSpeedKmH = (loc.speed * 3.6f).coerceAtLeast(0f)
                 if (loc.hasBearing()) {
                     currentBearing = loc.bearing
+                }
+
+                activity?.let { act ->
+                    BrightnessManager.applyBrightnessToActivity(act)
                 }
             }
         }
@@ -341,128 +558,143 @@ fun CarDashboard(
                 }
             }
         } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(theme.dashBackground)
-                    .padding(16.dp)
+            // 🌌 🚀 AQUÍ ESTÁ EL CAMBIO: REEMPLAZAMOS EL BOX PLANO POR EL FONDO 3D
+            Interactive3DBackground(
+                theme = theme,
+                modifier = Modifier.fillMaxSize()
             ) {
-                Row(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
                 ) {
-                    // --- COLUMNA IZQUIERDA ---
                     Column(
-                        modifier = Modifier
-                            .weight(1.1f)
-                            .fillMaxHeight(),
+                        modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        ModernDashboardCard(
-                            modifier = Modifier.weight(1.2f),
-                            title = null,
-                            icon = Icons.Default.Map,
-                            headerAction = {
-                                IconButton(onClick = { isMapExpanded = true }, modifier = Modifier.size(24.dp)) {
-                                    Icon(Icons.Default.Fullscreen, contentDescription = "Expandir Mapa", tint = theme.accentCyan)
-                                }
-                            }
-                        ) {
-                            MapContainerWidget(
-                                onExpandClicked = { isMapExpanded = true }
-                            )
-                        }
-
-                        ModernDashboardCard(
-                            modifier = Modifier.weight(1f),
-                            title = null
-                        ) {
-                            ModernSpeedometerWidget(
-                                speedKmH = currentSpeedKmH,
-                                bearing = currentBearing,
-                                onRequestAppSelection = { slot: Int ->
-                                    activeAppDrawerTarget = slot
-                                }
-                            )
-                        }
-                    }
-
-                    // --- COLUMNA DERECHA ---
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        ModernDashboardCard(
-                            modifier = Modifier.weight(1.2f),
-                            title = null
-                        ) {
-                            ModernMediaPlayerWidget(
-                                currentMode = currentMediaMode,
-                                onModeChange = { newMode: MediaMode -> currentMediaMode = newMode },
-                                onExpandMusicFullscreen = { showFullscreenMusic = true },
-                                onExpandVideoFullscreen = { showFullscreenVideo = true }
-                            )
-                        }
-
                         Row(
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1.2f)
+                                .fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             ModernDashboardCard(
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(0.4f),
                                 title = null,
-                                icon = Icons.Default.Schedule
-                            ) {
-                                ModernClockWidget()
-                            }
-
-                            ModernDashboardCard(
-                                modifier = Modifier.weight(1.1f),
-                                title = "APLICACIONES",
-                                icon = Icons.Default.Apps,
+                                icon = Icons.Default.Map,
                                 headerAction = {
-                                    IconButton(
-                                        onClick = { activeAppDrawerTarget = 99 },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Launch,
-                                            contentDescription = "Ver Todas",
-                                            tint = theme.accentCyan
-                                        )
+                                    IconButton(onClick = { isMapExpanded = true }, modifier = Modifier.size(24.dp)) {
+                                        Icon(Icons.Default.Fullscreen, contentDescription = "Expandir Mapa", tint = theme.accentCyan)
                                     }
                                 }
                             ) {
-                                // Llamada correcta a tu nueva cuadrícula interactiva de 4 accesos directos gigantes
-                                CustomApps3DGridWidget(
-                                    onRequestAppSelection = { slot -> activeAppDrawerTarget = slot }
+                                MapContainerWidget(
+                                    onExpandClicked = { isMapExpanded = true }
+                                )
+                            }
+
+                            ModernDashboardCard(
+                                modifier = Modifier.weight(0.6f),
+                                title = null
+                            ) {
+                                ModernMediaPlayerWidget(
+                                    currentMode = currentMediaMode,
+                                    onModeChange = { newMode: MediaMode -> currentMediaMode = newMode },
+                                    onExpandMusicFullscreen = { showFullscreenMusic = true },
+                                    onExpandVideoFullscreen = { showFullscreenVideo = true },
+                                    onExpandIptvFullscreen = { showFullscreenIptv = true },
+                                    onExpandRadioFullscreen = { showFullscreenRadio = true }
                                 )
                             }
                         }
-                    }
-                }
 
-                FloatingActionButton(
-                    onClick = { showThemeModal = true },
-                    containerColor = theme.cardBackground,
-                    contentColor = theme.accentCyan,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 24.dp, bottom = 24.dp)
-                        .size(42.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Palette,
-                        contentDescription = "Mundo de Colores",
-                        modifier = Modifier.size(22.dp)
-                    )
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            // 1. APLICACIONES Y RELOJ (LADO IZQUIERDO)
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                ModernDashboardCard(
+                                    modifier = Modifier.weight(1.1f),
+                                    title = "APLICACIONES",
+                                    icon = Icons.Default.Apps,
+                                    headerAction = {
+                                        IconButton(
+                                            onClick = { activeAppDrawerTarget = 99 },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Launch,
+                                                contentDescription = "Ver Todas",
+                                                tint = theme.accentCyan
+                                            )
+                                        }
+                                    }
+                                ) {
+                                    CustomApps3DGridWidget(
+                                        onRequestAppSelection = { slot -> activeAppDrawerTarget = slot }
+                                    )
+                                }
+
+                                ModernDashboardCard(
+                                    modifier = Modifier.weight(1f),
+                                    title = null,
+                                    icon = Icons.Default.Schedule
+                                ) {
+                                    ModernClockWidget()
+                                }
+                            }
+
+                            // 2. VELOCÍMETRO + BOTÓN DE TEMAS INTEGRADO (LADO DERECHO)
+                            ModernDashboardCard(
+                                modifier = Modifier.weight(1f),
+                                title = null
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    ModernSpeedometerWidget(
+                                        speedKmH = currentSpeedKmH,
+                                        bearing = currentBearing,
+                                        onRequestAppSelection = { slot: Int ->
+                                            activeAppDrawerTarget = slot
+                                        }
+                                    )
+
+                                    // 🎨 BOTÓN DE TEMAS INSCRITO DENTRO DEL MISMO GADGET DE VELOCIDAD
+                                    FloatingActionButton(
+                                        onClick = { showThemeModal = true },
+                                        containerColor = theme.cardBackground,
+                                        contentColor = theme.accentCyan,
+                                        modifier = Modifier
+                                            .align(Alignment.BottomStart)
+                                            .padding(8.dp)
+                                            .size(38.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Palette,
+                                            contentDescription = "Mundo de Colores",
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // --- CAPAS SUPERPUESTAS A PANTALLA COMPLETA ---
+        if (BrightnessManager.nightOverlayAlpha > 0.0f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = BrightnessManager.nightOverlayAlpha))
+            )
+        }
 
         if (showFullscreenMusic) {
             FullscreenMusicPlayerWidget(
@@ -476,28 +708,40 @@ fun CarDashboard(
             )
         }
 
-        // UNIFICADO: Lógica del Cajón de Aplicaciones
+        if (showFullscreenIptv) {
+            FullscreenIptvPlayerWidget(
+                onClose = { showFullscreenIptv = false }
+            )
+        }
+
+        if (showFullscreenRadio) {
+            FullscreenRadioPlayerWidget(
+                onClose = { showFullscreenRadio = false }
+            )
+        }
+
         if (activeAppDrawerTarget != 0) {
             FullscreenAppDrawerWidget(
                 title = if (activeAppDrawerTarget == 99) "TODAS LAS APLICACIONES" else "SELECCIONAR APP PARA SLOT",
+                selectedSlotId = if (activeAppDrawerTarget != 99) activeAppDrawerTarget else null,
                 onClose = { activeAppDrawerTarget = 0 },
                 onAppSelected = { selectedPackage: String ->
                     when (activeAppDrawerTarget) {
                         in 1..2 -> {
-                            // Guarda para el velocímetro
                             val prefs = context.getSharedPreferences("speedometer_apps_prefs", Context.MODE_PRIVATE)
                             prefs.edit().putString("slot_$activeAppDrawerTarget", selectedPackage).apply()
                         }
-                        in 101..104 -> {
-                            // Guarda para la nueva cuadrícula 3D (Espacios 1 al 4)
+                        in 101..120 -> {
                             val slotNum = activeAppDrawerTarget - 100
                             val prefs = context.getSharedPreferences("custom_grid_apps_prefs", Context.MODE_PRIVATE)
-                            prefs.edit().putString("grid_slot_$slotNum", selectedPackage).apply()
+                            prefs.edit()
+                                .putString("grid_slot_$activeAppDrawerTarget", selectedPackage)
+                                .putString("grid_slot_$slotNum", selectedPackage)
+                                .apply()
                         }
                         else -> {
-                            // Abre directo la aplicación de la cuadrícula general
-                            val launchIntent = context.packageManager.getLaunchIntentForPackage(selectedPackage)
-                            if (launchIntent != null) context.startActivity(launchIntent)
+                            android.util.Log.d("PRUEBA_CLICK", "🚀 Loteando AppLauncher con: $selectedPackage")
+                            AppLauncher.launchKeepingVideo(context, selectedPackage)
                         }
                     }
                     activeAppDrawerTarget = 0
@@ -511,20 +755,15 @@ fun CarDashboard(
                 currentTextScale = currentTextScale,
                 currentIsBold = currentIsBold,
                 currentButtonScale = currentButtonScale,
+                currentEqualizerStyle = currentEqualizerStyle,
                 onDismiss = { showThemeModal = false },
-                onThemeSelected = { newTheme: DashboardTheme ->
-                    onThemeChanged(newTheme)
-                },
-                onTextScaleChanged = { newScale: Float ->
-                    onTextScaleChanged(newScale)
-                },
-                onIsBoldChanged = { newIsBold: Boolean ->
-                    onIsBoldChanged(newIsBold)
-                },
-                onButtonScaleChanged = { newButtonScale: Float ->
-                    onButtonScaleChanged(newButtonScale)
-                }
+                onThemeSelected = { newTheme: DashboardTheme -> onThemeChanged(newTheme) },
+                onTextScaleChanged = { newScale: Float -> onTextScaleChanged(newScale) },
+                onIsBoldChanged = { newIsBold: Boolean -> onIsBoldChanged(newIsBold) },
+                onButtonScaleChanged = { newButtonScale: Float -> onButtonScaleChanged(newButtonScale) },
+                onEqualizerStyleChanged = { newStyle: EqualizerStyle -> onEqualizerStyleChanged(newStyle) }
             )
         }
     }
+
 }

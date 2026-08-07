@@ -1,16 +1,30 @@
 package com.creativem.toblauncher
 
 import android.content.Context
-import android.media.MediaPlayer
-import android.media.session.MediaSession // Importación nativa
-import android.media.session.PlaybackState // Importación nativa
+import android.media.MediaMetadataRetriever
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.net.Uri
 import android.provider.MediaStore
+import androidx.annotation.OptIn
 import androidx.compose.runtime.*
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.DefaultExtractorsFactory
 import kotlinx.coroutines.*
 import java.io.File
 
-data class VideoTrack(val uri: Uri, val title: String)
+data class VideoTrack(val uri: Uri, val title: String, val durationMs: Long = 0L)
 
 class SmartVideoPlayer private constructor(private val context: Context) {
 
@@ -27,55 +41,89 @@ class SmartVideoPlayer private constructor(private val context: Context) {
 
     private val prefs = context.getSharedPreferences("smart_video_prefs", Context.MODE_PRIVATE)
 
-    // Modo Shuffle persistente
+    var exoPlayer: ExoPlayer? = null
+        private set
+
+    private val shuffledDeck = mutableListOf<Int>()
+    private val historyStack = mutableListOf<Int>()
+
+    // 🔴 DISPARADOR REACTIVO PARA RECONECTAR LA SUPERFICIE DE VIDEO EN COMPOSE
+    var rebindTrigger by mutableIntStateOf(0)
+        private set
+
+    fun forceRebind() {
+        rebindTrigger++
+    }
+
     var isShuffleMode by mutableStateOf(prefs.getBoolean("is_shuffle_mode", false))
         private set
 
     fun toggleShuffle() {
         isShuffleMode = !isShuffleMode
         prefs.edit().putBoolean("is_shuffle_mode", isShuffleMode).apply()
-        playedVideoHistory.clear()
+        historyStack.clear()
+        if (isShuffleMode) {
+            rebuildShuffledDeck()
+        }
+        resetControlsTimer()
     }
 
-    var mediaPlayer: MediaPlayer? = null
-        private set
+    val playlist = mutableStateListOf<VideoTrack>()
 
-    var playlist = mutableStateListOf<VideoTrack>()
-        private set
-
-    var currentTrackIndex by mutableStateOf(-1)
+    var currentTrackIndex by mutableIntStateOf(-1)
         private set
 
     var savedPlaybackPosition: Long = 0L
 
-    // Historial para control anti-repeticiones en modo aleatorio
-    private val playedVideoHistory = mutableSetOf<Int>()
-
-    // Sesión de medios nativa para el reproductor de video
     private var mediaSession: MediaSession? = null
-
     private val _isPlaying = mutableStateOf(false)
 
-    // Setter tradicional que sincroniza el estado de reproducción con Compose, el rastreador y la MediaSession
     var isPlaying: Boolean
         get() = _isPlaying.value
         set(value) {
             _isPlaying.value = value
             if (value) {
-                mediaSession?.isActive = true // Activa la sesión de video sobre la de música
+                mediaSession?.isActive = true
                 updatePlaybackState(PlaybackState.STATE_PLAYING)
                 startProgressTracker()
+                resetControlsTimer()
             } else {
                 updatePlaybackState(PlaybackState.STATE_PAUSED)
+                mediaSession?.isActive = false
                 progressJob?.cancel()
+                controlsTimerJob?.cancel()
+                showControls = true
             }
         }
 
-    var currentPositionMs by mutableLongStateOf(0L)
-        private set
+    // =========================================================================
+    // ⏱️ GESTIÓN DE OCULTAR CONTROLES A LOS 5 SEGUNDOS
+    // =========================================================================
+    var showControls by mutableStateOf(true)
+    private var controlsTimerJob: Job? = null
 
+    fun resetControlsTimer() {
+        showControls = true
+        controlsTimerJob?.cancel()
+        if (isPlaying) {
+            controlsTimerJob = scope.launch {
+                delay(5000L)
+                showControls = false
+            }
+        }
+    }
+
+    fun toggleControls() {
+        if (showControls) {
+            showControls = false
+            controlsTimerJob?.cancel()
+        } else {
+            resetControlsTimer()
+        }
+    }
+
+    var currentPositionMs by mutableLongStateOf(0L)
     var totalDurationMs by mutableLongStateOf(1L)
-        private set
 
     var selectedFolderName by mutableStateOf(prefs.getString("folder_name", "Memoria USB") ?: "Memoria USB")
         private set
@@ -83,12 +131,148 @@ class SmartVideoPlayer private constructor(private val context: Context) {
     var isScanning by mutableStateOf(false)
         private set
 
+    var isFullscreenActive by mutableStateOf(false)
     private var progressJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
     init {
         setupMediaSession()
+        getOrCreatePlayer()
         autoStartVideoOnBoot()
+    }
+
+    // =========================================================================
+    // 🎧 INICIALIZACIÓN MEDIA3 EXOPLAYER ULTRA-COMPATIBLE (1080P / 4K / USB)
+    // =========================================================================
+    @OptIn(UnstableApi::class)
+    fun getOrCreatePlayer(): ExoPlayer {
+        return exoPlayer ?: run {
+            val dataSourceFactory = DefaultDataSource.Factory(context)
+            val extractorsFactory = DefaultExtractorsFactory()
+                .setConstantBitrateSeekingAlwaysEnabled(true)
+
+            val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
+
+            val renderersFactory = DefaultRenderersFactory(context)
+                .setEnableDecoderFallback(true)
+                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+
+            val loadControl = DefaultLoadControl.Builder()
+                .setBufferDurationsMs(20000, 60000, 2500, 5000)
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .build()
+
+            ExoPlayer.Builder(context, renderersFactory, mediaSourceFactory)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                        .setUsage(C.USAGE_MEDIA)
+                        .build(),
+                    /* handleAudioFocus = */ false
+                )
+                .setLoadControl(loadControl)
+                .build().also { newPlayer ->
+                    exoPlayer = newPlayer
+                    newPlayer.setSeekParameters(SeekParameters.CLOSEST_SYNC)
+
+                    newPlayer.addListener(object : Player.Listener {
+
+                        override fun onEvents(player: Player, events: Player.Events) {
+                            updateDuration(player)
+                        }
+
+                        override fun onIsPlayingChanged(playing: Boolean) {
+                            _isPlaying.value = playing
+                            if (playing) {
+                                mediaSession?.isActive = true
+                                updatePlaybackState(PlaybackState.STATE_PLAYING)
+                                startProgressTracker()
+                                resetControlsTimer()
+                            } else {
+                                updatePlaybackState(PlaybackState.STATE_PAUSED)
+                                mediaSession?.isActive = false
+                                progressJob?.cancel()
+                                controlsTimerJob?.cancel()
+                                showControls = true
+                            }
+                        }
+
+                        override fun onPlaybackStateChanged(state: Int) {
+                            when (state) {
+                                Player.STATE_READY -> {
+                                    updateDuration(newPlayer)
+                                    _isPlaying.value = newPlayer.isPlaying
+                                }
+                                Player.STATE_ENDED -> {
+                                    _isPlaying.value = false
+                                    showControls = true
+                                    playNextVideo()
+                                }
+                                Player.STATE_IDLE -> {
+                                    _isPlaying.value = false
+                                    showControls = true
+                                }
+                            }
+                        }
+
+                        override fun onPlayerError(error: PlaybackException) {
+                            _isPlaying.value = false
+                            showControls = true
+                            android.util.Log.e("SmartVideoPlayer", "Error de Video ExoPlayer: ${error.message}")
+                            if (playlist.size > 1) {
+                                playNextVideo()
+                            }
+                        }
+                    })
+                }
+        }
+    }
+
+    private fun updateDuration(player: Player) {
+        val duration = player.duration
+        if (duration != C.TIME_UNSET && duration > 0L) {
+            totalDurationMs = duration
+        } else if (totalDurationMs <= 1L) {
+            fetchFallbackDuration()
+        }
+    }
+
+    private fun fetchFallbackDuration() {
+        if (currentTrackIndex !in playlist.indices) return
+        val video = playlist[currentTrackIndex]
+
+        if (video.durationMs > 0L) {
+            totalDurationMs = video.durationMs
+            return
+        }
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                val retriever = MediaMetadataRetriever()
+                if (video.uri.scheme == "file") {
+                    val file = File(video.uri.path ?: "")
+                    if (file.exists()) {
+                        retriever.setDataSource(file.absolutePath)
+                    }
+                } else {
+                    context.contentResolver.openFileDescriptor(video.uri, "r")?.use { pfd ->
+                        retriever.setDataSource(pfd.fileDescriptor)
+                    } ?: retriever.setDataSource(context, video.uri)
+                }
+
+                val timeStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                retriever.release()
+
+                val durationMs = timeStr?.toLongOrNull() ?: 0L
+                if (durationMs > 0L) {
+                    withContext(Dispatchers.Main) {
+                        totalDurationMs = durationMs
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     private fun autoStartVideoOnBoot() {
@@ -102,32 +286,30 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         }
     }
 
-    // --- CONFIGURACIÓN DE LA SESIÓN DE MEDIOS PARA VIDEOS (Para mandos del timón y gestos) ---
+    private fun rebuildShuffledDeck() {
+        shuffledDeck.clear()
+        if (playlist.isEmpty()) return
+
+        val indices = playlist.indices.toMutableList()
+        if (currentTrackIndex in indices) {
+            indices.remove(currentTrackIndex)
+        }
+        indices.shuffle()
+        shuffledDeck.addAll(indices)
+    }
+
     private fun setupMediaSession() {
         try {
             mediaSession = MediaSession(context, "SmartVideoPlayer").apply {
                 setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
 
                 setCallback(object : MediaSession.Callback() {
-                    override fun onPlay() {
-                        val currentVideo = playlist.getOrNull(currentTrackIndex)
-                        togglePlayPause(currentVideo?.uri?.toString() ?: "")
-                    }
-
-                    override fun onPause() {
-                        val currentVideo = playlist.getOrNull(currentTrackIndex)
-                        togglePlayPause(currentVideo?.uri?.toString() ?: "")
-                    }
-
-                    override fun onSkipToNext() {
-                        playNextVideo()
-                    }
-
-                    override fun onSkipToPrevious() {
-                        playPreviousVideo()
-                    }
+                    override fun onPlay() { togglePlayPause() }
+                    override fun onPause() { pausePlayback() }
+                    override fun onSkipToNext() { playNextVideo() }
+                    override fun onSkipToPrevious() { playPreviousVideo() }
                 })
-                isActive = true
+                isActive = false
             }
             updatePlaybackState(PlaybackState.STATE_NONE)
         } catch (e: Exception) {
@@ -135,7 +317,6 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         }
     }
 
-    // Informar a Android del estado del reproductor de video
     private fun updatePlaybackState(state: Int) {
         try {
             val stateBuilder = PlaybackState.Builder()
@@ -153,7 +334,6 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         }
     }
 
-    // Escaneo de carpetas de video
     fun scanVideoFolderPath(folderFile: File) {
         isScanning = true
         selectedFolderName = folderFile.name.ifEmpty { "Memoria USB" }
@@ -186,14 +366,17 @@ class SmartVideoPlayer private constructor(private val context: Context) {
             withContext(Dispatchers.Main) {
                 playlist.clear()
                 playlist.addAll(tracks)
+                historyStack.clear()
+                rebuildShuffledDeck()
                 isScanning = false
 
                 if (playlist.isNotEmpty()) {
                     val lastVideoUri = prefs.getString("last_video_uri", null)
+                    val lastPos = prefs.getLong("last_position_ms", 0L)
                     val savedIndex = playlist.indexOfFirst { it.uri.toString() == lastVideoUri }
                     val indexToPlay = if (savedIndex != -1) savedIndex else 0
 
-                    prepareVideoAtIndex(indexToPlay, 0L)
+                    playVideoAtIndex(indexToPlay, lastPos)
                 }
             }
         }
@@ -204,7 +387,8 @@ class SmartVideoPlayer private constructor(private val context: Context) {
             MediaStore.Video.Media._ID,
             MediaStore.Video.Media.TITLE,
             MediaStore.Video.Media.DISPLAY_NAME,
-            MediaStore.Video.Media.DATA
+            MediaStore.Video.Media.DATA,
+            MediaStore.Video.Media.DURATION
         )
 
         val urisToQuery = listOf(
@@ -225,12 +409,14 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                     val titleCol = cursor.getColumnIndex(MediaStore.Video.Media.TITLE)
                     val nameCol = cursor.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
                     val dataCol = cursor.getColumnIndex(MediaStore.Video.Media.DATA)
+                    val durationCol = cursor.getColumnIndex(MediaStore.Video.Media.DURATION)
 
                     while (cursor.moveToNext()) {
                         val id = if (idCol != -1) cursor.getLong(idCol) else -1L
                         val title = if (titleCol != -1) cursor.getString(titleCol) else null
                         val name = if (nameCol != -1) cursor.getString(nameCol) else null
                         val filePath = if (dataCol != -1) cursor.getString(dataCol) ?: "" else ""
+                        val duration = if (durationCol != -1) cursor.getLong(durationCol) else 0L
 
                         val videoName = title ?: name ?: "Video"
 
@@ -241,7 +427,7 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                         if (matchesFolder) {
                             val videoUri = if (id != -1L) Uri.withAppendedPath(contentUri, id.toString()) else if (filePath.isNotEmpty()) Uri.fromFile(File(filePath)) else null
                             if (videoUri != null) {
-                                tracksList.add(VideoTrack(videoUri, videoName.substringBeforeLast(".")))
+                                tracksList.add(VideoTrack(videoUri, videoName.substringBeforeLast("."), duration))
                             }
                         }
                     }
@@ -262,12 +448,15 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                     playlist.clear()
                     playlist.addAll(tracks)
                     selectedFolderName = "Memoria USB"
+                    historyStack.clear()
+                    rebuildShuffledDeck()
 
                     val lastVideoUri = prefs.getString("last_video_uri", null)
+                    val lastPos = prefs.getLong("last_position_ms", 0L)
                     val savedIndex = playlist.indexOfFirst { it.uri.toString() == lastVideoUri }
                     val indexToPlay = if (savedIndex != -1) savedIndex else 0
 
-                    prepareVideoAtIndex(indexToPlay, 0L)
+                    playVideoAtIndex(indexToPlay, lastPos)
                 }
             }
         }
@@ -277,7 +466,8 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         val projection = arrayOf(
             MediaStore.Video.Media._ID,
             MediaStore.Video.Media.TITLE,
-            MediaStore.Video.Media.DISPLAY_NAME
+            MediaStore.Video.Media.DISPLAY_NAME,
+            MediaStore.Video.Media.DURATION
         )
 
         val urisToQuery = listOf(
@@ -297,16 +487,18 @@ class SmartVideoPlayer private constructor(private val context: Context) {
                     val idCol = cursor.getColumnIndex(MediaStore.Video.Media._ID)
                     val titleCol = cursor.getColumnIndex(MediaStore.Video.Media.TITLE)
                     val nameCol = cursor.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
+                    val durationCol = cursor.getColumnIndex(MediaStore.Video.Media.DURATION)
 
                     while (cursor.moveToNext()) {
                         val id = if (idCol != -1) cursor.getLong(idCol) else -1L
                         val title = if (titleCol != -1) cursor.getString(titleCol) else null
                         val name = if (nameCol != -1) cursor.getString(nameCol) else null
+                        val duration = if (durationCol != -1) cursor.getLong(durationCol) else 0L
 
                         val videoName = title ?: name ?: "Video"
                         if (id != -1L) {
                             val videoUri = Uri.withAppendedPath(contentUri, id.toString())
-                            tracksList.add(VideoTrack(videoUri, videoName.substringBeforeLast(".")))
+                            tracksList.add(VideoTrack(videoUri, videoName.substringBeforeLast("."), duration))
                         }
                     }
                 }
@@ -318,61 +510,82 @@ class SmartVideoPlayer private constructor(private val context: Context) {
 
     private fun isVideoFile(name: String?): Boolean {
         val ext = name?.substringAfterLast(".", "")?.lowercase() ?: ""
-        return ext in listOf("mp4", "mkv", "avi", "webm", "3gp", "mov", "m4v", "ts", "mpg", "flv")
+        return ext in listOf("mp4", "mkv", "avi", "webm", "3gp", "mov", "m4v", "ts", "mpg", "flv", "vob", "wmv", "m2ts")
     }
 
-    fun togglePlayPause(videoUrl: String) {
+    fun pausePlayback() {
         try {
-            if (mediaPlayer == null) {
-                prepareAndPlay(videoUrl)
-                return
-            }
-
-            if (mediaPlayer?.isPlaying == true) {
-                mediaPlayer?.pause()
-                isPlaying = false
-            } else {
-                mediaPlayer?.start()
-                isPlaying = true
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            prepareAndPlay(videoUrl)
-        }
-    }
-
-    fun prepareAndPlay(videoUrl: String) {
-        try {
-            mediaPlayer?.reset()
-            mediaPlayer?.setDataSource(videoUrl)
-            mediaPlayer?.prepareAsync()
-
-            mediaPlayer?.setOnPreparedListener { mp ->
-                bindMediaPlayer(mp)
-                mp.start()
-                isPlaying = true
-            }
+            exoPlayer?.pause()
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        _isPlaying.value = false
+        updatePlaybackState(PlaybackState.STATE_PAUSED)
+        mediaSession?.isActive = false
+        progressJob?.cancel()
+        controlsTimerJob?.cancel()
+        showControls = true
+        saveCurrentState()
     }
 
-    // Siguiente video con algoritmo Shuffle de no-repetición estricta
+    fun togglePlayPause(videoUrl: String = "") {
+        if (playlist.isEmpty()) return
+
+        val player = getOrCreatePlayer()
+
+        if (player.isPlaying) {
+            pausePlayback()
+        } else {
+            if (currentTrackIndex !in playlist.indices) {
+                currentTrackIndex = 0
+            }
+
+            val video = playlist[currentTrackIndex]
+            val mediaItem = MediaItem.fromUri(video.uri)
+
+            if (player.mediaItemCount == 0 || player.currentMediaItem?.localConfiguration?.uri != video.uri) {
+                player.setMediaItem(mediaItem)
+                player.prepare()
+                if (currentPositionMs > 0L) {
+                    player.seekTo(currentPositionMs)
+                }
+            } else if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+                player.prepare()
+            }
+
+            player.playWhenReady = true
+            player.play()
+            _isPlaying.value = true
+            mediaSession?.isActive = true
+            updatePlaybackState(PlaybackState.STATE_PLAYING)
+            startProgressTracker()
+            resetControlsTimer()
+        }
+    }
+
+    fun seekTo(positionMs: Long) {
+        currentPositionMs = positionMs
+        exoPlayer?.seekTo(positionMs)
+        resetControlsTimer()
+    }
+
     fun playNextVideo() {
         if (playlist.isEmpty()) return
 
-        val nextIndex = if (isShuffleMode) {
-            playedVideoHistory.add(currentTrackIndex)
+        if (currentTrackIndex in playlist.indices) {
+            historyStack.add(currentTrackIndex)
+            if (historyStack.size > 100) historyStack.removeAt(0)
+        }
 
-            if (playedVideoHistory.size >= playlist.size) {
-                playedVideoHistory.clear()
+        val nextIndex = if (isShuffleMode) {
+            if (shuffledDeck.isEmpty()) {
+                rebuildShuffledDeck()
             }
 
-            val unplayedIndices = playlist.indices.filter { it !in playedVideoHistory }
-            if (unplayedIndices.isNotEmpty()) {
-                unplayedIndices.random()
+            if (shuffledDeck.isNotEmpty()) {
+                shuffledDeck.removeAt(0)
             } else {
-                playlist.indices.random()
+                0
             }
         } else {
             (currentTrackIndex + 1) % playlist.size
@@ -381,13 +594,11 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         playVideoAtIndex(nextIndex, 0L)
     }
 
-    // Video anterior
     fun playPreviousVideo() {
         if (playlist.isEmpty()) return
 
-        val prevIndex = if (isShuffleMode) {
-            val unplayedIndices = playlist.indices.filter { it != currentTrackIndex }
-            if (unplayedIndices.isNotEmpty()) unplayedIndices.random() else 0
+        val prevIndex = if (isShuffleMode && historyStack.isNotEmpty()) {
+            historyStack.removeAt(historyStack.size - 1)
         } else {
             if (currentTrackIndex - 1 < 0) playlist.size - 1 else currentTrackIndex - 1
         }
@@ -399,37 +610,72 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         if (index !in playlist.indices) return
         currentTrackIndex = index
         currentPositionMs = startPosMs
-        updatePlaybackState(PlaybackState.STATE_PAUSED)
+        val video = playlist[index]
+        totalDurationMs = if (video.durationMs > 0L) video.durationMs else 1L
+
+        try {
+            val player = getOrCreatePlayer()
+            val mediaItem = MediaItem.fromUri(video.uri)
+
+            player.stop()
+            player.setMediaItem(mediaItem)
+            player.prepare()
+            if (startPosMs > 0L) {
+                player.seekTo(startPosMs)
+            }
+            player.playWhenReady = false
+            _isPlaying.value = false
+            mediaSession?.isActive = false
+            updatePlaybackState(PlaybackState.STATE_PAUSED)
+            showControls = true
+            fetchFallbackDuration()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     fun playVideoAtIndex(index: Int, position: Long = 0L) {
         if (playlist.isEmpty()) return
         currentTrackIndex = index.coerceIn(0, playlist.size - 1)
         val video = playlist[currentTrackIndex]
+        totalDurationMs = if (video.durationMs > 0L) video.durationMs else 1L
 
         try {
-            mediaPlayer?.reset()
-            mediaPlayer?.setDataSource(video.uri.toString())
-            mediaPlayer?.prepareAsync()
-            mediaPlayer?.setOnPreparedListener { mp ->
-                bindMediaPlayer(mp)
-                mp.seekTo(position.toInt())
-                mp.start()
-                isPlaying = true
+            val player = getOrCreatePlayer()
+            val mediaItem = MediaItem.fromUri(video.uri)
+
+            player.stop()
+            player.setMediaItem(mediaItem)
+            player.prepare()
+            if (position > 0L) {
+                player.seekTo(position)
             }
+            player.playWhenReady = true
+            player.play()
+
+            _isPlaying.value = true
+            mediaSession?.isActive = true
+            updatePlaybackState(PlaybackState.STATE_PLAYING)
+            startProgressTracker()
+            resetControlsTimer()
+            saveCurrentState()
+            fetchFallbackDuration()
+
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    fun bindMediaPlayer(player: MediaPlayer) {
-        this.mediaPlayer = player
-        this.isPlaying = player.isPlaying
-        this.totalDurationMs = player.duration.toLong().coerceAtLeast(1L)
-        startProgressTracker()
-
-        player.setOnCompletionListener {
-            playNextVideo()
+    fun forcePlay() {
+        val player = getOrCreatePlayer()
+        if (!player.isPlaying) {
+            player.playWhenReady = true
+            player.play()
+            _isPlaying.value = true
+            mediaSession?.isActive = true
+            updatePlaybackState(PlaybackState.STATE_PLAYING)
+            startProgressTracker()
+            resetControlsTimer()
         }
     }
 
@@ -437,20 +683,18 @@ class SmartVideoPlayer private constructor(private val context: Context) {
         progressJob?.cancel()
         progressJob = scope.launch {
             while (isActive) {
-                mediaPlayer?.let { player ->
+                exoPlayer?.let { player ->
                     try {
                         if (player.isPlaying) {
-                            currentPositionMs = player.currentPosition.toLong()
-                            totalDurationMs = player.duration.toLong().coerceAtLeast(1L)
+                            currentPositionMs = player.currentPosition.coerceAtLeast(0L)
+                            updateDuration(player)
                             saveCurrentState()
                         }
-                    } catch (e: IllegalStateException) {
-                        // Reproductor inestable
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
                 }
-                delay(1000L)
+                delay(300L)
             }
         }
     }
@@ -467,8 +711,13 @@ class SmartVideoPlayer private constructor(private val context: Context) {
 
     fun release() {
         progressJob?.cancel()
-        mediaPlayer?.release()
-        mediaPlayer = null
+        controlsTimerJob?.cancel()
+        try {
+            exoPlayer?.release()
+            exoPlayer = null
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
         mediaSession?.isActive = false
         mediaSession?.release()

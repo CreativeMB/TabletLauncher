@@ -51,7 +51,7 @@ class SmartIptvPlayer private constructor(private val context: Context) {
     var currentChannelIndex by mutableStateOf(-1)
         private set
 
-    private var failedStreamAttempts = 0
+    private var consecutiveFailures = 0 // <-- PROTECCIÓN CONTRA BUCLES INFINITOS
     private var mediaSession: MediaSession? = null
     private val _isPlaying = mutableStateOf(false)
 
@@ -72,7 +72,7 @@ class SmartIptvPlayer private constructor(private val context: Context) {
 
     var selectedFileName by mutableStateOf(prefs.getString("playlist_name", "Lista IPTV USB") ?: "Lista IPTV USB")
         private set
-    // Dentro de la clase SmartIptvPlayer:
+
     var isFullscreenActive by mutableStateOf(false)
     var isScanning by mutableStateOf(false)
         private set
@@ -285,11 +285,10 @@ class SmartIptvPlayer private constructor(private val context: Context) {
         return channels
     }
 
-    // NAVEGACIÓN Y CAMBIO DE CANAL SIN DUPLICACIÓN DE REPRODUCTOR
+    // NAVEGACIÓN Y CAMBIO DE CANAL SEGURO
     fun playChannelAtIndex(index: Int) {
         if (playlist.isEmpty()) return
 
-        // Detiene el reproductor anterior si existía para liberar recursos
         try {
             mediaPlayer?.stop()
             mediaPlayer?.reset()
@@ -304,18 +303,26 @@ class SmartIptvPlayer private constructor(private val context: Context) {
             .putInt("last_channel_index", currentChannelIndex)
             .putString("last_channel_url", channel.streamUrl)
             .apply()
-
-        // Nota: El VideoView en Compose se encargará de cargar el nuevo streamUrl mediante recomposición limpia
     }
 
     fun playNextChannel() {
         if (playlist.isEmpty()) return
+
+        // Protección contra bucles infinitos si muchos canales seguidos fallan
+        consecutiveFailures++
+        if (consecutiveFailures >= playlist.size) {
+            consecutiveFailures = 0
+            pausePlayback()
+            return
+        }
+
         val next = (currentChannelIndex + 1) % playlist.size
         playChannelAtIndex(next)
     }
 
     fun playPreviousChannel() {
         if (playlist.isEmpty()) return
+        consecutiveFailures = 0 // Reseteamos al cambiar manualmente
         val prev = if (currentChannelIndex - 1 < 0) playlist.size - 1 else currentChannelIndex - 1
         playChannelAtIndex(prev)
     }
@@ -359,6 +366,10 @@ class SmartIptvPlayer private constructor(private val context: Context) {
     fun bindMediaPlayer(player: MediaPlayer) {
         this.mediaPlayer = player
         this._isPlaying.value = player.isPlaying
+
+        // Canal cargado con éxito, reseteamos el contador de fallos
+        consecutiveFailures = 0
+
         if (player.isPlaying) {
             requestAudioFocus()
             mediaSession?.isActive = true
@@ -366,6 +377,13 @@ class SmartIptvPlayer private constructor(private val context: Context) {
         } else {
             mediaSession?.isActive = false
             updatePlaybackState(PlaybackState.STATE_PAUSED)
+        }
+
+        // Manejo de errores si el stream se cae o es inválido en tiempo de ejecución
+        player.setOnErrorListener { _, what, extra ->
+            // Salta al siguiente canal automáticamente de forma segura si el stream falla
+            playNextChannel()
+            true
         }
     }
 

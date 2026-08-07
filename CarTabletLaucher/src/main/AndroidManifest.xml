@@ -4,69 +4,66 @@
 
     <!-- ========================================== -->
     <!-- 1. PERMISOS DE INTERNET Y RED              -->
-    <!-- Necesarios para descargar los mapas libres -->
     <!-- ========================================== -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- ========================================== -->
     <!-- 2. PERMISOS DE UBICACIÓN (GPS)             -->
-    <!-- FINE_LOCATION es para el GPS exacto        -->
     <!-- ========================================== -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <!-- ========================================== -->
     <!-- 3. PERMISOS DE ALMACENAMIENTO              -->
-    <!-- Para leer música y video (USB, MicroSD)    -->
     <!-- ========================================== -->
-    <!-- Para radios con Android 12 o inferior: -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
-    <!-- Para radios modernas con Android 13 o superior: -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"
+        tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
+
 
     <!-- ========================================== -->
-    <!-- 4. PERMISO DE MICRÓFONO                    -->
-    <!-- Para futuros comandos de voz o llamadas    -->
+    <!-- 4. PERMISOS DE MICRÓFONO Y SERVICIOS       -->
     <!-- ========================================== -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-
-
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <!-- ========================================== -->
-    <!-- 5. EXTRAS PARA AUTO                        -->
-    <!-- Evitar que la pantalla se apague           -->
+    <!-- 5. EXTRAS PARA TABLET / AUTO               -->
     <!-- ========================================== -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- ===================================================================== -->
-    <!-- 6. PERMISO CRÍTICO PARA VER APPS INSTALADAS EN ANDROID 11, 12, 13, 14 -->
-    <!-- Sin esto, Android oculta las aplicaciones por seguridad               -->
-    <!-- ===================================================================== -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!-- PERMISOS OBLIGATORIOS PARA LEER VIDEOS Y MÚSICA DE USB Y TABLET -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" tools:ignore="ScopedStorage" />
-
-    <!-- PERMISOS ESPECÍFICOS DE MULTIMEDIA Y VIDEO (ANDROID 13+) -->
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-
-
-    <!-- PERMISO DE ACCESO TOTAL A ARCHIVOS PARA RADIOS Y TABLETS (ANDROID 11+) -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
-
-    <!-- PERMISO OBLIGATORIO PARA CONTROLAR EL HARDWARE DE BRILLO EN TABLETS DE AUTO -->
-    <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
+    <!-- Permiso oficial para superponer ventanas tipo Car Launcher Pro -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.HOME_SETTINGS" />
+        </intent>
     </queries>
-
 
     <application
         android:allowBackup="true"
@@ -78,27 +75,49 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.TabletLauncher"
         android:requestLegacyExternalStorage="true"
+        android:usesCleartextTraffic="true"
         tools:targetApi="31">
 
-        <!-- IMPORTANTE: Revisa que el 'theme' de arriba coincida con el nombre que te dio Android Studio -->
-
+        <!-- ========================================================================= -->
+        <!-- 🏠 ACTIVIDAD PRINCIPAL BLINDADA COMO SISTEMA LAUNCHER NATIVO            -->
+        <!-- ========================================================================= -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTask"
-            android:screenOrientation="landscape">
-            <!-- singleTask: Evita que se abran múltiples copias del Launcher -->
-            <!-- landscape: Fuerza la pantalla a estar echada (horizontal) -->
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:stateNotNeeded="true"
+            android:clearTaskOnLaunch="true"
+            android:allowBackup="true"
+            android:requestLegacyExternalStorage="true"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode"
+            android:windowSoftInputMode="adjustPan"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true">
 
-            <intent-filter>
+            <!-- 🎯 INTENT-FILTER OFICIAL PARA SER EL LAUNCHER DEFAULT Y EXCLUSIVO -->
+            <intent-filter android:priority="1000">
                 <action android:name="android.intent.action.MAIN" />
 
-                <!-- ESTAS 3 LÍNEAS LE DICEN A LA RADIO QUE ESTA APP ES EL LAUNCHER -->
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".FloatingMediaService"
+            android:enabled="true"
+            android:exported="false" />
+        <service
+            android:name=".FloatingSpeedometerService"
+            android:foregroundServiceType="location"
+            android:enabled="true"
+            android:exported="false"
+            />
+
     </application>
+
 
 </manifest>
