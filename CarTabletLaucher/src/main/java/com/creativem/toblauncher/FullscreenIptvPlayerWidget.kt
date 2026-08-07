@@ -33,102 +33,27 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalClipboardManager  // IMPORTADO
+import androidx.compose.ui.text.AnnotatedString            // IMPORTADO
+import androidx.compose.ui.text.style.TextDecoration       // IMPORTADO
+import androidx.compose.ui.text.style.TextAlign            // IMPORTADO
 
 val iptvLogoCache = LruCache<String, Bitmap>(150)
 
 // =========================================================================
-// 💾 PERSISTENCIA COMPLETA DE FAVORITOS Y ELIMINADOS
+// 📺 REPRODUCTOR IPTV EN PANTALLA COMPLETA (VERSIÓN LISTA REMOTA)
 // =========================================================================
-fun saveIptvFavoriteChannels(context: Context, favoriteChannels: List<IptvChannel>) {
-    val prefs = context.getSharedPreferences("iptv_player_prefs", Context.MODE_PRIVATE)
-    val serialized = favoriteChannels.joinToString("###CHANNEL_DELIMITER###") { channel ->
-        val name = channel.name.replace("~", "_")
-        val url = channel.streamUrl.replace("~", "_")
-        val logo = (channel.logoUrl ?: "").replace("~", "_")
-        val group = (channel.groupTitle ?: "").replace("~", "_")
-        "$name~$url~$logo~$group"
-    }
-    prefs.edit().putString("favorite_channels_v3_string", serialized).apply()
-}
-
-fun getSavedIptvFavoriteChannels(context: Context): List<IptvChannel> {
-    val prefs = context.getSharedPreferences("iptv_player_prefs", Context.MODE_PRIVATE)
-    val savedStr = prefs.getString("favorite_channels_v3_string", null) ?: return emptyList()
-    if (savedStr.isEmpty()) return emptyList()
-
-    return savedStr.split("###CHANNEL_DELIMITER###").mapNotNull { itemStr ->
-        val parts = itemStr.split("~")
-        if (parts.size >= 2 && parts[1].isNotEmpty()) {
-            val name = parts[0]
-            val url = parts[1]
-            val logo = if (parts.size > 2 && parts[2].isNotEmpty()) parts[2] else null
-            val group = if (parts.size > 3 && parts[3].isNotEmpty()) parts[3] else null
-            IptvChannel(name = name, streamUrl = url, logoUrl = logo, groupTitle = group)
-        } else null
-    }
-}
-
-fun getSavedIptvDeleted(context: Context): Set<String> {
-    val prefs = context.getSharedPreferences("iptv_player_prefs", Context.MODE_PRIVATE)
-    return prefs.getStringSet("deleted_channels_urls_v2", emptySet()) ?: emptySet()
-}
-
-fun saveIptvDeleted(context: Context, deleted: Set<String>) {
-    val prefs = context.getSharedPreferences("iptv_player_prefs", Context.MODE_PRIVATE)
-    prefs.edit().putStringSet("deleted_channels_urls_v2", deleted).apply()
-}
-
-// =========================================================================
-// 🔄 FUSIÓN INTELIGENTE DE M3U Y FAVORITOS AL CARGAR USB
-// =========================================================================
-fun loadM3uAndPreserveFavorites(context: Context, iptvPlayer: SmartIptvPlayer, m3uFile: File) {
-    // 1. Obtenemos los favoritos (estos SÍ queremos que se mantengan)
-    val savedFavorites = getSavedIptvFavoriteChannels(context)
-
-    // 2. ¡IMPORTANTE! Al cargar una lista nueva, limpiamos la lista de eliminados.
-    // Esto hace que los canales que borraste de la lista anterior vuelvan a aparecer
-    // si vienen en esta nueva lista.
-    saveIptvDeleted(context, emptySet())
-    val deletedUrls = emptySet<String>() // Usamos un set vacío para la carga actual
-
-    // 3. Cargamos el nuevo archivo M3U
-    iptvPlayer.parseAndLoadM3uFile(m3uFile)
-
-    // 4. Obtenemos los canales del nuevo archivo
-    val m3uChannels = iptvPlayer.playlist.toList()
-
-    // 5. Combinamos: Canales del archivo + Tus Favoritos
-    // Usamos distinctBy para que si un favorito ya está en la lista, no se duplique
-    val combined = (m3uChannels + savedFavorites).distinctBy { it.streamUrl }
-
-    // 6. Actualizamos el reproductor
-    try {
-        val list = iptvPlayer.playlist
-        if (list is MutableList<*>) {
-            @Suppress("UNCHECKED_CAST")
-            val mutableList = list as MutableList<IptvChannel>
-            mutableList.clear()
-            mutableList.addAll(combined)
-        }
-    } catch (e: Exception) {
-        e.printStackTrace()
-    }
-}
-
-// =========================================================================
-// 📺 REPRODUCTOR IPTV EN PANTALLA COMPLETA
-// =========================================================================
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FullscreenIptvPlayerWidget(
     onClose: () -> Unit
@@ -143,20 +68,12 @@ fun FullscreenIptvPlayerWidget(
 
     val iptvPlayer = remember { SmartIptvPlayer.getInstance(context) }
 
-    var showFolderModal by remember { mutableStateOf(false) }
+    // Control del diálogo de la URL remota ("cajuela")
+    var showUrlModal by remember { mutableStateOf(false) }
     var showUIState by remember { mutableStateOf(true) }
 
     // 🔍 BUSCADOR DE CANALES
     var searchQuery by remember { mutableStateOf("") }
-
-    // Carga de Favoritos y Eliminados
-    var favoriteChannels by remember { mutableStateOf(getSavedIptvFavoriteChannels(context)) }
-    var favoriteUrls by remember(favoriteChannels) { mutableStateOf(favoriteChannels.map { it.streamUrl }.toSet()) }
-    var deletedUrls by remember { mutableStateOf(getSavedIptvDeleted(context)) }
-
-    // Diálogos de Confirmación
-    var channelToDelete by remember { mutableStateOf<IptvChannel?>(null) }
-    var channelToToggleFav by remember { mutableStateOf<IptvChannel?>(null) }
 
     val currentChannel = iptvPlayer.playlist.getOrNull(iptvPlayer.currentChannelIndex)
 
@@ -167,42 +84,19 @@ fun FullscreenIptvPlayerWidget(
         }
     }
 
-    // ✅ LIMPIA CANALES ELIMINADOS DE LA MEMORIA
-    LaunchedEffect(favoriteChannels, deletedUrls, iptvPlayer.playlist.size) {
-        val combined = (favoriteChannels + iptvPlayer.playlist)
-            .distinctBy { it.streamUrl }
-            .filter { !deletedUrls.contains(it.streamUrl) }
-
-        try {
-            val list = iptvPlayer.playlist
-            if (list is MutableList<*>) {
-                @Suppress("UNCHECKED_CAST")
-                val mutableList = list as MutableList<IptvChannel>
-                if (mutableList.size != combined.size || mutableList.any { deletedUrls.contains(it.streamUrl) }) {
-                    mutableList.clear()
-                    mutableList.addAll(combined)
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    // 📋 LISTA DE CANALES FILTRADA POR BÚSQUEDA Y FAVORITOS PRIMERO
-    val displayedChannels = remember(favoriteChannels, iptvPlayer.playlist.size, deletedUrls, searchQuery) {
-        val allChannels = (favoriteChannels + iptvPlayer.playlist).distinctBy { it.streamUrl }
-        val nonDeleted = allChannels.filter { !deletedUrls.contains(it.streamUrl) }
-
+    // 📋 LISTA DE CANALES FILTRADA POR BÚSQUEDA Y FAVORITOS EN LA PARTE SUPERIOR
+    val displayedChannels = remember(iptvPlayer.playlist.size, iptvPlayer.favoriteUrls.size, searchQuery) {
         val filtered = if (searchQuery.isBlank()) {
-            nonDeleted
+            iptvPlayer.playlist
         } else {
-            nonDeleted.filter { channel ->
+            iptvPlayer.playlist.filter { channel ->
                 channel.name.contains(searchQuery, ignoreCase = true) ||
                         (channel.groupTitle?.contains(searchQuery, ignoreCase = true) == true)
             }
         }
 
-        filtered.sortedByDescending { favoriteUrls.contains(it.streamUrl) }
+        // Ordenamos poniendo los favoritos al principio para mantener un acceso rápido
+        filtered.sortedByDescending { iptvPlayer.isFavorite(it) }
     }
 
     val sidebarWidth = 340.dp
@@ -386,12 +280,13 @@ fun FullscreenIptvPlayerWidget(
 
                         Text("CANALES IPTV (${displayedChannels.size})", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
 
-                        IconButton(onClick = { showFolderModal = true }) {
-                            Icon(Icons.Default.FolderOpen, contentDescription = "USB", tint = theme.accentCyan)
+                        // Icono de enlace para cargar nueva URL remota ("cajuela")
+                        IconButton(onClick = { showUrlModal = true }) {
+                            Icon(Icons.Default.Link, contentDescription = "Configurar URL", tint = theme.accentCyan)
                         }
                     }
 
-                    // 🔍 BUSCADOR DE CANALES IPTV EN LA CABECERA
+                    // 🔍 BUSCADOR DE CANALES IPTV
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
@@ -421,9 +316,6 @@ fun FullscreenIptvPlayerWidget(
                         shape = RoundedCornerShape(10.dp),
                         trailingIcon = {
                             if (searchQuery.isNotEmpty()) {
-
-
-
                                 IconButton(
                                     onClick = { searchQuery = "" },
                                     modifier = Modifier.size((10 * buttonScale).dp)
@@ -457,7 +349,7 @@ fun FullscreenIptvPlayerWidget(
                         ) {
                             itemsIndexed(displayedChannels) { _, channel ->
                                 val isSelected = currentChannel?.streamUrl == channel.streamUrl
-                                val isFav = favoriteUrls.contains(channel.streamUrl)
+                                val isFav = iptvPlayer.isFavorite(channel)
 
                                 Row(
                                     modifier = Modifier
@@ -481,10 +373,10 @@ fun FullscreenIptvPlayerWidget(
                                         tint = if (isSelected) theme.accentCyan else Color.Gray
                                     )
 
-                                    // 2. EL CORAZÓN (AL PRINCIPIO, JUNTO AL LOGO)
+                                    // 2. EL CORAZÓN DE FAVORITOS (Agrega o quita directamente de la lista para mantener el orden)
                                     IconButton(
-                                        onClick = { channelToToggleFav = channel },
-                                        modifier = Modifier.size(30.dp) // Un poco más de espacio para tocar fácil
+                                        onClick = { iptvPlayer.toggleFavorite(channel) },
+                                        modifier = Modifier.size(30.dp)
                                     ) {
                                         Icon(
                                             imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -494,9 +386,9 @@ fun FullscreenIptvPlayerWidget(
                                         )
                                     }
 
-                                    Spacer(modifier = Modifier.width(4.dp)) // Espacio pequeño entre corazón y nombre
+                                    Spacer(modifier = Modifier.width(4.dp))
 
-                                    // 3. EL NOMBRE Y GRUPO (ESTO OCUPA TODO EL ESPACIO CENTRAL)
+                                    // 3. EL NOMBRE Y GRUPO DEL CANAL
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = channel.name,
@@ -504,32 +396,18 @@ fun FullscreenIptvPlayerWidget(
                                             fontSize = 11.sp,
                                             lineHeight = 14.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            maxLines = 1
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
-                                        // AQUÍ ESTÁ LA CORRECCIÓN: isNull_or_empty (con e minúscula)
-                                        if (!channel.groupTitle.isNull_or_empty()) {
-                                            channel.groupTitle?.let {
-                                                Text(
-                                                    text = it,
-                                                    color = Color.Gray,
-                                                    fontSize = 9.sp,
-                                                    maxLines = 1
-                                                )
-                                            }
+                                        if (!channel.groupTitle.isNullOrEmpty()) {
+                                            Text(
+                                                text = channel.groupTitle ?: "",
+                                                color = Color.Gray,
+                                                fontSize = 9.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
                                         }
-                                    }
-
-                                    // 4. LA PAPELERA (AL FINAL DE TODO)
-                                    IconButton(
-                                        onClick = { channelToDelete = channel },
-                                        modifier = Modifier.size(30.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Eliminar",
-                                            tint = Color(0xFFFF5252),
-                                            modifier = Modifier.size(18.dp)
-                                        )
                                     }
                                 }
                             }
@@ -540,155 +418,23 @@ fun FullscreenIptvPlayerWidget(
         }
 
         // =========================================================================
-        // 🚨 MODAL: ELIMINAR CANAL DEFINITIVO
+        // 🚨 DIÁLOGO / CAJUELA DE ENTRADA DE LA URL REMOTA
         // =========================================================================
-        channelToDelete?.let { channel ->
-            AlertDialog(
-                onDismissRequest = { channelToDelete = null },
-                containerColor = Color(0xFF1E1E24),
-                icon = {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = Color(0xFFFF5252),
-                        modifier = Modifier.size(28.dp)
-                    )
+        if (showUrlModal) {
+            FullscreenRemoteUrlInputDialog(
+                theme = theme,
+                currentUrl = context.getSharedPreferences("smart_iptv_prefs", Context.MODE_PRIVATE)
+                    .getString("selected_playlist_url", "") ?: "",
+                onDismiss = {
+                    showUrlModal = false
+                    showUIState = true
                 },
-                title = {
-                    Text("Eliminar Canal", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                },
-                text = {
-                    Text(
-                        "¿Estás seguro de que deseas eliminar '${channel.name}'?\n\nEl canal se borrará de la lista y no se volverá a reproducir.",
-                        color = Color.LightGray,
-                        fontSize = 12.sp
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            val targetUrl = channel.streamUrl
-
-                            val newDeleted = deletedUrls + targetUrl
-                            deletedUrls = newDeleted
-                            saveIptvDeleted(context, newDeleted)
-
-                            val updatedFavs = favoriteChannels.filter { it.streamUrl != targetUrl }
-                            if (updatedFavs.size != favoriteChannels.size) {
-                                favoriteChannels = updatedFavs
-                                saveIptvFavoriteChannels(context, updatedFavs)
-                            }
-
-                            try {
-                                val list = iptvPlayer.playlist
-                                if (list is MutableList<*>) {
-                                    @Suppress("UNCHECKED_CAST")
-                                    (list as MutableList<IptvChannel>).removeAll { it.streamUrl == targetUrl }
-                                }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
-
-                            if (currentChannel?.streamUrl == targetUrl) {
-                                iptvPlayer.playNextChannel()
-                            }
-
-                            channelToDelete = null
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5252))
-                    ) {
-                        Text("Sí, Eliminar", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                onConfirmUrl = { url ->
+                    if (url.isNotBlank()) {
+                        iptvPlayer.parseAndLoadM3uUrl(url.trim())
                     }
-                },
-                dismissButton = {
-                    OutlinedButton(onClick = { channelToDelete = null }) {
-                        Text("Cancelar", color = Color.White, fontSize = 12.sp)
-                    }
-                }
-            )
-        }
-
-        // =========================================================================
-        // ❤️ MODAL: FAVORITOS
-        // =========================================================================
-        channelToToggleFav?.let { channel ->
-            val isCurrentlyFav = favoriteUrls.contains(channel.streamUrl)
-
-            AlertDialog(
-                onDismissRequest = { channelToToggleFav = null },
-                containerColor = Color(0xFF1E1E24),
-                icon = {
-                    Icon(
-                        imageVector = if (isCurrentlyFav) Icons.Default.FavoriteBorder else Icons.Default.Favorite,
-                        contentDescription = null,
-                        tint = if (isCurrentlyFav) Color.Gray else Color.Red,
-                        modifier = Modifier.size(28.dp)
-                    )
-                },
-                title = {
-                    Text(
-                        text = if (isCurrentlyFav) "Quitar de Favoritos" else "Agregar a Favoritos",
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                text = {
-                    Text(
-                        text = if (isCurrentlyFav) {
-                            "¿Deseas quitar '${channel.name}' de tu lista de favoritos?"
-                        } else {
-                            "¿Deseas agregar '${channel.name}' a tus favoritos?\n\nPermanecerá guardado incluso cuando cargues una lista nueva desde tu USB."
-                        },
-                        color = Color.LightGray,
-                        fontSize = 12.sp
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            val newFavChannels = if (isCurrentlyFav) {
-                                favoriteChannels.filter { it.streamUrl != channel.streamUrl }
-                            } else {
-                                (favoriteChannels + channel).distinctBy { it.streamUrl }
-                            }
-
-                            favoriteChannels = newFavChannels
-                            saveIptvFavoriteChannels(context, newFavChannels)
-
-                            channelToToggleFav = null
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan)
-                    ) {
-                        Text(
-                            text = if (isCurrentlyFav) "Quitar" else "Agregar",
-                            color = Color.Black,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
-                    }
-                },
-                dismissButton = {
-                    OutlinedButton(onClick = { channelToToggleFav = null }) {
-                        Text("Cancelar", color = Color.White, fontSize = 12.sp)
-                    }
-                }
-            )
-        }
-
-        // MODAL EXPLORADOR DE CARPETAS USB
-        if (showFolderModal) {
-            FolderPickerModal(
-                onDismiss = { showFolderModal = false },
-                onFolderSelected = { selectedFolder ->
-                    val m3uFile = selectedFolder.listFiles()?.firstOrNull {
-                        it.extension.lowercase() in listOf("m3u", "m3u8")
-                    }
-                    if (m3uFile != null) {
-                        loadM3uAndPreserveFavorites(context, iptvPlayer, m3uFile)
-                        favoriteChannels = getSavedIptvFavoriteChannels(context)
-                    }
-                    showFolderModal = false
+                    showUrlModal = false
+                    showUIState = true
                 }
             )
         }
@@ -754,4 +500,113 @@ fun ChannelLogoImage(
     }
 }
 
-fun String?.isNull_or_empty(): Boolean = this == null || this.trim().isEmpty()
+// =========================================================================
+// ⌨️ DIÁLOGO PARA INGRESAR LA URL EN PANTALLA COMPLETA (CON URL SUGERIDA)
+// =========================================================================
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FullscreenRemoteUrlInputDialog(
+    theme: DashboardTheme,
+    currentUrl: String,
+    onDismiss: () -> Unit,
+    onConfirmUrl: (String) -> Unit
+) {
+    var urlText by remember { mutableStateOf(currentUrl) }
+    val clipboardManager = LocalClipboardManager.current // Acceso al Portapapeles
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF16161F)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Configurar Lista IPTV Remota",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
+                // =========================================================================
+                // 💡 SECCIÓN DE URL SUGERIDA INTERACTIVA
+                // =========================================================================
+                val suggestedUrl = "https://iptv-org.github.io/iptv/languages/spa.m3u"
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF1E1E28))
+                        .clickable {
+                            // Al tocar la sugerencia se copia al portapapeles y se escribe sola
+                            urlText = suggestedUrl
+                            clipboardManager.setText(AnnotatedString(suggestedUrl))
+                        }
+                        .padding(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "💡 Lista sugerida gratis (Toca para cargar y copiar):",
+                        color = Color.Gray,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = suggestedUrl,
+                        color = theme.accentCyan,
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.Center,
+                        textDecoration = TextDecoration.Underline,
+                        maxLines = 2
+                    )
+                }
+                // =========================================================================
+
+                OutlinedTextField(
+                    value = urlText,
+                    onValueChange = { urlText = it },
+                    label = { Text("Pegar enlace M3U", color = Color.Gray, fontSize = 11.sp) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = theme.accentCyan,
+                        unfocusedBorderColor = Color.Gray,
+                        focusedLabelColor = theme.accentCyan,
+                        unfocusedLabelColor = Color.Gray
+                    ),
+                    textStyle = TextStyle(fontSize = 12.sp),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancelar", color = Color.Gray, fontSize = 12.sp)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { onConfirmUrl(urlText) },
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("Guardar", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}

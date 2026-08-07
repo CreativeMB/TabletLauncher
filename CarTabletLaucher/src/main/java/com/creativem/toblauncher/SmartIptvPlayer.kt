@@ -9,13 +9,13 @@ import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.net.Uri
 import android.os.Build
 import androidx.compose.runtime.*
 import kotlinx.coroutines.*
 import java.io.BufferedReader
-import java.io.File
 import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
 import java.nio.charset.StandardCharsets
 
 data class IptvChannel(
@@ -48,10 +48,14 @@ class SmartIptvPlayer private constructor(private val context: Context) {
     var playlist = mutableStateListOf<IptvChannel>()
         private set
 
+    // Lista de URLs marcadas como favoritas
+    var favoriteUrls = mutableStateListOf<String>()
+        private set
+
     var currentChannelIndex by mutableStateOf(-1)
         private set
 
-    private var consecutiveFailures = 0 // <-- PROTECCIÓN CONTRA BUCLES INFINITOS
+    private var consecutiveFailures = 0
     private var mediaSession: MediaSession? = null
     private val _isPlaying = mutableStateOf(false)
 
@@ -70,7 +74,7 @@ class SmartIptvPlayer private constructor(private val context: Context) {
             }
         }
 
-    var selectedFileName by mutableStateOf(prefs.getString("playlist_name", "Lista IPTV USB") ?: "Lista IPTV USB")
+    var selectedFileName by mutableStateOf(prefs.getString("playlist_name", "Lista IPTV Remota") ?: "Lista IPTV Remota")
         private set
 
     var isFullscreenActive by mutableStateOf(false)
@@ -81,6 +85,7 @@ class SmartIptvPlayer private constructor(private val context: Context) {
 
     init {
         setupMediaSession()
+        loadFavoritesFromPrefs()
         autoLoadPlaylistOnBoot()
     }
 
@@ -96,13 +101,9 @@ class SmartIptvPlayer private constructor(private val context: Context) {
     }
 
     private fun autoLoadPlaylistOnBoot() {
-        val savedPath = prefs.getString("selected_playlist_path", null)
-        val savedUri = prefs.getString("selected_playlist_uri", null)
-
-        if (savedPath != null && File(savedPath).exists()) {
-            parseAndLoadM3uFile(File(savedPath))
-        } else if (savedUri != null) {
-            parseAndLoadM3uUri(Uri.parse(savedUri))
+        val savedUrl = prefs.getString("selected_playlist_url", null)
+        if (!savedUrl.isNullOrEmpty()) {
+            parseAndLoadM3uUrl(savedUrl)
         }
     }
 
@@ -152,68 +153,38 @@ class SmartIptvPlayer private constructor(private val context: Context) {
         }
     }
 
-    fun parseAndLoadM3uFile(m3uFile: File) {
+    // Método principal para cargar la lista remota desde una URL externa
+    fun parseAndLoadM3uUrl(urlString: String) {
         pausePlayback()
         isScanning = true
-        selectedFileName = m3uFile.nameWithoutExtension.ifEmpty { "Lista IPTV" }
+        selectedFileName = "Lista IPTV Remota"
 
         prefs.edit()
             .putString("playlist_name", selectedFileName)
-            .putString("selected_playlist_path", m3uFile.absolutePath)
-            .remove("selected_playlist_uri")
+            .putString("selected_playlist_url", urlString)
             .apply()
 
         scope.launch(Dispatchers.IO) {
             val channels = mutableListOf<IptvChannel>()
+            var connection: HttpURLConnection? = null
             try {
-                val reader = try {
-                    m3uFile.bufferedReader(StandardCharsets.UTF_8)
-                } catch (e: Exception) {
-                    m3uFile.bufferedReader(StandardCharsets.ISO_8859_1)
-                }
-                channels.addAll(parseM3uStream(reader))
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+                val url = URL(urlString)
+                connection = url.openConnection() as HttpURLConnection
+                connection.connectTimeout = 15000
+                connection.readTimeout = 15000
+                connection.requestMethod = "GET"
 
-            withContext(Dispatchers.Main) {
-                playlist.clear()
-                playlist.addAll(channels)
-                isScanning = false
+                // Cabecera estándar para evitar bloqueos por parte del servidor IPTV
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
 
-                if (playlist.isNotEmpty()) {
-                    val lastUrl = prefs.getString("last_channel_url", null)
-                    val lastIndex = prefs.getInt("last_channel_index", 0)
-
-                    val indexToPlay = playlist.indexOfFirst { it.streamUrl == lastUrl }.let {
-                        if (it != -1) it else lastIndex.coerceIn(0, playlist.size - 1)
-                    }
-                    playChannelAtIndex(indexToPlay)
-                }
-            }
-        }
-    }
-
-    fun parseAndLoadM3uUri(uri: Uri) {
-        pausePlayback()
-        isScanning = true
-        selectedFileName = "Lista IPTV USB"
-
-        prefs.edit()
-            .putString("playlist_name", selectedFileName)
-            .putString("selected_playlist_uri", uri.toString())
-            .remove("selected_playlist_path")
-            .apply()
-
-        scope.launch(Dispatchers.IO) {
-            val channels = mutableListOf<IptvChannel>()
-            try {
-                context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    val reader = BufferedReader(InputStreamReader(inputStream, StandardCharsets.UTF_8))
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    val reader = BufferedReader(InputStreamReader(connection.inputStream, StandardCharsets.UTF_8))
                     channels.addAll(parseM3uStream(reader))
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+            } finally {
+                connection?.disconnect()
             }
 
             withContext(Dispatchers.Main) {
@@ -285,7 +256,30 @@ class SmartIptvPlayer private constructor(private val context: Context) {
         return channels
     }
 
-    // NAVEGACIÓN Y CAMBIO DE CANAL SEGURO
+    // GESTIÓN DE FAVORITOS
+    private fun loadFavoritesFromPrefs() {
+        val savedFavorites = prefs.getStringSet("favorite_channels", emptySet()) ?: emptySet()
+        favoriteUrls.clear()
+        favoriteUrls.addAll(savedFavorites)
+    }
+
+    fun toggleFavorite(channel: IptvChannel) {
+        val url = channel.streamUrl
+        if (favoriteUrls.contains(url)) {
+            favoriteUrls.remove(url)
+        } else {
+            favoriteUrls.add(url)
+        }
+        prefs.edit()
+            .putStringSet("favorite_channels", favoriteUrls.toSet())
+            .apply()
+    }
+
+    fun isFavorite(channel: IptvChannel): Boolean {
+        return favoriteUrls.contains(channel.streamUrl)
+    }
+
+    // NAVEGACIÓN Y REPRODUCCIÓN
     fun playChannelAtIndex(index: Int) {
         if (playlist.isEmpty()) return
 
@@ -308,7 +302,6 @@ class SmartIptvPlayer private constructor(private val context: Context) {
     fun playNextChannel() {
         if (playlist.isEmpty()) return
 
-        // Protección contra bucles infinitos si muchos canales seguidos fallan
         consecutiveFailures++
         if (consecutiveFailures >= playlist.size) {
             consecutiveFailures = 0
@@ -322,7 +315,7 @@ class SmartIptvPlayer private constructor(private val context: Context) {
 
     fun playPreviousChannel() {
         if (playlist.isEmpty()) return
-        consecutiveFailures = 0 // Reseteamos al cambiar manualmente
+        consecutiveFailures = 0
         val prev = if (currentChannelIndex - 1 < 0) playlist.size - 1 else currentChannelIndex - 1
         playChannelAtIndex(prev)
     }
@@ -366,8 +359,6 @@ class SmartIptvPlayer private constructor(private val context: Context) {
     fun bindMediaPlayer(player: MediaPlayer) {
         this.mediaPlayer = player
         this._isPlaying.value = player.isPlaying
-
-        // Canal cargado con éxito, reseteamos el contador de fallos
         consecutiveFailures = 0
 
         if (player.isPlaying) {
@@ -379,9 +370,7 @@ class SmartIptvPlayer private constructor(private val context: Context) {
             updatePlaybackState(PlaybackState.STATE_PAUSED)
         }
 
-        // Manejo de errores si el stream se cae o es inválido en tiempo de ejecución
         player.setOnErrorListener { _, what, extra ->
-            // Salta al siguiente canal automáticamente de forma segura si el stream falla
             playNextChannel()
             true
         }

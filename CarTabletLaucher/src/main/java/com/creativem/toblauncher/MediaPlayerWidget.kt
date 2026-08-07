@@ -50,10 +50,38 @@ import kotlinx.coroutines.isActive
 
 
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.ui.window.Dialog
 
 
 
 
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
+
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextDecoration
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 // =========================================================================
 // 1. ENUM PARA LOS 4 MODOS
 // =========================================================================
@@ -1625,6 +1653,7 @@ fun VideoPlayerView(
 // =========================================================================
 // 📺 VISTA DE IPTV (CON RECONEXIÓN AUTOMÁTICA EN TIEMPO REAL)
 // =========================================================================
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IptvPlayerView(
     theme: DashboardTheme,
@@ -1632,9 +1661,9 @@ fun IptvPlayerView(
 ) {
     val context = LocalContext.current
     val iptvPlayer = remember { SmartIptvPlayer.getInstance(context) }
-    var showFolderModal by remember { mutableStateOf(false) }
 
-    var favoriteChannels by remember { mutableStateOf(getSavedIptvFavoriteChannels(context)) }
+    // Cambiado de modal de carpetas a diálogo de URL remota
+    var showUrlModal by remember { mutableStateOf(false) }
 
     val currentChannel = iptvPlayer.playlist.getOrNull(iptvPlayer.currentChannelIndex)
     val buttonScale = LocalButtonScale.current
@@ -1645,7 +1674,7 @@ fun IptvPlayerView(
     // 📡 ESTADO DE INTERNET EN TIEMPO REAL
     var isOnline by remember { mutableStateOf(iptvPlayer.isConnectedToInternet()) }
 
-    // 🔄 MONITOR DE CONEXIÓN EN TIEMPO REAL (AUTO-RECONEXIÓN AL ENCENDER EL CARRO)
+    // 🔄 MONITOR DE CONEXIÓN EN TIEMPO REAL
     LaunchedEffect(Unit) {
         while (isActive) {
             val connected = iptvPlayer.isConnectedToInternet()
@@ -1658,26 +1687,7 @@ fun IptvPlayerView(
                     iptvPlayer.playChannelAtIndex(targetIndex)
                 }
             }
-            delay(2000L) // Monitorear red cada 2 segundos
-        }
-    }
-
-    LaunchedEffect(favoriteChannels, iptvPlayer.playlist.size) {
-        if (favoriteChannels.isNotEmpty()) {
-            val combined = (favoriteChannels + iptvPlayer.playlist).distinctBy { it.streamUrl }
-            try {
-                val list = iptvPlayer.playlist
-                if (list is MutableList<*>) {
-                    @Suppress("UNCHECKED_CAST")
-                    val mutableList = list as MutableList<IptvChannel>
-                    if (mutableList.size != combined.size || !mutableList.containsAll(favoriteChannels)) {
-                        mutableList.clear()
-                        mutableList.addAll(combined)
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            delay(2000L)
         }
     }
 
@@ -1803,14 +1813,29 @@ fun IptvPlayerView(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
+            // Estado vacío cuando no hay lista cargada
             Column(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Icon(Icons.Default.Tv, contentDescription = null, tint = theme.accentCyan, modifier = Modifier.size(40.dp))
+                Icon(
+                    imageVector = Icons.Default.Tv,
+                    contentDescription = null,
+                    tint = theme.accentCyan,
+                    modifier = Modifier.size(40.dp)
+                )
                 Spacer(modifier = Modifier.height(6.dp))
-                Text("Carga una lista .m3u desde tu USB", color = Color.Gray, fontSize = 11.sp)
+                Text("Carga una lista remota (.m3u) ingresando la URL", color = Color.Gray, fontSize = 11.sp)
+                Spacer(modifier = Modifier.height(10.dp))
+                Button(
+                    onClick = { showUrlModal = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text("Ingresar Enlace", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
 
@@ -1868,14 +1893,15 @@ fun IptvPlayerView(
                         }
                     }
 
+                    // Botón de enlace remoto (reemplaza el de carpeta local)
                     IconButton(
                         onClick = {
-                            showFolderModal = true
+                            showUrlModal = true
                             showUI = true
                         },
                         modifier = Modifier.size(32.dp)
                     ) {
-                        Icon(Icons.Default.FolderOpen, contentDescription = "USB", tint = theme.accentCyan, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.Link, contentDescription = "Configurar URL", tint = theme.accentCyan, modifier = Modifier.size(22.dp))
                     }
                 }
 
@@ -1927,6 +1953,24 @@ fun IptvPlayerView(
                         Text("CH +", color = Color.White, fontSize = (11 * buttonScale).sp, fontWeight = FontWeight.Bold)
                     }
 
+                    // Botón de Favorito ⭐ (para conservar el orden/acceso rápido)
+                    if (currentChannel != null) {
+                        val isFav = iptvPlayer.isFavorite(currentChannel)
+                        IconButton(
+                            onClick = {
+                                iptvPlayer.toggleFavorite(currentChannel)
+                            },
+                            modifier = Modifier.size((34 * buttonScale).dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isFav) Icons.Default.Star else Icons.Default.StarBorder,
+                                contentDescription = "Favoritos",
+                                tint = if (isFav) Color(0xFFFFD700) else theme.accentCyan,
+                                modifier = Modifier.size((22 * buttonScale).dp)
+                            )
+                        }
+                    }
+
                     IconButton(
                         onClick = {
                             try {
@@ -1949,28 +1993,137 @@ fun IptvPlayerView(
             }
         }
 
-        if (showFolderModal) {
-            FolderPickerModal(
+        // Diálogo / Cajuela de Entrada de la URL Remota
+        if (showUrlModal) {
+            RemoteUrlInputDialog(
+                theme = theme,
+                currentUrl = context.getSharedPreferences("smart_iptv_prefs", Context.MODE_PRIVATE)
+                    .getString("selected_playlist_url", "") ?: "",
                 onDismiss = {
-                    showFolderModal = false
+                    showUrlModal = false
                     showUI = true
                 },
-                onFolderSelected = { selectedFolder ->
-                    val m3uFile = selectedFolder.listFiles()?.firstOrNull {
-                        it.extension.lowercase() in listOf("m3u", "m3u8")
+                onConfirmUrl = { url ->
+                    if (url.isNotBlank()) {
+                        iptvPlayer.parseAndLoadM3uUrl(url.trim())
                     }
-                    if (m3uFile != null) {
-                        loadM3uAndPreserveFavorites(context, iptvPlayer, m3uFile)
-                        favoriteChannels = getSavedIptvFavoriteChannels(context)
-                    }
-                    showFolderModal = false
+                    showUrlModal = false
+                    showUI = true
                 }
             )
         }
     }
 }
 
-// =========================================================================
+// Composable del cuadro de diálogo personalizado para pegar la URL
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RemoteUrlInputDialog(
+    theme: DashboardTheme,
+    currentUrl: String,
+    onDismiss: () -> Unit,
+    onConfirmUrl: (String) -> Unit
+) {
+    var urlText by remember { mutableStateOf(currentUrl) }
+    val clipboardManager = LocalClipboardManager.current
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF16161F)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Configurar Lista IPTV Remota",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
+                // =========================================================================
+                // 💡 SECCIÓN DE URL SUGERIDA (Interactiva)
+                // =========================================================================
+                val suggestedUrl = "https://iptv-org.github.io/iptv/languages/spa.m3u"
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF1E1E28))
+                        .clickable {
+                            // Al tocarla se escribe sola y se copia al portapapeles
+                            urlText = suggestedUrl
+                            clipboardManager.setText(AnnotatedString(suggestedUrl))
+                        }
+                        .padding(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "💡 Enlace sugerido (Toca para copiar y usar):",
+                        color = Color.Gray,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = suggestedUrl,
+                        color = theme.accentCyan,
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.Center,
+                        textDecoration = TextDecoration.Underline,
+                        maxLines = 2
+                    )
+                }
+                // =========================================================================
+
+                OutlinedTextField(
+                    value = urlText,
+                    onValueChange = { urlText = it },
+                    label = { Text("Pegar enlace M3U", color = Color.Gray, fontSize = 11.sp) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = theme.accentCyan,
+                        unfocusedBorderColor = Color.Gray,
+                        focusedLabelColor = theme.accentCyan,
+                        unfocusedLabelColor = Color.Gray
+                    ),
+                    textStyle = TextStyle(fontSize = 12.sp),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancelar", color = Color.Gray, fontSize = 12.sp)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { onConfirmUrl(urlText) },
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("Guardar", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+//===========================================
 // 💾 FUNCIONES DE PERSISTENCIA GENERAL
 // =========================================================================
 fun saveMediaTabOrder(context: Context, newOrder: List<MediaMode>) {
