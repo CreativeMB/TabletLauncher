@@ -14,6 +14,7 @@
     <!-- ========================================== -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <!-- ========================================== -->
@@ -29,14 +30,13 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
-
-
     <!-- ========================================== -->
     <!-- 4. PERMISOS DE MICRÓFONO Y SERVICIOS       -->
     <!-- ========================================== -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- ========================================== -->
     <!-- 5. EXTRAS PARA TABLET / AUTO               -->
@@ -48,8 +48,10 @@
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!-- Permiso oficial para superponer ventanas tipo Car Launcher Pro -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 🚀 DECLARACIÓN DE ATRIBUCIÓN (Obligatorio en la raíz de manifest para Android 12+) -->
+    <attribution
+        android:tag="default"
+        android:label="@string/app_name" />
 
     <queries>
         <intent>
@@ -106,18 +108,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
         <service
             android:name=".FloatingMediaService"
             android:enabled="true"
             android:exported="false" />
+
         <service
             android:name=".FloatingSpeedometerService"
             android:foregroundServiceType="location"
             android:enabled="true"
-            android:exported="false"
-            />
+            android:exported="false" />
 
     </application>
-
 
 </manifest>

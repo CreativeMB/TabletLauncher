@@ -1,6 +1,9 @@
 package com.creativem.toblauncher
 
 import android.Manifest
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -20,6 +23,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.*
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.*
 import kotlin.math.cos
@@ -33,6 +37,7 @@ class FloatingSpeedometerService : Service() {
 
     private var fusedLocationClient: FusedLocationProviderClient? = null
     private var locationCallback: LocationCallback? = null
+    private var lastLocation: Location? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private var btnCloseView: ImageButton? = null
@@ -55,12 +60,11 @@ class FloatingSpeedometerService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        return START_STICKY
-    }
-
     override fun onCreate() {
         super.onCreate()
+
+        // Notificación de primer plano protegida contra fallos
+        startForegroundServiceNotification()
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
@@ -84,11 +88,8 @@ class FloatingSpeedometerService : Service() {
         val responsiveWidth = (screenWidth * 0.22f).toInt().coerceIn((170 * density).toInt(), (380 * density).toInt())
         val responsiveHeight = responsiveWidth
 
-        val marginX = 0
-        val marginY = 0
-
-        val defaultX = screenWidth - responsiveWidth - marginX
-        val defaultY = screenHeight - responsiveHeight - marginY
+        val defaultX = screenWidth - responsiveWidth
+        val defaultY = screenHeight - responsiveHeight
 
         val params = WindowManager.LayoutParams(
             responsiveWidth,
@@ -275,6 +276,40 @@ class FloatingSpeedometerService : Service() {
         startGpsUpdates()
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startForegroundServiceNotification()
+        return START_STICKY
+    }
+
+    private fun startForegroundServiceNotification() {
+        val channelId = "speedometer_floating_channel"
+        val channelName = "Velocímetro Flotante"
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId,
+                channelName,
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(channel)
+        }
+
+        val notification: Notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Velocímetro Activo")
+            .setContentText("Capturando velocidad GPS")
+            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .build()
+
+        try {
+            startForeground(1001, notification)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     private fun startGpsUpdates() {
         val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -302,11 +337,21 @@ class FloatingSpeedometerService : Service() {
     }
 
     private fun processNewLocation(location: Location) {
-        val speedKmH = if (location.hasSpeed()) {
-            (location.speed * 3.6f).coerceAtLeast(0f)
-        } else {
-            0f
+        var speedKmH = 0f
+
+        if (location.hasSpeed() && location.speed > 0f) {
+            speedKmH = location.speed * 3.6f
+        } else if (lastLocation != null) {
+            val distanceMeters = location.distanceTo(lastLocation!!)
+            val timeSeconds = (location.time - lastLocation!!.time) / 1000f
+            if (timeSeconds > 0) {
+                speedKmH = (distanceMeters / timeSeconds) * 3.6f
+            }
         }
+
+        lastLocation = location
+
+        if (speedKmH < 1.5f) speedKmH = 0f
 
         analogGaugeView?.currentSpeed = speedKmH
     }
@@ -330,9 +375,19 @@ class FloatingSpeedometerService : Service() {
         fun start(context: Context) {
             try {
                 val intent = Intent(context, FloatingSpeedometerService::class.java)
-                context.startService(intent) // 🚀 Servicio estándar sin riesgo de crash
+                // 🚀 USAR startService DIRECTO
+                // Como es una burbuja WindowManager dibujada en pantalla, no requiere startForegroundService estricto.
+                context.startService(intent)
             } catch (e: Exception) {
                 e.printStackTrace()
+                try {
+                    val intent = Intent(context, FloatingSpeedometerService::class.java)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        ContextCompat.startForegroundService(context, intent)
+                    }
+                } catch (ex: Exception) {
+                    ex.printStackTrace()
+                }
             }
         }
 
@@ -366,7 +421,7 @@ class AnalogGaugeView(
     var currentSpeed: Float = 0f
         set(value) {
             field = value
-            invalidate()
+            postInvalidate()
         }
 
     private val arcPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
