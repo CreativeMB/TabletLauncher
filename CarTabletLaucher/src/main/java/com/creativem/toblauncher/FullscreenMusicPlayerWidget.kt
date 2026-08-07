@@ -140,12 +140,12 @@ fun FullscreenMusicPlayerWidget(
 
                         Spacer(modifier = Modifier.height(20.dp))
 
+                        // Título de la canción actual (Nombre completo)
                         Text(
                             text = currentTrack?.title ?: "Sin Canción",
                             color = Color.White,
                             fontSize = 18.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 2
+                            fontWeight = FontWeight.ExtraBold
                         )
 
                         Spacer(modifier = Modifier.height(4.dp))
@@ -158,7 +158,7 @@ fun FullscreenMusicPlayerWidget(
                     }
                 }
 
-                // PANEL DERECHO: LISTA DE REPRODUCCIÓN COMPLETA (LAZYCOLUMN)
+                // PANEL DERECHO: LISTA DE REPRODUCCIÓN CON NOMBRES COMPLETOS
                 Box(
                     modifier = Modifier
                         .weight(1.1f)
@@ -190,11 +190,11 @@ fun FullscreenMusicPlayerWidget(
                                         .background(if (isSelected) theme.accentCyan.copy(alpha = 0.2f) else Color.Transparent)
                                         .clickable { musicPlayer.playTrackAtIndex(index) }
                                         .padding(horizontal = 12.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
+                                    verticalAlignment = Alignment.Top, // Alineación superior para soportar títulos multilínea
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Row(
-                                        verticalAlignment = Alignment.CenterVertically,
+                                        verticalAlignment = Alignment.Top,
                                         modifier = Modifier.weight(1f)
                                     ) {
                                         Text(
@@ -205,12 +205,13 @@ fun FullscreenMusicPlayerWidget(
                                             modifier = Modifier.width(30.dp)
                                         )
 
+                                        // NOMBRE COMPLETO DE LA CANCIÓN SIN CORTAR
                                         Text(
                                             text = track.title,
                                             color = if (isSelected) Color.White else Color.LightGray,
                                             fontSize = 13.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            maxLines = 1
+                                            lineHeight = 17.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                         )
                                     }
 
@@ -219,7 +220,9 @@ fun FullscreenMusicPlayerWidget(
                                             imageVector = Icons.Default.GraphicEq,
                                             contentDescription = "Reproduciendo",
                                             tint = theme.accentCyan,
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier
+                                                .padding(top = 2.dp)
+                                                .size(18.dp)
                                         )
                                     }
                                 }
@@ -231,7 +234,7 @@ fun FullscreenMusicPlayerWidget(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // --- 3. BARRA INFERIOR DE REPRODUCCIÓN Y BOTONES GIGANTES ---
+            // --- 3. BARRA INFERIOR DE REPRODUCCIÓN Y BOTONES ---
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF14141E)),
@@ -326,7 +329,7 @@ fun FullscreenMusicPlayerWidget(
             }
         }
 
-        // --- VENTANA EMERGENTE: EXPLORADOR CON BOTÓN "SELECCIONAR ESTA CARPETA" ---
+        // --- VENTANA EMERGENTE: EXPLORADOR ---
         if (showFolderModal) {
             FolderPickerModal(
                 onDismiss = { showFolderModal = false },
@@ -383,7 +386,6 @@ fun FolderPickerModal(
         },
         text = {
             Column(modifier = Modifier.height(280.dp)) {
-                // Selector rápido (Memoria Interna vs memorias USB)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -408,7 +410,6 @@ fun FolderPickerModal(
                     }
                 }
 
-                // Botón para subir de nivel
                 if (currentDir.parentFile != null && currentDir.parentFile?.canRead() == true && currentDir.absolutePath != "/storage") {
                     Row(
                         modifier = Modifier
@@ -426,7 +427,6 @@ fun FolderPickerModal(
                     Spacer(modifier = Modifier.height(6.dp))
                 }
 
-                // Lista de Subcarpetas
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(subfolders) { folder ->
                         Row(
@@ -446,7 +446,6 @@ fun FolderPickerModal(
             }
         },
         confirmButton = {
-            // BOTÓN PRINCIPAL PROMINENTE: SELECCIONAR ESTA CARPETA
             Button(
                 onClick = {
                     onFolderSelected(currentDir)

@@ -39,22 +39,38 @@ data class AndroidInstalledApp(
     val iconBitmap: Bitmap
 )
 
+// =======================================================================
+// FUNCIÓN DE GUARDADO DINÁMICO PARA CUALQUIER NÚMERO DE SLOT (101 A 120+)
+// =======================================================================
+fun saveSelectedAppForSlot(context: Context, slotId: Int, packageName: String) {
+    if (slotId in 1..2) {
+        // Guardado para los accesos del Velocímetro
+        val prefs = context.getSharedPreferences("speedometer_apps_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("slot_$slotId", packageName).apply()
+    } else if (slotId >= 101) {
+        // Guardado dinámico para la cuadrícula (101, 102, 103... 109, 112, etc.)
+        val prefs = context.getSharedPreferences("custom_grid_apps_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("grid_slot_$slotId", packageName).apply()
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FullscreenAppDrawerWidget(
     title: String = "APLICACIONES DE LA TABLET",
+    selectedSlotId: Int? = null, // Recibe la ranura a la que se asignará la app
     onClose: () -> Unit,
     onAppSelected: ((packageName: String) -> Unit)? = null
 ) {
     val context = LocalContext.current
-    val theme = LocalDashboardTheme.current // OBTIENE EL TEMA DINÁMICO
-    val isBold = LocalIsBoldText.current    // OBTIENE LA NEGRITA
+    val theme = LocalDashboardTheme.current
+    val isBold = LocalIsBoldText.current
 
     var searchQuery by remember { mutableStateOf("") }
     var installedApps by remember { mutableStateOf<List<AndroidInstalledApp>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // LECTOR REAL DEL SISTEMA ANDROID DE LA TABLET (PackageManager)
+    // LECTOR DE APLICACIONES INSTALADAS EN LA TABLET
     LaunchedEffect(Unit) {
         installedApps = withContext(Dispatchers.IO) {
             val pm = context.packageManager
@@ -84,11 +100,10 @@ fun FullscreenAppDrawerWidget(
         }
     }
 
-    // PANTALLA COMPLETA TOTAL (FONDO DEL TEMA ACTUAL)
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(theme.dashBackground) // CORRECCIÓN AQUÍ
+            .background(theme.dashBackground)
             .padding(24.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -110,8 +125,8 @@ fun FullscreenAppDrawerWidget(
                     ) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Volver al Tablero",
-                            tint = theme.accentCyan // COLOR DEL TEMA
+                            contentDescription = "Volver",
+                            tint = theme.accentCyan
                         )
                     }
                     Spacer(modifier = Modifier.width(16.dp))
@@ -124,11 +139,11 @@ fun FullscreenAppDrawerWidget(
                     )
                 }
 
-                // BARRA BÚSQUEDA TÁCTIL
+                // BARRA DE BÚSQUEDA TÁCTIL
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Buscar en la tablet...", color = Color.Gray, fontSize = 14.sp) },
+                    placeholder = { Text("Buscar aplicación...", color = Color.Gray, fontSize = 5.sp) },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = theme.accentCyan) },
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) {
@@ -153,23 +168,23 @@ fun FullscreenAppDrawerWidget(
                 )
             }
 
-            // CUADRÍCULA PANTALLA COMPLETA CON TODAS LAS APPS INSTALADAS
+            // CUADRÍCULA PANTALLA COMPLETA
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = theme.accentCyan)
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Leyendo aplicaciones instaladas...",
+                            text = "Cargando aplicaciones...",
                             color = Color.Gray,
-                            fontSize = 14.sp,
+                            fontSize = 10.sp,
                             fontWeight = if (isBold) FontWeight.Bold else FontWeight.Medium
                         )
                     }
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(6), // 6 Columnas táctiles para la tablet
+                    columns = GridCells.Fixed(6), // 6 Columnas táctiles
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxSize()
@@ -180,14 +195,16 @@ fun FullscreenAppDrawerWidget(
                             theme = theme,
                             isBold = isBold,
                             onClick = {
-                                if (onAppSelected != null) {
-                                    onAppSelected(app.packageName)
-                                } else {
-                                    val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
-                                    if (launchIntent != null) {
-                                        context.startActivity(launchIntent)
-                                    }
+                                // Guardado automático si se especificó la ranura
+                                if (selectedSlotId != null) {
+                                    saveSelectedAppForSlot(context, selectedSlotId, app.packageName)
                                 }
+
+                                // Notifica a la devolución de llamada
+                                onAppSelected?.invoke(app.packageName)
+
+                                // Cierra la pantalla de selección y vuelve al tablero
+                                onClose()
                             }
                         )
                     }
@@ -229,7 +246,7 @@ private fun AppTileCard(
             Text(
                 text = app.appName,
                 color = Color.White,
-                fontSize = 12.sp,
+                fontSize = 5.sp,
                 fontWeight = if (isBold) FontWeight.Bold else FontWeight.Medium,
                 textAlign = TextAlign.Center,
                 maxLines = 1,

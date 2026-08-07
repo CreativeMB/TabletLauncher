@@ -23,5 +23,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Tablet Launcher"
-include(":app")
+include(":CarTabletLaucher")
  
