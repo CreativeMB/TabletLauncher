@@ -135,7 +135,7 @@ class FloatingMediaService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-        val initialWidth = (screenWidth * 0.50f).toInt().coerceIn((200 * density).toInt(), (800 * density).toInt())
+        val initialWidth = (screenWidth * 0.40f).toInt().coerceIn((200 * density).toInt(), (800 * density).toInt())
         val initialHeight = if (activeMode == MediaMode.VIDEO || activeMode == MediaMode.IPTV) {
             (initialWidth * 9) / 16
         } else {

@@ -420,7 +420,7 @@ private fun ComposeColor.toAndroidColorInt(): Int {
 }
 
 /**
- * 🌌 AnalogGaugeView con Alineación Geométrica Exacta
+ * 🌌 AnalogGaugeView con Alineación Geométrica y Estética Idéntica a ModernSpeedometerWidget
  */
 class AnalogGaugeView(
     context: Context,
@@ -436,7 +436,7 @@ class AnalogGaugeView(
             postInvalidate()
         }
 
-    private val baseTypeface = if (isBoldText) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+    private val baseTypeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
 
     // Pinceles
     private val arcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
@@ -485,19 +485,22 @@ class AnalogGaugeView(
         if (w <= 0f || h <= 0f) return
 
         val density = resources.displayMetrics.density
+        val scaledDensity = resources.displayMetrics.scaledDensity
 
         val center = PointF(w / 2f, h / 2f)
         val minDim = Math.min(w, h)
+        val maxDim = Math.max(w, h)
 
-        val outerMargin = 16f * density
+        // Exactas proporciones calculadas según ModernSpeedometerWidget (Canvas padding 4dp)
+        val outerMargin = 4f * density
         val maxRadius = (minDim / 2f) - outerMargin
-        val strokeWidthPx = 8f * density
+        val strokeWidthPx = 12f * density
 
-        val arcRadius = maxRadius - (10f * density)
+        val arcRadius = maxRadius - (strokeWidthPx / 2f)
         val innerArcEdge = arcRadius - (strokeWidthPx / 2f)
         val ticksRadius = innerArcEdge - (2f * density)
-        val textRadius = ticksRadius - (18f * density)
-        val needleLength = innerArcEdge - (8f * density)
+        val textRadius = ticksRadius - (36f * density)
+        val needleLength = innerArcEdge - (14f * density)
 
         val totalSpeed = 150f
         val speedProgress = (currentSpeed / totalSpeed).coerceIn(0f, 1f)
@@ -511,20 +514,20 @@ class AnalogGaugeView(
             lerpColor(secondaryColor, warningColor, fraction)
         }
 
-        // 🌌 2. FONDO CÓNCAVO CÍRCULO
+        // 🌌 2. FONDO CÓNCAVO BASE
         val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = RadialGradient(
-                center.x, center.y, maxRadius * 1.1f,
+                center.x, center.y, Math.max(maxRadius * 1.2f, 450f),
                 intArrayOf(AndroidColor.parseColor("#1A2232"), AndroidColor.parseColor("#0A0E16")),
                 floatArrayOf(0f, 1f), Shader.TileMode.CLAMP
             )
         }
         canvas.drawCircle(center.x, center.y, maxRadius, bgPaint)
 
-        // 🌌 3. RAYOS 3D / HUD DESDE EL CÍRCULO HACIA AFUERA
+        // 🌌 3. RAYOS 3D / HUD DESDE EL CÍRCULO HASTA EL BORDES EXTERIORES
         val rayCount = 36
         val rayStartRadius = arcRadius + (strokeWidthPx / 2f) + (2f * density)
-        val rayEndRadius = maxRadius - (2f * density)
+        val outerBoxExtent = maxDim
 
         for (i in 0 until rayCount) {
             val rayAngleDeg = i * (360f / rayCount)
@@ -532,8 +535,8 @@ class AnalogGaugeView(
 
             val rx1 = center.x + rayStartRadius * cos(rayAngleRad).toFloat()
             val ry1 = center.y + rayStartRadius * sin(rayAngleRad).toFloat()
-            val rx2 = center.x + rayEndRadius * cos(rayAngleRad).toFloat()
-            val ry2 = center.y + rayEndRadius * sin(rayAngleRad).toFloat()
+            val rx2 = center.x + outerBoxExtent * cos(rayAngleRad).toFloat()
+            val ry2 = center.y + outerBoxExtent * sin(rayAngleRad).toFloat()
 
             val currentSpeedAngle = 135f + (270f * speedProgress)
             val angleDiff = abs(rayAngleDeg - currentSpeedAngle)
@@ -551,7 +554,7 @@ class AnalogGaugeView(
                 ),
                 floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP
             )
-            linePaint.strokeWidth = if (isNearNeedle) 1.6f * density else 1.0f * density
+            linePaint.strokeWidth = if (isNearNeedle) 1.8f * density else 1.0f * density
             canvas.drawLine(rx1, ry1, rx2, ry2, linePaint)
         }
         linePaint.shader = null
@@ -559,15 +562,20 @@ class AnalogGaugeView(
         // 🌌 4. ANILLOS CONCÉNTRICOS DE PROFUNDIDAD
         val dashedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 1.0f * density
-            pathEffect = DashPathEffect(floatArrayOf(6f, 10f), 0f)
+            strokeWidth = 1.2f * density
+            pathEffect = DashPathEffect(floatArrayOf(8f * density, 12f * density), 0f)
             shader = SweepGradient(
                 center.x, center.y,
-                intArrayOf(primaryColor, secondaryColor, warningColor, primaryColor),
+                intArrayOf(
+                    AndroidColor.argb((0.12f * 255).toInt(), AndroidColor.red(primaryColor), AndroidColor.green(primaryColor), AndroidColor.blue(primaryColor)),
+                    AndroidColor.argb((0.18f * 255).toInt(), AndroidColor.red(secondaryColor), AndroidColor.green(secondaryColor), AndroidColor.blue(secondaryColor)),
+                    AndroidColor.argb((0.08f * 255).toInt(), AndroidColor.red(warningColor), AndroidColor.green(warningColor), AndroidColor.blue(warningColor)),
+                    AndroidColor.argb((0.12f * 255).toInt(), AndroidColor.red(primaryColor), AndroidColor.green(primaryColor), AndroidColor.blue(primaryColor))
+                ),
                 null
             )
         }
-        for (rOffset in floatArrayOf(4f * density, 8f * density)) {
+        for (rOffset in floatArrayOf(8f * density, 18f * density, 28f * density)) {
             canvas.drawCircle(center.x, center.y, arcRadius + (strokeWidthPx / 2f) + rOffset, dashedPaint)
         }
 
@@ -579,8 +587,8 @@ class AnalogGaugeView(
         arcPaint.shader = SweepGradient(
             center.x, center.y,
             intArrayOf(
-                AndroidColor.argb(60, AndroidColor.red(secondaryColor), AndroidColor.green(secondaryColor), AndroidColor.blue(secondaryColor)),
-                AndroidColor.argb(60, AndroidColor.red(primaryColor), AndroidColor.green(primaryColor), AndroidColor.blue(primaryColor))
+                AndroidColor.argb((0.25f * 255).toInt(), AndroidColor.red(secondaryColor), AndroidColor.green(secondaryColor), AndroidColor.blue(secondaryColor)),
+                AndroidColor.argb((0.25f * 255).toInt(), AndroidColor.red(primaryColor), AndroidColor.green(primaryColor), AndroidColor.blue(primaryColor))
             ), null
         )
         canvas.drawArc(arcRect, 135f, 270f, false, arcPaint)
@@ -589,14 +597,14 @@ class AnalogGaugeView(
         // 🌌 6. ARCO DE ZONA DE ADVERTENCIA (> 120 KM/H)
         val redZoneStartAngle = 135f + (120f / totalSpeed) * 270f
         val redZoneSweepAngle = (30f / totalSpeed) * 270f
-        arcPaint.color = AndroidColor.argb(200, AndroidColor.red(warningColor), AndroidColor.green(warningColor), AndroidColor.blue(warningColor))
+        arcPaint.color = AndroidColor.argb((0.8f * 255).toInt(), AndroidColor.red(warningColor), AndroidColor.green(warningColor), AndroidColor.blue(warningColor))
         canvas.drawArc(arcRect, redZoneStartAngle, redZoneSweepAngle, false, arcPaint)
 
         // 🌌 7. BARRA DE VELOCIDAD ACTIVA
         if (speedProgress > 0f) {
             // Resplandor (Glow)
-            arcPaint.color = AndroidColor.argb(90, AndroidColor.red(dynamicSpeedColor), AndroidColor.green(dynamicSpeedColor), AndroidColor.blue(dynamicSpeedColor))
-            arcPaint.strokeWidth = strokeWidthPx * 1.4f
+            arcPaint.color = AndroidColor.argb((0.35f * 255).toInt(), AndroidColor.red(dynamicSpeedColor), AndroidColor.green(dynamicSpeedColor), AndroidColor.blue(dynamicSpeedColor))
+            arcPaint.strokeWidth = strokeWidthPx * 1.5f
             canvas.drawArc(arcRect, 135f, 270f * speedProgress, false, arcPaint)
 
             // Arco Sólido
@@ -606,8 +614,8 @@ class AnalogGaugeView(
         }
 
         // 🌌 8. TICKS Y NÚMEROS
-        textPaintDimmed.textSize = 8.5f * density
-        textPaintActive.textSize = 10.0f * density
+        textPaintDimmed.textSize = 15.5f * scaledDensity
+        textPaintActive.textSize = 17.0f * scaledDensity
 
         for (s in 0..totalSpeed.toInt() step 5) {
             val angleDeg = 135f + (s.toFloat() / totalSpeed) * 270f
@@ -617,9 +625,9 @@ class AnalogGaugeView(
             val isMediumTick = (s % 10 == 0 && !isMainTick)
 
             val tickLength = when {
-                isMainTick -> 8f * density
-                isMediumTick -> 5f * density
-                else -> 2.8f * density
+                isMainTick -> 10f * density
+                isMediumTick -> 6f * density
+                else -> 3.5f * density
             }
 
             val tickStartR = ticksRadius
@@ -636,23 +644,23 @@ class AnalogGaugeView(
                 s >= 120 -> warningColor
                 isPassed -> dynamicSpeedColor
                 isMainTick -> AndroidColor.WHITE
-                else -> AndroidColor.argb(120, 128, 128, 128)
+                else -> AndroidColor.argb(128, 128, 128, 128)
             }
 
-            // Sombra tick
-            linePaint.color = AndroidColor.argb(180, 0, 0, 0)
-            linePaint.strokeWidth = if (isMainTick) 3.0f * density else 1.6f * density
+            // Sombra tick (0.7f alpha black)
+            linePaint.color = AndroidColor.argb((0.7f * 255).toInt(), 0, 0, 0)
+            linePaint.strokeWidth = if (isMainTick) 3.5f * density else 1.8f * density
             canvas.drawLine(sx + 1f, sy + 1f, ex + 1f, ey + 1f, linePaint)
 
             // Tick principal
             linePaint.color = tickColor
-            linePaint.strokeWidth = if (isMainTick) 2.5f * density else if (isMediumTick) 1.5f * density else 1.0f * density
+            linePaint.strokeWidth = if (isMainTick) 3.0f * density else if (isMediumTick) 1.8f * density else 1.0f * density
             canvas.drawLine(sx, sy, ex, ey, linePaint)
 
             // Números del Dial
             if (isMainTick) {
                 val numX = center.x + textRadius * cos(angleRad).toFloat()
-                val numY = center.y + textRadius * sin(angleRad).toFloat() + (3.0f * density)
+                val numY = center.y + textRadius * sin(angleRad).toFloat() + (3.5f * density)
 
                 canvas.drawText(
                     s.toString(),
@@ -669,35 +677,32 @@ class AnalogGaugeView(
         val needleEndY = center.y + (needleLength * sin(needleAngleRad)).toFloat()
 
         // Sombra aguja
-        needlePaint.color = AndroidColor.argb(180, 0, 0, 0)
-        needlePaint.strokeWidth = 3.5f * density
-        canvas.drawLine(center.x + 2f, center.y + 2f, needleEndX + 2f, needleEndY + 2f, needlePaint)
+        needlePaint.color = AndroidColor.argb((0.7f * 255).toInt(), 0, 0, 0)
+        needlePaint.strokeWidth = 4.0f * density
+        canvas.drawLine(center.x + 3f * density, center.y + 3f * density, needleEndX + 3f * density, needleEndY + 3f * density, needlePaint)
 
         // Aguja
         needlePaint.color = dynamicSpeedColor
-        needlePaint.strokeWidth = 2.5f * density
+        needlePaint.strokeWidth = 3.0f * density
         canvas.drawLine(center.x, center.y, needleEndX, needleEndY, needlePaint)
 
         // Pivote Multicapa
         needlePaint.color = AndroidColor.BLACK
-        canvas.drawCircle(center.x, center.y, 6.0f * density, needlePaint)
+        canvas.drawCircle(center.x, center.y, 7.0f * density, needlePaint)
         needlePaint.color = primaryColor
-        canvas.drawCircle(center.x, center.y, 4.0f * density, needlePaint)
+        canvas.drawCircle(center.x, center.y, 5.0f * density, needlePaint)
         needlePaint.color = AndroidColor.WHITE
-        canvas.drawCircle(center.x, center.y, 1.8f * density, needlePaint)
+        canvas.drawCircle(center.x, center.y, 2.0f * density, needlePaint)
 
         // 🌌 10. TEXTO DIGITAL DE VELOCIDAD POSICIONADO EXACTAMENTE
         digitalSpeedPaint.textSize = minDim * 0.20f
         digitalUnitPaint.textSize = (minDim * 0.048f).coerceAtLeast(8f * density)
         digitalUnitPaint.color = dynamicSpeedColor
 
-        // Límite superior: Pivote central (center.y)
-        // Límite inferior: Borde interno del círculo (center.y + arcRadius)
         val regionTop = center.y
         val regionBottom = center.y + arcRadius
         val regionMidpoint = (regionTop + regionBottom) / 2f
 
-        // Cálculo exacto de la altura del número digital para centrar su medio en regionMidpoint
         val digitalText = "${currentSpeed.toInt()}"
         val speedBounds = Rect()
         digitalSpeedPaint.getTextBounds(digitalText, 0, digitalText.length, speedBounds)

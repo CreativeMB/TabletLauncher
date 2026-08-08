@@ -116,7 +116,7 @@ fun ModernSpeedometerWidget(
                 val arcRadius = maxRadius - (strokeWidthPx / 2f)
                 val innerArcEdge = arcRadius - (strokeWidthPx / 2f)
                 val ticksRadius = innerArcEdge - 2.dp.toPx()
-                val textRadius = ticksRadius - 26.dp.toPx()
+                val textRadius = ticksRadius - 36.dp.toPx()
                 val needleLength = innerArcEdge - 14.dp.toPx()
 
                 val totalSpeed = 150
@@ -246,7 +246,7 @@ fun ModernSpeedometerWidget(
                 // 4. ESTILOS DE NÚMEROS
                 val textPaintDimmed = AndroidPaint().apply {
                     color = android.graphics.Color.argb(180, 180, 195, 210)
-                    textSize = 10.5.sp.toPx()
+                    textSize = 15.5.sp.toPx()
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textAlign = AndroidPaint.Align.CENTER
                     isAntiAlias = true
@@ -254,7 +254,7 @@ fun ModernSpeedometerWidget(
 
                 val textPaintActive = AndroidPaint().apply {
                     color = android.graphics.Color.WHITE
-                    textSize = 12.sp.toPx()
+                    textSize = 17.sp.toPx()
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textAlign = AndroidPaint.Align.CENTER
                     isAntiAlias = true
