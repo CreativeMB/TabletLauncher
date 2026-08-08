@@ -246,7 +246,7 @@ fun ModernSpeedometerWidget(
                 // 4. ESTILOS DE NÚMEROS
                 val textPaintDimmed = AndroidPaint().apply {
                     color = android.graphics.Color.argb(180, 180, 195, 210)
-                    textSize = 15.5.sp.toPx()
+                    textSize = 14.5.sp.toPx()
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textAlign = AndroidPaint.Align.CENTER
                     isAntiAlias = true
@@ -254,7 +254,7 @@ fun ModernSpeedometerWidget(
 
                 val textPaintActive = AndroidPaint().apply {
                     color = android.graphics.Color.WHITE
-                    textSize = 17.sp.toPx()
+                    textSize =16.sp.toPx()
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textAlign = AndroidPaint.Align.CENTER
                     isAntiAlias = true

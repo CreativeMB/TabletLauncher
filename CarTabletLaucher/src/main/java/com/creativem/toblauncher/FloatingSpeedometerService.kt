@@ -87,7 +87,7 @@ class FloatingSpeedometerService : Service() {
         val screenHeight = displayMetrics.heightPixels
         val density = displayMetrics.density
 
-        val responsiveWidth = (screenWidth * 0.28f).toInt().coerceIn((200 * density).toInt(), (420 * density).toInt())
+        val responsiveWidth = (screenWidth * 0.26f).toInt().coerceIn((200 * density).toInt(), (420 * density).toInt())
         val responsiveHeight = responsiveWidth
 
         val defaultX = screenWidth - responsiveWidth
@@ -614,8 +614,8 @@ class AnalogGaugeView(
         }
 
         // 🌌 8. TICKS Y NÚMEROS
-        textPaintDimmed.textSize = 15.5f * scaledDensity
-        textPaintActive.textSize = 17.0f * scaledDensity
+        textPaintDimmed.textSize = 20.5f * scaledDensity
+        textPaintActive.textSize = 22.0f * scaledDensity
 
         for (s in 0..totalSpeed.toInt() step 5) {
             val angleDeg = 135f + (s.toFloat() / totalSpeed) * 270f
