@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -34,7 +35,11 @@ class FloatingMediaService : Service() {
     private var btnExpandView: ImageButton? = null
     private var resizeHandleView: TextView? = null
 
-    // Referencias para actualizar dinámicamente
+    // 🎛️ Barra de controles flotante transparente
+    private var overlayControlsBar: View? = null
+    private var btnPlayPauseDynamicView: ImageButton? = null
+
+    // Referencias de datos
     private var txtMusicTitleView: TextView? = null
     private var lastObservedTrackIndex = -1
 
@@ -45,29 +50,46 @@ class FloatingMediaService : Service() {
     private var iptvVideoView: VideoView? = null
     private var lastObservedChannelIndex = -1
 
+    private var activeMode: MediaMode = MediaMode.VIDEO
+
+    // ⏱️ OCULTAR CONTROLES AUTOMÁTICAMENTE A LOS 6 SEGUNDOS
     private val hideControlsRunnable = Runnable {
         btnCloseView?.visibility = View.GONE
         btnExpandView?.visibility = View.GONE
         resizeHandleView?.visibility = View.GONE
+        overlayControlsBar?.visibility = View.GONE
     }
 
-    // Bucle continuo para detectar cambios de Canción, IPTV y Radio
+    // 🔄 MONITOR DE ESTADO Y CAMBIOS EN TIEMPO REAL
     private val mediaStateUpdateRunnable = object : Runnable {
         override fun run() {
             try {
                 val musicPlayer = SmartMusicPlayer.getInstance(this@FloatingMediaService)
                 val iptvPlayer = SmartIptvPlayer.getInstance(this@FloatingMediaService)
                 val radioPlayer = SmartRadioManager.getInstance(this@FloatingMediaService)
+                val videoPlayer = SmartVideoPlayer.getInstance(this@FloatingMediaService)
 
-                // 🎵 1. ACTUALIZAR NOMBRE DE CANCIÓN (SIN CARPETA)
-                if (musicPlayer.currentTrackIndex != lastObservedTrackIndex) {
+                // 1. Sincronizar estado Play/Pause en el botón dinámico
+                btnPlayPauseDynamicView?.let { btn ->
+                    val isPlaying = when (activeMode) {
+                        MediaMode.MUSIC -> musicPlayer.isPlaying
+                        MediaMode.VIDEO -> videoPlayer.isPlaying || videoPlayer.exoPlayer?.isPlaying == true
+                        MediaMode.IPTV -> iptvPlayer.isPlaying || iptvVideoView?.isPlaying == true
+                        MediaMode.RADIO -> radioPlayer.isPlaying
+                    }
+                    val iconRes = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+                    btn.setImageResource(iconRes)
+                }
+
+                // 🎵 2. MÚSICA
+                if (activeMode == MediaMode.MUSIC && musicPlayer.currentTrackIndex != lastObservedTrackIndex) {
                     lastObservedTrackIndex = musicPlayer.currentTrackIndex
                     val track = musicPlayer.playlist.getOrNull(lastObservedTrackIndex)
                     txtMusicTitleView?.text = "🎵 ${track?.title ?: "Música USB"}"
                 }
 
-                // 📺 2. CAMBIAR CANAL IPTV DINÁMICAMENTE
-                if (iptvPlayer.currentChannelIndex != lastObservedChannelIndex) {
+                // 📺 3. IPTV
+                if (activeMode == MediaMode.IPTV && iptvPlayer.currentChannelIndex != lastObservedChannelIndex) {
                     lastObservedChannelIndex = iptvPlayer.currentChannelIndex
                     val channel = iptvPlayer.playlist.getOrNull(lastObservedChannelIndex)
                     if (channel != null && iptvVideoView != null) {
@@ -77,8 +99,8 @@ class FloatingMediaService : Service() {
                     }
                 }
 
-                // 📻 3. ACTUALIZAR EMISORA DE RADIO
-                if (radioPlayer.currentStationIndex != lastObservedStationIndex) {
+                // 📻 4. RADIO
+                if (activeMode == MediaMode.RADIO && radioPlayer.currentStationIndex != lastObservedStationIndex) {
                     lastObservedStationIndex = radioPlayer.currentStationIndex
                     val station = radioPlayer.stationList.getOrNull(lastObservedStationIndex)
                     txtRadioTitleView?.text = "📻 ${station?.name ?: "Radio Online"}"
@@ -96,8 +118,10 @@ class FloatingMediaService : Service() {
         btnCloseView?.visibility = View.VISIBLE
         btnExpandView?.visibility = View.VISIBLE
         resizeHandleView?.visibility = View.VISIBLE
+        overlayControlsBar?.visibility = View.VISIBLE
+
         handler.removeCallbacks(hideControlsRunnable)
-        handler.postDelayed(hideControlsRunnable, 5000L)
+        handler.postDelayed(hideControlsRunnable, 6000L)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -114,7 +138,7 @@ class FloatingMediaService : Service() {
         val radioPlayer = SmartRadioManager.getInstance(this)
         val iptvPlayer = SmartIptvPlayer.getInstance(this)
 
-        val activeMode = when {
+        activeMode = when {
             videoPlayer.isPlaying || videoPlayer.exoPlayer?.isPlaying == true -> MediaMode.VIDEO
             iptvPlayer.isPlaying -> MediaMode.IPTV
             musicPlayer.isPlaying -> MediaMode.MUSIC
@@ -135,11 +159,12 @@ class FloatingMediaService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-        val initialWidth = (screenWidth * 0.40f).toInt().coerceIn((200 * density).toInt(), (800 * density).toInt())
+        // 🚗 Dimensiones anchas para botones táctiles de auto
+        val initialWidth = (screenWidth * 0.45f).toInt().coerceIn((260 * density).toInt(), (850 * density).toInt())
         val initialHeight = if (activeMode == MediaMode.VIDEO || activeMode == MediaMode.IPTV) {
             (initialWidth * 9) / 16
         } else {
-            (100 * density).toInt()
+            (145 * density).toInt()
         }
 
         val defaultX = screenWidth - initialWidth - (0 * density).toInt()
@@ -160,7 +185,7 @@ class FloatingMediaService : Service() {
         val rootLayout = FrameLayout(this).apply {
             background = GradientDrawable().apply {
                 setColor(theme.cardBackground.toAndroidColorInt())
-                cornerRadius = 16 * density
+                cornerRadius = 18 * density
                 setStroke((2 * density).toInt(), primaryColorInt)
             }
             clipToOutline = true
@@ -168,34 +193,32 @@ class FloatingMediaService : Service() {
 
         setupContent(rootLayout, activeMode, videoPlayer, iptvPlayer, musicPlayer, radioPlayer, theme, density)
 
-        // 🟢 BOTÓN CERRAR (Solo cierra la ventana flotante, NO PAUSA EL AUDIO/VIDEO)
+        // 🚗 BOTÓN CERRAR GIGANTE
         val btnClose = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
             background = GradientDrawable().apply {
-                setColor(AndroidColor.parseColor("#AA000000"))
+                setColor(AndroidColor.parseColor("#CC000000"))
                 shape = GradientDrawable.OVAL
             }
             setColorFilter(AndroidColor.parseColor("#FF5252"))
-            setPadding((4 * density).toInt(), (4 * density).toInt(), (4 * density).toInt(), (4 * density).toInt())
-            setOnClickListener {
-                stopSelf() // 🚀 Solo quita el widget flotante, la música o video continúa reproduciéndose
-            }
+            setPadding((6 * density).toInt(), (6 * density).toInt(), (6 * density).toInt(), (6 * density).toInt())
+            setOnClickListener { stopSelf() }
         }
         btnCloseView = btnClose
-        val closeParams = FrameLayout.LayoutParams((60 * density).toInt(), (60 * density).toInt(), Gravity.TOP or Gravity.START).apply {
+        val closeParams = FrameLayout.LayoutParams((52 * density).toInt(), (52 * density).toInt(), Gravity.TOP or Gravity.START).apply {
             setMargins((6 * density).toInt(), (6 * density).toInt(), 0, 0)
         }
         rootLayout.addView(btnCloseView, closeParams)
 
-        // 🟢 BOTÓN EXPANDIR (Regresa al Launcher, NO PAUSA LA MÚSICA)
+        // 🚗 BOTÓN EXPANDIR GIGANTE
         val btnExpand = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_crop)
             background = GradientDrawable().apply {
-                setColor(AndroidColor.parseColor("#AA000000"))
+                setColor(AndroidColor.parseColor("#CC000000"))
                 shape = GradientDrawable.OVAL
             }
             setColorFilter(primaryColorInt)
-            setPadding((4 * density).toInt(), (4 * density).toInt(), (4 * density).toInt(), (4 * density).toInt())
+            setPadding((6 * density).toInt(), (6 * density).toInt(), (6 * density).toInt(), (6 * density).toInt())
 
             setOnClickListener {
                 try {
@@ -208,16 +231,16 @@ class FloatingMediaService : Service() {
                 intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 startActivity(intent)
 
-                stopSelf() // Detiene el flotante, pero la música sigue porque no pusimos "pausePlayback()"
+                stopSelf()
             }
         }
         btnExpandView = btnExpand
-        val expandParams = FrameLayout.LayoutParams((60 * density).toInt(), (60 * density).toInt(), Gravity.TOP or Gravity.END).apply {
+        val expandParams = FrameLayout.LayoutParams((52 * density).toInt(), (52 * density).toInt(), Gravity.TOP or Gravity.END).apply {
             setMargins(0, (6 * density).toInt(), (6 * density).toInt(), 0)
         }
         rootLayout.addView(btnExpandView, expandParams)
 
-        // 🖐️ ARRASTRE FLOTANTE
+        // 🖐️ GESTO DE ARRASTRE FLOTANTE
         rootLayout.setOnTouchListener(object : View.OnTouchListener {
             private var dragWindowX = 0
             private var dragWindowY = 0
@@ -274,11 +297,11 @@ class FloatingMediaService : Service() {
         val handle = TextView(this).apply {
             text = " ↘ "
             setTextColor(primaryColorInt)
-            textSize = 30f
+            textSize = 26f
             typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
-                setColor(AndroidColor.parseColor("#88000000"))
-                cornerRadius = 4 * density
+                setColor(AndroidColor.parseColor("#99000000"))
+                cornerRadius = 6 * density
             }
         }
 
@@ -302,11 +325,11 @@ class FloatingMediaService : Service() {
                         val deltaX = (event.rawX - startTouchX).toInt()
                         val deltaY = (event.rawY - startTouchY).toInt()
 
-                        val newW = (startW + deltaX).coerceIn((160 * density).toInt(), screenWidth)
+                        val newW = (startW + deltaX).coerceIn((200 * density).toInt(), screenWidth)
                         val newH = if (activeMode == MediaMode.VIDEO || activeMode == MediaMode.IPTV) {
                             (newW * 9) / 16
                         } else {
-                            (startH + deltaY).coerceIn((60 * density).toInt(), screenHeight)
+                            (startH + deltaY).coerceIn((80 * density).toInt(), screenHeight)
                         }
 
                         params.width = newW
@@ -329,8 +352,6 @@ class FloatingMediaService : Service() {
         })
 
         resetControlsTimer()
-
-        // INICIAR MONITOR DE CAMBIOS
         handler.post(mediaStateUpdateRunnable)
 
         floatingRootView = rootLayout
@@ -362,6 +383,39 @@ class FloatingMediaService : Service() {
                 root.addView(videoPlayerView, FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
                 ))
+
+                // 🎬 CONTROLES DE VIDEO DIRECTOS CON SmartVideoPlayer
+                val controlsOverlay = createCarControlBar(
+                    density = density,
+                    primaryColor = theme.accentCyan.toAndroidColorInt(),
+                    onPrev = {
+                        try {
+                            video.playPreviousVideo() // 👈 MÉTODO REAL DE SmartVideoPlayer
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    },
+                    onPlayPause = {
+                        try {
+                            video.togglePlayPause() // 👈 MÉTODO REAL DE SmartVideoPlayer
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    },
+                    onNext = {
+                        try {
+                            video.playNextVideo() // 👈 MÉTODO REAL DE SmartVideoPlayer
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                )
+                overlayControlsBar = controlsOverlay
+                root.addView(controlsOverlay, FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                ).apply {
+                    setMargins(0, 0, 0, (8 * density).toInt())
+                })
             }
 
             MediaMode.IPTV -> {
@@ -379,9 +433,7 @@ class FloatingMediaService : Service() {
                         setOnPreparedListener { mp ->
                             try {
                                 mp.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING)
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
+                            } catch (e: Exception) { e.printStackTrace() }
                             iptv.bindMediaPlayer(mp)
                             mp.start()
                         }
@@ -391,30 +443,78 @@ class FloatingMediaService : Service() {
                     root.addView(videoView, FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
                     ))
+
+                    // 📺 CONTROLES DE IPTV
+                    val controlsOverlay = createCarControlBar(
+                        density = density,
+                        primaryColor = theme.accentCyan.toAndroidColorInt(),
+                        onPrev = {
+                            try {
+                                val prevIdx = if (iptv.currentChannelIndex - 1 < 0) iptv.playlist.size - 1 else iptv.currentChannelIndex - 1
+                                iptv.playChannelAtIndex(prevIdx)
+                            } catch (e: Exception) { e.printStackTrace() }
+                        },
+                        onPlayPause = {
+                            try {
+                                iptvVideoView?.let { v ->
+                                    if (v.isPlaying) v.pause() else v.start()
+                                }
+                            } catch (e: Exception) { e.printStackTrace() }
+                        },
+                        onNext = {
+                            try {
+                                val nextIdx = (iptv.currentChannelIndex + 1) % iptv.playlist.size
+                                iptv.playChannelAtIndex(nextIdx)
+                            } catch (e: Exception) { e.printStackTrace() }
+                        }
+                    )
+                    overlayControlsBar = controlsOverlay
+                    root.addView(controlsOverlay, FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                    ).apply {
+                        setMargins(0, 0, 0, (8 * density).toInt())
+                    })
                 }
             }
 
             MediaMode.MUSIC -> {
                 lastObservedTrackIndex = music.currentTrackIndex
                 val track = music.playlist.getOrNull(music.currentTrackIndex)
+
                 val info = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
-                    setPadding((12 * density).toInt(), (20 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+                    setPadding((10 * density).toInt(), (8 * density).toInt(), (10 * density).toInt(), (6 * density).toInt())
                 }
 
-                // 🎵 AQUÍ SE QUITÓ LA CARPETA, SOLO SE MUESTRA LA CANCIÓN
                 val txtTitle = TextView(this).apply {
                     text = "🎵 ${track?.title ?: "Música USB"}"
                     setTextColor(AndroidColor.WHITE)
-                    textSize = 14f // Lo hice un poco más grande ya que ahora es el único texto
+                    textSize = 14f
                     typeface = Typeface.DEFAULT_BOLD
                     gravity = Gravity.CENTER
+                    isSingleLine = true
+                    ellipsize = TextUtils.TruncateAt.END
                 }
-
                 txtMusicTitleView = txtTitle
-
                 info.addView(txtTitle)
+
+                // 🎵 CONTROLES DE MÚSICA GIGANTES
+                val controlsOverlay = createCarControlBar(
+                    density = density,
+                    primaryColor = theme.accentCyan.toAndroidColorInt(),
+                    onPrev = {
+                        try { music.playPreviousTrack() } catch (e: Exception) { e.printStackTrace() }
+                    },
+                    onPlayPause = {
+                        try { music.togglePlayPause() } catch (e: Exception) { e.printStackTrace() }
+                    },
+                    onNext = {
+                        try { music.playNextTrack(userTriggered = true) } catch (e: Exception) { e.printStackTrace() }
+                    }
+                )
+                info.addView(controlsOverlay)
+
                 root.addView(info, FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
                 ))
@@ -423,23 +523,24 @@ class FloatingMediaService : Service() {
             MediaMode.RADIO -> {
                 lastObservedStationIndex = radio.currentStationIndex
                 val station = radio.stationList.getOrNull(radio.currentStationIndex)
+
                 val info = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
-                    setPadding((12 * density).toInt(), (20 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+                    setPadding((10 * density).toInt(), (6 * density).toInt(), (10 * density).toInt(), (6 * density).toInt())
                 }
 
                 val txtTitle = TextView(this).apply {
                     text = "📻 ${station?.name ?: "Radio Online"}"
                     setTextColor(AndroidColor.WHITE)
-                    textSize = 12f
+                    textSize = 13f
                     typeface = Typeface.DEFAULT_BOLD
                 }
 
                 val txtSub = TextView(this).apply {
                     text = "${station?.freqLabel ?: ""} • ${station?.city ?: radio.selectedCountry}"
                     setTextColor(theme.accentCyan.toAndroidColorInt())
-                    textSize = 10f
+                    textSize = 11f
                 }
 
                 txtRadioTitleView = txtTitle
@@ -447,11 +548,116 @@ class FloatingMediaService : Service() {
 
                 info.addView(txtTitle)
                 info.addView(txtSub)
+
+                // 📻 CONTROLES DE RADIO GIGANTES
+                val controlsOverlay = createCarControlBar(
+                    density = density,
+                    primaryColor = theme.accentCyan.toAndroidColorInt(),
+                    onPrev = {
+                        try {
+                            val prevIdx = if (radio.currentStationIndex - 1 < 0) radio.stationList.size - 1 else radio.currentStationIndex - 1
+                            radio.playStationAtIndex(prevIdx)
+                        } catch (e: Exception) { e.printStackTrace() }
+                    },
+                    onPlayPause = {
+                        try { radio.togglePlayPause() } catch (e: Exception) { e.printStackTrace() }
+                    },
+                    onNext = {
+                        try {
+                            val nextIdx = (radio.currentStationIndex + 1) % radio.stationList.size
+                            radio.playStationAtIndex(nextIdx)
+                        } catch (e: Exception) { e.printStackTrace() }
+                    }
+                )
+                info.addView(controlsOverlay)
+
                 root.addView(info, FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
                 ))
             }
         }
+    }
+
+    // 🚗 CREADOR DE BARRA DE CONTROLES GIGANTES PARA AUTOMÓVIL
+    private fun createCarControlBar(
+        density: Float,
+        primaryColor: Int,
+        onPrev: () -> Unit,
+        onPlayPause: () -> Unit,
+        onNext: () -> Unit
+    ): LinearLayout {
+        val controlsLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding((12 * density).toInt(), (6 * density).toInt(), (12 * density).toInt(), (6 * density).toInt())
+            background = GradientDrawable().apply {
+                setColor(AndroidColor.parseColor("#B3000000")) // Oscuro de alto contraste para el auto
+                cornerRadius = 28 * density
+                setStroke((2 * density).toInt(), AndroidColor.parseColor("#66FFFFFF")) // Borde blanco visible
+            }
+        }
+
+        val sideButtonSize = (50 * density).toInt()  // 🚀 TAMAÑO GRANDE
+        val playButtonSize = (58 * density).toInt()  // 🚀 TAMAÑO PLAY GIGANTE
+
+        // 1. Botón Atrás
+        val btnPrev = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_media_previous)
+            background = GradientDrawable().apply {
+                setColor(AndroidColor.parseColor("#33FFFFFF"))
+                shape = GradientDrawable.OVAL
+            }
+            setColorFilter(AndroidColor.WHITE)
+            setPadding((8 * density).toInt(), (8 * density).toInt(), (8 * density).toInt(), (8 * density).toInt())
+            setOnClickListener {
+                onPrev()
+                resetControlsTimer()
+            }
+        }
+
+        // 2. Botón Play / Pause
+        val btnPlayPause = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_media_play)
+            background = GradientDrawable().apply {
+                setColor(primaryColor)
+                shape = GradientDrawable.OVAL
+            }
+            setColorFilter(AndroidColor.BLACK)
+            setPadding((8 * density).toInt(), (8 * density).toInt(), (8 * density).toInt(), (8 * density).toInt())
+            setOnClickListener {
+                onPlayPause()
+                resetControlsTimer()
+            }
+        }
+        btnPlayPauseDynamicView = btnPlayPause
+
+        // 3. Botón Adelante
+        val btnNext = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_media_next)
+            background = GradientDrawable().apply {
+                setColor(AndroidColor.parseColor("#33FFFFFF"))
+                shape = GradientDrawable.OVAL
+            }
+            setColorFilter(AndroidColor.WHITE)
+            setPadding((8 * density).toInt(), (8 * density).toInt(), (8 * density).toInt(), (8 * density).toInt())
+            setOnClickListener {
+                onNext()
+                resetControlsTimer()
+            }
+        }
+
+        val sideParams = LinearLayout.LayoutParams(sideButtonSize, sideButtonSize).apply {
+            setMargins((8 * density).toInt(), 0, (8 * density).toInt(), 0)
+        }
+        val playParams = LinearLayout.LayoutParams(playButtonSize, playButtonSize).apply {
+            setMargins((10 * density).toInt(), 0, (10 * density).toInt(), 0)
+        }
+
+        controlsLayout.addView(btnPrev, sideParams)
+        controlsLayout.addView(btnPlayPause, playParams)
+        controlsLayout.addView(btnNext, sideParams)
+
+        return controlsLayout
     }
 
     override fun onDestroy() {
@@ -460,7 +666,6 @@ class FloatingMediaService : Service() {
         handler.removeCallbacks(mediaStateUpdateRunnable)
 
         try {
-            // 🚀 ESTO LIBERA LOS GESTOS (La sesión de medios suelta el control, pero la música sigue)
             SmartMusicPlayer.getInstance(this).deactivateMediaSession()
             SmartVideoPlayer.getInstance(this).forceRebind()
 
