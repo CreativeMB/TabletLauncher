@@ -6,8 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
@@ -16,17 +14,12 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.Uri
 import android.os.Build
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.MotionEvent
-import android.view.View
 import android.view.ViewGroup
 import android.view.animation.LinearInterpolator
 import androidx.activity.compose.BackHandler
@@ -70,141 +63,187 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import org.mapsforge.core.model.BoundingBox
 import org.mapsforge.core.model.LatLong
 import org.mapsforge.core.model.MapPosition
-import org.mapsforge.map.model.common.Observer
 import org.mapsforge.map.android.graphics.AndroidBitmap
 import org.mapsforge.map.android.graphics.AndroidGraphicFactory
 import org.mapsforge.map.android.util.AndroidUtil
 import org.mapsforge.map.android.view.MapView
 import org.mapsforge.map.layer.overlay.Marker
+import org.mapsforge.map.model.common.Observer
+import org.mapsforge.map.reader.MapFile
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.Locale
 import kotlin.math.abs
 
 // ==========================================
-// REPOSITORIO DE CÁMARAS CON DIAGNÓSTICO DETALLADO
+// MODELO Y RESULTADO CON CONTEO DE DIFERENCIAS
 // ==========================================
 data class SpeedCamera(
+    val id: Long,
     val lat: Double,
     val lon: Double,
     val maxSpeed: String
 )
 
 sealed class CameraSyncResult {
-    data class Success(val cameras: List<SpeedCamera>) : CameraSyncResult()
+    data class Success(
+        val cameras: List<SpeedCamera>,
+        val previousCount: Int,
+        val addedCount: Int
+    ) : CameraSyncResult()
     data class Error(val message: String) : CameraSyncResult()
 }
 
+// ==========================================
+// REPOSITORIO DE CÁMARAS ULTRA-RÁPIDO
+// ==========================================
 object CameraRepository {
     private const val TAG = "RADAR_DEBUG"
+    private const val CACHE_FILE_NAME = "speed_cameras_colombia.json"
 
     private val OVERPASS_ENDPOINTS = listOf(
-        "https://overpass.kumi.systems/api/interpreter",
-        "https://overpass.private.coffee/api/interpreter",
         "https://overpass-api.de/api/interpreter",
-        "https://lz4.overpass-api.de/api/interpreter"
+        "https://lz4.overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter"
     )
-    private const val OVERPASS_QUERY = """[out:json][timeout:25];
+
+    private fun buildFastQueryForBounds(bbox: BoundingBox): String {
+        val s = String.format(Locale.US, "%.4f", bbox.minLatitude)
+        val w = String.format(Locale.US, "%.4f", bbox.minLongitude)
+        val n = String.format(Locale.US, "%.4f", bbox.maxLatitude)
+        val e = String.format(Locale.US, "%.4f", bbox.maxLongitude)
+        val bboxStr = "($s,$w,$n,$e)"
+
+        return """[out:json][timeout:20];
 (
-  node["highway"="speed_camera"](-4.5, -79.5, 13.5, -66.8);
-  node["enforcement"="maxspeed"](-4.5, -79.5, 13.5, -66.8);
-  node["device"="speed_camera"](-4.5, -79.5, 13.5, -66.8);
+  node["highway"="speed_camera"]$bboxStr;
+  node["enforcement"="maxspeed"]$bboxStr;
+  node["device"="speed_camera"]$bboxStr;
+  node["enforcement"="speed_camera"]$bboxStr;
 );
 out body;"""
-
-    fun getCachedCameras(context: Context): List<SpeedCamera> {
-        val cacheFile = File(context.filesDir, "speed_cameras_colombia.json")
-        val cameraList = mutableListOf<SpeedCamera>()
-        if (cacheFile.exists()) {
-            try {
-                val jsonString = cacheFile.readText()
-                cameraList.addAll(parseJson(jsonString))
-                Log.d(TAG, "📦 [CACHÉ] Se leyeron ${cameraList.size} cámaras del archivo local")
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ [CACHÉ] Error leyendo archivo local: ${e.message}", e)
-            }
-        } else {
-            Log.w(TAG, "⚠️ [CACHÉ] No existe archivo de caché local previo.")
-        }
-        return cameraList
     }
 
-    suspend fun updateCamerasOnline(context: Context): CameraSyncResult = withContext(Dispatchers.IO) {
+    fun getCachedCameras(context: Context): List<SpeedCamera> {
+        val cacheFile = File(context.filesDir, CACHE_FILE_NAME)
+        if (!cacheFile.exists() || cacheFile.length() == 0L) {
+            Log.w(TAG, "⚠️ [CACHÉ] Archivo no existe o está vacío.")
+            return emptyList()
+        }
+
+        return try {
+            val jsonString = cacheFile.readText(Charsets.UTF_8)
+            val list = parseJson(jsonString)
+            Log.d(TAG, "📦 [CACHÉ] Leídas ${list.size} cámaras locales (${cacheFile.length()} bytes)")
+            list
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [CACHÉ] Error leyendo archivo: ${e.message}", e)
+            emptyList()
+        }
+    }
+
+    suspend fun updateCamerasOnline(context: Context, mapFileTarget: File): CameraSyncResult = withContext(Dispatchers.IO) {
         Log.i(TAG, "==================================================")
-        Log.i(TAG, "🚀 [INICIO] Conectando directamente con servidores de Overpass...")
+        Log.i(TAG, "🚀 [INICIO] Sincronizando radares oficiales...")
+
+        if (!mapFileTarget.exists() || mapFileTarget.length() == 0L) {
+            Log.e(TAG, "❌ [MAPA] Archivo de mapa no existe: ${mapFileTarget.absolutePath}")
+            return@withContext CameraSyncResult.Error("No hay ningún mapa cargado.")
+        }
+
+        val mapBounds = try {
+            val reader = MapFile(mapFileTarget)
+            val bounds = reader.mapFileInfo.boundingBox
+            reader.close()
+            bounds
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [MAPA] Error al leer BoundingBox: ${e.message}", e)
+            return@withContext CameraSyncResult.Error("No se pudieron leer las coordenadas del mapa.")
+        }
+
+        val previousCameras = getCachedCameras(context)
+        val previousCount = previousCameras.size
+
+        val sStr = String.format(Locale.US, "%.4f", mapBounds.minLatitude)
+        val wStr = String.format(Locale.US, "%.4f", mapBounds.minLongitude)
+        val nStr = String.format(Locale.US, "%.4f", mapBounds.maxLatitude)
+        val eStr = String.format(Locale.US, "%.4f", mapBounds.maxLongitude)
+        Log.d(TAG, "📦 [ZONA MAPA] S:$sStr, W:$wStr, N:$nStr, E:$eStr")
+        Log.d(TAG, "📦 [CACHÉ ACTUAL] Total antes de consultar: $previousCount")
 
         var lastErrorDetail = "No se pudo conectar a ningún servidor"
-        val postData = ("data=" + URLEncoder.encode(OVERPASS_QUERY, "UTF-8")).toByteArray(Charsets.UTF_8)
-
-        val existingCameras = getCachedCameras(context).toMutableList()
-        val cameraMap = existingCameras.associateBy { "${String.format("%.5f", it.lat)}_${String.format("%.5f", it.lon)}" }.toMutableMap()
+        val query = buildFastQueryForBounds(mapBounds)
+        val postData = ("data=" + URLEncoder.encode(query, "UTF-8")).toByteArray(Charsets.UTF_8)
 
         for ((index, endpoint) in OVERPASS_ENDPOINTS.withIndex()) {
             Log.i(TAG, "--------------------------------------------------")
-            Log.d(TAG, "🌐 [INTENTO ${index + 1}/${OVERPASS_ENDPOINTS.size}] Conectando a: $endpoint")
+            Log.d(TAG, "🌐 [INTENTO ${index + 1}/${OVERPASS_ENDPOINTS.size}] Conectando a $endpoint")
 
             var connection: HttpURLConnection? = null
+            val startTime = SystemClock.elapsedRealtime()
             try {
                 val url = URL(endpoint)
-
                 connection = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     doOutput = true
                     connectTimeout = 10000
                     readTimeout = 20000
-                    setRequestProperty("User-Agent", "Mozilla/5.0 (Android; Mobile; rv:109.0) Gecko/119.0 Firefox/119.0")
+                    useCaches = false
+                    defaultUseCaches = false
+                    setRequestProperty("User-Agent", "TobLauncher/14.0 (Android Pure Offline Map)")
                     setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
                     setRequestProperty("Accept", "application/json")
                     setFixedLengthStreamingMode(postData.size)
                 }
 
-                Log.d(TAG, "📤 [ENVÍO] Enviando ${postData.size} bytes...")
                 connection.outputStream.use { it.write(postData) }
 
                 val responseCode = connection.responseCode
-                Log.d(TAG, "📥 [RESPUESTA] Código HTTP recibido: $responseCode")
+                val elapsed = SystemClock.elapsedRealtime() - startTime
+                Log.d(TAG, "📥 [RESPUESTA] HTTP $responseCode recibido en ${elapsed}ms")
 
-                if (responseCode == 200) {
+                if (responseCode == HttpURLConnection.HTTP_OK) {
                     val jsonString = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    Log.d(TAG, "📥 [DESCARGA] Recibidos ${jsonString.length} caracteres")
+
                     val downloadedList = parseJson(jsonString)
-                    Log.d(TAG, "📊 [DATOS] Radares procesados: ${downloadedList.size}")
+                    Log.d(TAG, "📊 [DATOS] Cámaras parseadas: ${downloadedList.size}")
 
                     if (downloadedList.isNotEmpty()) {
-                        for (cam in downloadedList) {
-                            val key = "${String.format("%.5f", cam.lat)}_${String.format("%.5f", cam.lon)}"
-                            cameraMap[key] = cam
+                        val saveOk = saveCamerasToCache(context, downloadedList)
+                        if (saveOk) {
+                            val newTotal = downloadedList.size
+                            val addedCount = (newTotal - previousCount).coerceAtLeast(0)
+                            Log.i(TAG, "🎉 [ÉXITO TOTAL] Total guardado: $newTotal | Agregadas: +$addedCount")
+                            return@withContext CameraSyncResult.Success(
+                                cameras = downloadedList,
+                                previousCount = previousCount,
+                                addedCount = addedCount
+                            )
+                        } else {
+                            lastErrorDetail = "Error guardando en almacenamiento interno"
+                            Log.e(TAG, "❌ [GUARDADO] $lastErrorDetail")
                         }
-
-                        val mergedList = cameraMap.values.toList()
-                        val cacheFile = File(context.filesDir, "speed_cameras_colombia.json")
-                        val finalJson = JSONObject().apply {
-                            val array = org.json.JSONArray()
-                            for (cam in mergedList) {
-                                val obj = JSONObject().apply {
-                                    put("lat", cam.lat)
-                                    put("lon", cam.lon)
-                                    put("tags", JSONObject().apply { put("maxspeed", cam.maxSpeed) })
-                                }
-                                array.put(obj)
-                            }
-                            put("elements", array)
-                        }
-
-                        cacheFile.writeText(finalJson.toString())
-                        Log.i(TAG, "🎉 [ÉXITO] Base actualizada con ${mergedList.size} cámaras.")
-                        return@withContext CameraSyncResult.Success(mergedList)
+                    } else {
+                        lastErrorDetail = "El servidor respondió OK pero no devolvió radares"
+                        Log.w(TAG, "⚠️ $lastErrorDetail")
                     }
                 } else {
-                    lastErrorDetail = "Servidor $endpoint respondió HTTP $responseCode"
+                    val err = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                    lastErrorDetail = "Servidor respondió HTTP $responseCode: ${err?.take(150)}"
+                    Log.w(TAG, "⚠️ $lastErrorDetail (probando siguiente...)")
                 }
-
             } catch (ex: Exception) {
+                val elapsed = SystemClock.elapsedRealtime() - startTime
                 lastErrorDetail = "${ex.javaClass.simpleName}: ${ex.localizedMessage}"
-                Log.w(TAG, "⚠️ Falló $endpoint ($lastErrorDetail), probando siguiente servidor...")
+                Log.w(TAG, "⚠️ Falló $endpoint tras ${elapsed}ms ($lastErrorDetail). Probando siguiente...")
             } finally {
                 connection?.disconnect()
             }
@@ -213,25 +252,71 @@ out body;"""
         Log.e(TAG, "💥 [FALLO FINAL] $lastErrorDetail")
         return@withContext CameraSyncResult.Error(lastErrorDetail)
     }
+
+    private fun saveCamerasToCache(context: Context, cameras: List<SpeedCamera>): Boolean {
+        return try {
+            val finalJson = JSONObject().apply {
+                val array = org.json.JSONArray()
+                for (cam in cameras) {
+                    val obj = JSONObject().apply {
+                        put("id", cam.id)
+                        put("lat", cam.lat)
+                        put("lon", cam.lon)
+                        put("tags", JSONObject().apply { put("maxspeed", cam.maxSpeed) })
+                    }
+                    array.put(obj)
+                }
+                put("elements", array)
+            }
+
+            val targetFile = File(context.filesDir, CACHE_FILE_NAME)
+            val tempFile = File(context.filesDir, "$CACHE_FILE_NAME.tmp")
+
+            tempFile.writeText(finalJson.toString(), Charsets.UTF_8)
+            if (tempFile.exists() && tempFile.length() > 0) {
+                if (targetFile.exists()) targetFile.delete()
+                val renamed = tempFile.renameTo(targetFile)
+                Log.d(TAG, "💾 [GUARDADO] Caché guardado exitosamente (${targetFile.length()} bytes)")
+                renamed
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [GUARDADO] Error: ${e.message}", e)
+            false
+        }
+    }
+
     private fun parseJson(jsonString: String): List<SpeedCamera> {
-        val list = mutableListOf<SpeedCamera>()
+        val cameraMap = LinkedHashMap<String, SpeedCamera>()
         try {
             val root = JSONObject(jsonString)
             val elements = root.optJSONArray("elements") ?: return emptyList()
+
             for (i in 0 until elements.length()) {
-                val elem = elements.getJSONObject(i)
-                val lat = elem.getDouble("lat")
-                val lon = elem.getDouble("lon")
+                val elem = elements.optJSONObject(i) ?: continue
+                val id = elem.optLong("id", 0L)
+                val lat = elem.optDouble("lat", Double.NaN)
+                val lon = elem.optDouble("lon", Double.NaN)
+
+                if (lat.isNaN() || lon.isNaN()) continue
+
                 val tags = elem.optJSONObject("tags")
-                val speed = tags?.optString("maxspeed", "Radar") ?: "Radar"
-                list.add(SpeedCamera(lat, lon, speed))
+                val speed = tags?.optString("maxspeed")?.takeIf { it.isNotBlank() }
+                    ?: tags?.optString("enforcement:maxspeed")?.takeIf { it.isNotBlank() }
+                    ?: tags?.optString("speed_limit")?.takeIf { it.isNotBlank() }
+                    ?: "Radar"
+
+                val key = "${String.format(Locale.US, "%.5f", lat)}_${String.format(Locale.US, "%.5f", lon)}"
+                cameraMap[key] = SpeedCamera(id, lat, lon, speed)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ [PARSE JSON] Error: ${e.message}", e)
+            Log.e(TAG, "❌ [PARSE] Error parseando JSON: ${e.message}", e)
         }
-        return list
+        return cameraMap.values.toList()
     }
 }
+
 // ==========================================
 // CLASE CONTENEDORA DE REFERENCIAS
 // ==========================================
@@ -434,12 +519,10 @@ fun createCameraMarkerBitmap(zoomLevel: Float = 16f): Bitmap {
         style = Paint.Style.FILL
     }
 
-    // Soporte
     val soporteRect = RectF(center - (2.5f * scale), center + (8f * scale) + offsetY, center + (2.5f * scale), size.toFloat())
     paintFill.color = colorCamaraSombra
     canvas.drawRect(soporteRect, paintFill)
 
-    // Cuerpo
     val cameraBodyRect = RectF(center - (18f * scale), center - (20f * scale) + offsetY, center + (18f * scale), center + (14f * scale) + offsetY)
     val cameraTopShadow = RectF(cameraBodyRect.left, cameraBodyRect.top, cameraBodyRect.right, cameraBodyRect.top + (9f * scale))
     paintFill.color = colorCamaraSombra
@@ -450,7 +533,6 @@ fun createCameraMarkerBitmap(zoomLevel: Float = 16f): Bitmap {
     canvas.drawRoundRect(cameraBodyMain, 5f * scale, 5f * scale, paintFill)
     canvas.drawRoundRect(cameraBodyRect, 5f * scale, 5f * scale, paintStroke)
 
-    // Lente
     val lensCenterY = (center - (1f * scale)) + offsetY
     canvas.drawCircle(center, lensCenterY, 7.5f * scale, paintFill)
     canvas.drawCircle(center, lensCenterY, 7.5f * scale, paintStroke)
@@ -459,7 +541,6 @@ fun createCameraMarkerBitmap(zoomLevel: Float = 16f): Bitmap {
     canvas.drawCircle(center + (1f * scale), lensCenterY - (1f * scale), 4.5f * scale, paintFill)
     canvas.drawCircle(center - (2f * scale), lensCenterY - (3f * scale), 1.2f * scale, paintWhite)
 
-    // Velocímetro
     val speedoX = center + (17f * scale)
     val speedoY = (center + (5f * scale)) + offsetY
     val speedoRadius = 10f * scale
@@ -487,7 +568,7 @@ fun createCameraMarkerBitmap(zoomLevel: Float = 16f): Bitmap {
 }
 
 // ==========================================
-// COMPOSABLE DEL MAPA (CON CENTRADO GPS FORZADO AL ABRIR)
+// COMPOSABLE DEL MAPA (OFFLINE PURO)
 // ==========================================
 @SuppressLint("RememberReturnType", "ClickableViewAccessibility")
 @Composable
@@ -495,7 +576,6 @@ fun MapsforgeWidget(
     mapRefs: MapRefs,
     isMapAvailable: Boolean,
     isAutoCenterEnabled: Boolean,
-    isNightMode: Boolean,
     isCameraAudioEnabled: Boolean,
     targetMapFile: File,
     onLocationUpdated: (LatLong) -> Unit,
@@ -509,7 +589,6 @@ fun MapsforgeWidget(
     BackHandler { onClose() }
     val context = LocalContext.current
     val currentAutoCenterEnabled by rememberUpdatedState(isAutoCenterEnabled)
-    val coroutineScope = rememberCoroutineScope()
 
     val microBitmap = remember { AndroidBitmap(createCameraMarkerBitmap(10f)) }
     val smallBitmap = remember { AndroidBitmap(createCameraMarkerBitmap(13f)) }
@@ -581,7 +660,6 @@ fun MapsforgeWidget(
         mapRefs.zoomObserver = zoomObserver
         mapView.model.mapViewPosition.addObserver(zoomObserver)
 
-        // 🛑 SOLO CARGA EL CACHÉ LOCAL OFFLINE (CERO PETICIONES A INTERNET AL ABRIR)
         val cached = withContext(Dispatchers.IO) { CameraRepository.getCachedCameras(context) }
         if (cached.isNotEmpty()) {
             mapRefs.cameras = cached
@@ -626,7 +704,7 @@ fun MapsforgeWidget(
 
                         val mapFile = try {
                             if (targetMapFile.exists() && targetMapFile.length() > 0) {
-                                org.mapsforge.map.reader.MapFile(targetMapFile)
+                                MapFile(targetMapFile)
                             } else null
                         } catch (e: Exception) {
                             onMapLoadError("El archivo seleccionado no es válido.")
@@ -639,7 +717,7 @@ fun MapsforgeWidget(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
-                            setBackgroundColor(android.graphics.Color.parseColor(if (isNightMode) "#1E1E1E" else "#E5E0D8"))
+                            setBackgroundColor(android.graphics.Color.parseColor("#E5E0D8"))
                             model.frameBufferModel.overdrawFactor = 1.25
                             model.displayModel.userScaleFactor = 1.15f
                             setZoomLevelMin(3.toByte())
@@ -708,7 +786,6 @@ fun MapsforgeWidget(
 
                         mapView.layerManager.layers.add(cartMarker)
 
-                        // 🛑 ASIGNAR MAPVIEW PRIMERO PARA QUE EL GPS NO FALLE
                         mapRefs.mapView = mapView
                         mapRefs.marker = cartMarker
 
@@ -786,7 +863,7 @@ fun MapsforgeWidget(
 }
 
 // ==========================================
-// CONTENEDOR PRINCIPAL DEL MAPA
+// CONTENEDOR PRINCIPAL DEL MAPA (OFFLINE)
 // ==========================================
 @Composable
 fun MapContainerWidget(
@@ -796,19 +873,16 @@ fun MapContainerWidget(
     val theme = LocalDashboardTheme.current
     val coroutineScope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("toblauncher_prefs", Context.MODE_PRIVATE) }
+
     var isSyncingCameras by remember { mutableStateOf(false) }
-    var isOnlineNavActive by remember {
-        mutableStateOf(prefs.getBoolean("online_nav_active_mode", false))
-    }
-
     var showMenu by remember { mutableStateOf(false) }
-    var isNightMode by remember { mutableStateOf(prefs.getBoolean("night_mode", false)) }
     var isAutoCenterEnabled by remember { mutableStateOf(prefs.getBoolean("auto_center", true)) }
-
     var isCameraAudioEnabled by remember {
         mutableStateOf(prefs.getBoolean("camera_audio_alert_enabled", true))
     }
 
+    val mapRefs = remember { MapRefs() }
+    var cameraCountDisplay by remember { mutableStateOf(0) }
     var customExplorerType by remember { mutableStateOf<String?>(null) }
 
     val targetMapFile = remember { OfflineMapManager.getMapFile(context) }
@@ -823,12 +897,18 @@ fun MapContainerWidget(
 
     var mapLoadError by remember { mutableStateOf<String?>(null) }
     var lastKnownLocation by remember { mutableStateOf<LatLong?>(null) }
-    val mapRefs = remember { MapRefs() }
 
     LaunchedEffect(Unit) {
         isMapAvailable = withContext(Dispatchers.IO) { OfflineMapManager.isMapDownloaded(context) }
         isPoiAvailable = withContext(Dispatchers.IO) { OfflineMapManager.isPoiDownloaded(context) }
+        val cached = withContext(Dispatchers.IO) { CameraRepository.getCachedCameras(context) }
+        mapRefs.cameras = cached
+        cameraCountDisplay = cached.size
         isCheckingFiles = false
+    }
+
+    LaunchedEffect(mapRefs.cameras.size) {
+        cameraCountDisplay = mapRefs.cameras.size
     }
 
     fun safeLaunchPicker(launcher: ActivityResultLauncher<String>, onNotFound: () -> Unit) {
@@ -933,29 +1013,24 @@ fun MapContainerWidget(
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
 
-                if (isOnlineNavActive) {
-                    NativeAppGaugeWidget(modifier = Modifier.fillMaxSize())
-                } else {
-                    MapsforgeWidget(
-                        mapRefs = mapRefs,
-                        isMapAvailable = isMapAvailable && (mapLoadError == null),
-                        isAutoCenterEnabled = isAutoCenterEnabled,
-                        isNightMode = isNightMode,
-                        isCameraAudioEnabled = isCameraAudioEnabled,
-                        targetMapFile = targetMapFile,
-                        onLocationUpdated = { loc -> lastKnownLocation = loc },
-                        onDisableAutoCenter = {
-                            if (isAutoCenterEnabled) {
-                                isAutoCenterEnabled = false
-                                prefs.edit().putBoolean("auto_center", false).apply()
-                            }
-                        },
-                        mapPickerLauncher = mapPickerLauncher,
-                        onNoFileManagerError = { showNoFileManagerError = true },
-                        onMapLoadError = { error -> mapLoadError = error },
-                        onOpenCustomExplorer = { customExplorerType = "map" }
-                    )
-                }
+                MapsforgeWidget(
+                    mapRefs = mapRefs,
+                    isMapAvailable = isMapAvailable && (mapLoadError == null),
+                    isAutoCenterEnabled = isAutoCenterEnabled,
+                    isCameraAudioEnabled = isCameraAudioEnabled,
+                    targetMapFile = targetMapFile,
+                    onLocationUpdated = { loc -> lastKnownLocation = loc },
+                    onDisableAutoCenter = {
+                        if (isAutoCenterEnabled) {
+                            isAutoCenterEnabled = false
+                            prefs.edit().putBoolean("auto_center", false).apply()
+                        }
+                    },
+                    mapPickerLauncher = mapPickerLauncher,
+                    onNoFileManagerError = { showNoFileManagerError = true },
+                    onMapLoadError = { error -> mapLoadError = error },
+                    onOpenCustomExplorer = { customExplorerType = "map" }
+                )
 
                 androidx.compose.animation.AnimatedVisibility(
                     visible = showMenu,
@@ -973,7 +1048,7 @@ fun MapContainerWidget(
                     )
                 }
 
-                // Panel de Control
+                // Panel de Control Flotante Inferior
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -990,7 +1065,7 @@ fun MapContainerWidget(
                             Icon(Icons.Default.Settings, contentDescription = "Configuración", modifier = Modifier.size(22.dp))
                         }
 
-                        if (!isOnlineNavActive && isMapAvailable && mapLoadError == null) {
+                        if (isMapAvailable && mapLoadError == null) {
                             FloatingActionButton(
                                 onClick = {
                                     isAutoCenterEnabled = true
@@ -1008,20 +1083,18 @@ fun MapContainerWidget(
                             }
                         }
 
-                        if (!isOnlineNavActive) {
-                            FloatingActionButton(
-                                onClick = onExpandClicked,
-                                containerColor = Color(0xAA1E1E1E),
-                                contentColor = theme.accentCyan,
-                                modifier = Modifier.size(42.dp)
-                            ) {
-                                Icon(Icons.Default.Fullscreen, contentDescription = "Pantalla Completa", modifier = Modifier.size(24.dp))
-                            }
+                        FloatingActionButton(
+                            onClick = onExpandClicked,
+                            containerColor = Color(0xAA1E1E1E),
+                            contentColor = theme.accentCyan,
+                            modifier = Modifier.size(42.dp)
+                        ) {
+                            Icon(Icons.Default.Fullscreen, contentDescription = "Pantalla Completa", modifier = Modifier.size(24.dp))
                         }
                     }
                 }
 
-                // MENÚ LATERAL
+                // MENÚ LATERAL DE CONFIGURACIÓN
                 androidx.compose.animation.AnimatedVisibility(
                     visible = showMenu,
                     enter = androidx.compose.animation.slideInHorizontally(initialOffsetX = { -it }) + androidx.compose.animation.fadeIn(),
@@ -1038,9 +1111,9 @@ fun MapContainerWidget(
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Text(
-                                text = if (isOnlineNavActive) "Navegación Online" else "Configuración Offline",
+                                text = "Configuración de Mapa Offline",
                                 style = MaterialTheme.typography.titleMedium,
-                                fontSize = 10.sp,
+                                fontSize = 11.sp,
                                 color = Color.White
                             )
 
@@ -1051,187 +1124,158 @@ fun MapContainerWidget(
                                     .padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Audio de Radares", color = Color.White, style = MaterialTheme.typography.bodyMedium, fontSize = 8.sp)
+                                    Switch(
+                                        checked = isCameraAudioEnabled,
+                                        onCheckedChange = {
+                                            isCameraAudioEnabled = it
+                                            prefs.edit().putBoolean("camera_audio_alert_enabled", it).apply()
+                                            mapRefs.alertManager?.isAudioAlertsEnabled = it
+                                        },
+                                        colors = SwitchDefaults.colors(checkedThumbColor = theme.accentCyan)
+                                    )
+                                }
+
+                                Divider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
+
+                                // ==========================================
+                                // BOTÓN DE ACTUALIZACIÓN CON VALIDACIÓN INSTANTÁNEA
+                                // ==========================================
                                 Button(
                                     onClick = {
-                                        isOnlineNavActive = !isOnlineNavActive
-                                        prefs.edit().putBoolean("online_nav_active_mode", isOnlineNavActive).apply()
-                                        showMenu = false
+                                        val currentMapFile = OfflineMapManager.getMapFile(context)
+                                        if (!isMapAvailable || !currentMapFile.exists() || currentMapFile.length() <= 0L) {
+                                            android.widget.Toast.makeText(
+                                                context.applicationContext,
+                                                "⚠️ Carga primero un mapa (.map) para poder descargar los radares.",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                            return@Button
+                                        }
+
+                                        if (!isSyncingCameras) {
+                                            isSyncingCameras = true
+                                            coroutineScope.launch {
+                                                try {
+                                                    val syncResult = CameraRepository.updateCamerasOnline(context, currentMapFile)
+                                                    when (syncResult) {
+                                                        is CameraSyncResult.Success -> {
+                                                            val cameras = syncResult.cameras
+                                                            mapRefs.cameras = cameras
+                                                            cameraCountDisplay = cameras.size
+
+                                                            mapRefs.mapView?.let { mv ->
+                                                                val currentZoom = mv.model.mapViewPosition.zoomLevel.toInt()
+                                                                val targetBitmap = when {
+                                                                    currentZoom < 12 -> AndroidBitmap(createCameraMarkerBitmap(10f))
+                                                                    currentZoom < 14 -> AndroidBitmap(createCameraMarkerBitmap(13f))
+                                                                    currentZoom < 16 -> AndroidBitmap(createCameraMarkerBitmap(15f))
+                                                                    else -> AndroidBitmap(createCameraMarkerBitmap(17f))
+                                                                }
+
+                                                                for (oldMarker in mapRefs.cameraMarkers) {
+                                                                    mv.layerManager.layers.remove(oldMarker)
+                                                                }
+                                                                mapRefs.cameraMarkers.clear()
+
+                                                                for (cam in cameras) {
+                                                                    val camMarker = Marker(LatLong(cam.lat, cam.lon), targetBitmap, 0, 0)
+                                                                    mapRefs.cameraMarkers.add(camMarker)
+                                                                    mv.layerManager.layers.add(camMarker)
+                                                                }
+                                                                mv.layerManager.redrawLayers()
+                                                                mv.repaint()
+                                                            }
+
+                                                            val mensaje = if (syncResult.addedCount > 0) {
+                                                                "✅ ¡Radares actualizados!\nTotal: ${cameras.size} radares (+${syncResult.addedCount} nuevos)"
+                                                            } else {
+                                                                "✅ Base al día con ${cameras.size} radares para este mapa"
+                                                            }
+
+                                                            android.widget.Toast.makeText(
+                                                                context.applicationContext,
+                                                                mensaje,
+                                                                android.widget.Toast.LENGTH_LONG
+                                                            ).show()
+                                                        }
+                                                        is CameraSyncResult.Error -> {
+                                                            android.widget.Toast.makeText(
+                                                                context.applicationContext,
+                                                                "⚠️ ${syncResult.message}",
+                                                                android.widget.Toast.LENGTH_LONG
+                                                            ).show()
+                                                        }
+                                                    }
+                                                } catch (e: Exception) {
+                                                    android.widget.Toast.makeText(
+                                                        context.applicationContext,
+                                                        "Error: ${e.localizedMessage}",
+                                                        android.widget.Toast.LENGTH_SHORT
+                                                    ).show()
+                                                } finally {
+                                                    isSyncingCameras = false
+                                                }
+                                            }
+                                        }
                                     },
+                                    enabled = !isSyncingCameras,
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (isOnlineNavActive) theme.accentCyan else Color(0xFF33CCFF),
+                                        containerColor = Color(0xFF03DAC5),
+                                        disabledContainerColor = Color(0x5503DAC5),
                                         contentColor = Color.Black
                                     ),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(
-                                        text = if (isOnlineNavActive) "🗺️ Volver a Mapa Offline" else "🌐 Navegación Online (Waze)",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontSize = 8.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    if (isSyncingCameras) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(14.dp),
+                                            color = Color.Black,
+                                            strokeWidth = 2.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Descargando...", fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                    } else {
+                                        Text(
+                                            text = "🔄 Actualizar Radares (${cameraCountDisplay})",
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
 
-                                if (!isOnlineNavActive) {
-                                    Divider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
+                                Button(
+                                    onClick = {
+                                        showMenu = false
+                                        customExplorerType = "map"
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x1A03DAC5), contentColor = theme.accentCyan),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("📁 Mapa (.map)", style = MaterialTheme.typography.bodyMedium, fontSize = 8.sp)
+                                }
 
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("Modo Noche", color = Color.White, style = MaterialTheme.typography.bodyMedium, fontSize = 8.sp)
-                                        Switch(
-                                            checked = isNightMode,
-                                            onCheckedChange = {
-                                                isNightMode = it
-                                                prefs.edit().putBoolean("night_mode", it).apply()
-                                            },
-                                            colors = SwitchDefaults.colors(checkedThumbColor = theme.accentCyan)
-                                        )
-                                    }
-
-                                    Divider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("Audio de Radares", color = Color.White, style = MaterialTheme.typography.bodyMedium, fontSize = 8.sp)
-                                        Switch(
-                                            checked = isCameraAudioEnabled,
-                                            onCheckedChange = {
-                                                isCameraAudioEnabled = it
-                                                prefs.edit().putBoolean("camera_audio_alert_enabled", it).apply()
-                                                mapRefs.alertManager?.isAudioAlertsEnabled = it
-                                            },
-                                            colors = SwitchDefaults.colors(checkedThumbColor = theme.accentCyan)
-                                        )
-                                    }
-
-                                    Divider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
-
-                                    // ==========================================
-// BOTÓN DE ACTUALIZACIÓN CORREGIDO (CON TRY/FINALLY)
-// ==========================================
-                                    Button(
-                                        onClick = {
-                                            if (!isSyncingCameras) {
-                                                isSyncingCameras = true
-                                                Log.d("RADAR_DEBUG", "👆 [BOTÓN] Usuario presionó 'Actualizar Radares Ahora'")
-
-                                                coroutineScope.launch {
-                                                    try {
-                                                        val syncResult = CameraRepository.updateCamerasOnline(context)
-
-                                                        when (syncResult) {
-                                                            is CameraSyncResult.Success -> {
-                                                                val cameras = syncResult.cameras
-                                                                mapRefs.cameras = cameras
-
-                                                                // 🛑 Refresco forzado en el mapa
-                                                                mapRefs.mapView?.let { mv ->
-                                                                    val currentZoom = mv.model.mapViewPosition.zoomLevel.toInt()
-                                                                    val targetBitmap = when {
-                                                                        currentZoom < 12 -> AndroidBitmap(createCameraMarkerBitmap(10f))
-                                                                        currentZoom < 14 -> AndroidBitmap(createCameraMarkerBitmap(13f))
-                                                                        currentZoom < 16 -> AndroidBitmap(createCameraMarkerBitmap(15f))
-                                                                        else -> AndroidBitmap(createCameraMarkerBitmap(17f))
-                                                                    }
-
-                                                                    for (oldMarker in mapRefs.cameraMarkers) {
-                                                                        mv.layerManager.layers.remove(oldMarker)
-                                                                    }
-                                                                    mapRefs.cameraMarkers.clear()
-
-                                                                    for (cam in cameras) {
-                                                                        val camMarker = Marker(LatLong(cam.lat, cam.lon), targetBitmap, 0, 0)
-                                                                        mapRefs.cameraMarkers.add(camMarker)
-                                                                        mv.layerManager.layers.add(camMarker)
-                                                                    }
-
-                                                                    mv.layerManager.redrawLayers()
-                                                                    mv.repaint()
-                                                                }
-
-                                                                android.widget.Toast.makeText(
-                                                                    context.applicationContext,
-                                                                    "✅ ¡Éxito! ${cameras.size} cámaras guardadas",
-                                                                    android.widget.Toast.LENGTH_LONG
-                                                                ).show()
-                                                            }
-                                                            is CameraSyncResult.Error -> {
-                                                                android.widget.Toast.makeText(
-                                                                    context.applicationContext,
-                                                                    "⚠️ ${syncResult.message}",
-                                                                    android.widget.Toast.LENGTH_LONG
-                                                                ).show()
-                                                            }
-                                                        }
-                                                    } catch (e: Exception) {
-                                                        Log.e("RADAR_DEBUG", "❌ Error en corrutina del botón: ${e.message}", e)
-                                                        android.widget.Toast.makeText(
-                                                            context.applicationContext,
-                                                            "Error: ${e.localizedMessage}",
-                                                            android.widget.Toast.LENGTH_SHORT
-                                                        ).show()
-                                                    } finally {
-                                                        // 🌟 Garantiza que el botón siempre vuelva a quedar habilitado
-                                                        isSyncingCameras = false
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        enabled = !isSyncingCameras,
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = Color(0xFF03DAC5),
-                                            disabledContainerColor = Color(0x5503DAC5),
-                                            contentColor = Color.Black
-                                        ),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        if (isSyncingCameras) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(14.dp),
-                                                color = Color.Black,
-                                                strokeWidth = 2.dp
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Descargando...", fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                                        } else {
-                                            Text("🔄 Actualizar Radares Ahora", fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-
-
-                                    Button(
-                                        onClick = {
-                                            showMenu = false
-                                            customExplorerType = "map"
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0x1A03DAC5), contentColor = theme.accentCyan),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text("📁 Mapa (.map)", style = MaterialTheme.typography.bodyMedium, fontSize = 8.sp)
-                                    }
-
-                                    Button(
-                                        onClick = {
-                                            showMenu = false
-                                            customExplorerType = "poi"
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isPoiAvailable) Color(0x1A03DAC5) else Color(0x1AFFFFFF),
-                                            contentColor = if (isPoiAvailable) theme.accentCyan else Color.White
-                                        ),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(
-                                            text = if (isPoiAvailable) "📁 Puntos (.poi)" else "➕ Cargar Puntos (.poi)",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontSize = 8.sp
-                                        )
-                                    }
+                                Button(
+                                    onClick = {
+                                        showMenu = false
+                                        customExplorerType = "poi"
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isPoiAvailable) Color(0x1A03DAC5) else Color(0x1AFFFFFF),
+                                        contentColor = if (isPoiAvailable) theme.accentCyan else Color.White
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = if (isPoiAvailable) "📁 Puntos (.poi)" else "➕ Cargar Puntos (.poi)",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontSize = 8.sp
+                                    )
                                 }
                             }
 
@@ -1244,7 +1288,7 @@ fun MapContainerWidget(
                     }
                 }
 
-                if (!isOnlineNavActive && mapLoadError != null) {
+                if (mapLoadError != null) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -1558,7 +1602,6 @@ fun startSmoothLocationTracking(
         currentDisplayLng = loc.longitude
         val firstPos = LatLong(loc.latitude, loc.longitude)
 
-        // 🛑 COLOCAR CARRITO Y CENTRAR MAPA DIRECTAMENTE EN EL GPS REAL
         cartMarker.latLong = firstPos
         onLocationUpdated(firstPos)
 
@@ -1568,7 +1611,6 @@ fun startSmoothLocationTracking(
         mapRefs.alertManager?.checkProximity(loc.latitude, loc.longitude, mapRefs.cameras)
     }
 
-    // 1. Detección inmediata en hardware nativo
     try {
         val nativeLoc = locationManager?.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
             ?: locationManager?.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
@@ -1576,7 +1618,6 @@ fun startSmoothLocationTracking(
         if (nativeLoc != null) applyFirstLocation(nativeLoc)
     } catch (e: Exception) {}
 
-    // 2. Detección inmediata en Google Fused
     try {
         fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
             if (loc != null && isFirstLocationFix) applyFirstLocation(loc)
