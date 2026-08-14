@@ -16,6 +16,10 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.Uri
 import android.os.Build
 import android.os.Looper
@@ -111,8 +115,6 @@ out body;"""
                 e.printStackTrace()
             }
         }
-        //camara de prueva para culaquier configuracion de la app
-//        cameraList.add(SpeedCamera(4.735566, -74.098225, "50"))
         return cameraList
     }
 
@@ -122,8 +124,11 @@ out body;"""
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 doOutput = true
-                connectTimeout = 5000
-                readTimeout = 8000
+                connectTimeout = 15000
+                readTimeout = 45000
+                setRequestProperty("User-Agent", "TobLauncherApp/1.0 (Android Automotive)")
+                setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                setRequestProperty("Accept", "application/json")
                 val postData = "data=" + URLEncoder.encode(OVERPASS_QUERY, "UTF-8")
                 outputStream.use { it.write(postData.toByteArray(Charsets.UTF_8)) }
             }
@@ -134,11 +139,12 @@ out body;"""
                     val cacheFile = File(context.filesDir, "speed_cameras_colombia.json")
                     cacheFile.writeText(jsonString)
                     val result = parsed.toMutableList()
-                    result.add(SpeedCamera(4.735566, -74.098225, "50"))
                     return@withContext result
                 }
             }
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         return@withContext null
     }
 
@@ -235,7 +241,7 @@ class ProximityAlertManager(private val context: Context) {
                 setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                 afd.close()
                 prepare()
-                setVolume(1.0f, 1.0f) // Reproduce al nivel exacto que tenga puesto el usuario
+                setVolume(1.0f, 1.0f)
                 setOnCompletionListener { mp ->
                     mp.release()
                     mediaPlayer = null
@@ -417,7 +423,7 @@ fun createCameraMarkerBitmap(zoomLevel: Float = 16f): Bitmap {
 }
 
 // ==========================================
-// COMPOSABLE DEL MAPA (FLUÍDO COMO WAZE)
+// COMPOSABLE DEL MAPA (CON CENTRADO GPS FORZADO AL ABRIR)
 // ==========================================
 @SuppressLint("RememberReturnType", "ClickableViewAccessibility")
 @Composable
@@ -439,6 +445,7 @@ fun MapsforgeWidget(
     BackHandler { onClose() }
     val context = LocalContext.current
     val currentAutoCenterEnabled by rememberUpdatedState(isAutoCenterEnabled)
+    val coroutineScope = rememberCoroutineScope()
 
     val microBitmap = remember { AndroidBitmap(createCameraMarkerBitmap(10f)) }
     val smallBitmap = remember { AndroidBitmap(createCameraMarkerBitmap(13f)) }
@@ -468,67 +475,61 @@ fun MapsforgeWidget(
             }
         }
 
+        var lastZoomBucket = -1
+
         val refreshCamerasRunnable = Runnable {
             if (mapRefs.cameras.isNotEmpty() && mapRefs.mapView != null) {
                 val currentZoom = mapView.model.mapViewPosition.zoomLevel.toInt()
-                val targetBitmap = getMarkerForZoom(currentZoom)
-
-                for (oldMarker in mapRefs.cameraMarkers) {
-                    mapView.layerManager.layers.remove(oldMarker)
+                val currentBucket = when {
+                    currentZoom < 12 -> 1
+                    currentZoom < 14 -> 2
+                    currentZoom < 16 -> 3
+                    else -> 4
                 }
-                mapRefs.cameraMarkers.clear()
 
-                for (cam in mapRefs.cameras) {
-                    val camMarker = Marker(LatLong(cam.lat, cam.lon), targetBitmap, 0, 0)
-                    mapRefs.cameraMarkers.add(camMarker)
-                    mapView.layerManager.layers.add(camMarker)
+                if (currentBucket != lastZoomBucket || mapRefs.cameraMarkers.isEmpty()) {
+                    lastZoomBucket = currentBucket
+                    val targetBitmap = getMarkerForZoom(currentZoom)
+
+                    for (oldMarker in mapRefs.cameraMarkers) {
+                        mapView.layerManager.layers.remove(oldMarker)
+                    }
+                    mapRefs.cameraMarkers.clear()
+
+                    for (cam in mapRefs.cameras) {
+                        val camMarker = Marker(LatLong(cam.lat, cam.lon), targetBitmap, 0, 0)
+                        mapRefs.cameraMarkers.add(camMarker)
+                        mapView.layerManager.layers.add(camMarker)
+                    }
                 }
 
                 mapRefs.marker?.latLong?.let { pos ->
                     mapRefs.alertManager?.checkProximity(pos.latitude, pos.longitude, mapRefs.cameras)
                 }
-
-                mapView.layerManager.redrawLayers()
             }
         }
 
         mapRefs.zoomObserver?.let { mapView.model.mapViewPosition.removeObserver(it) }
         val zoomObserver = Observer {
             mainHandler.removeCallbacks(refreshCamerasRunnable)
-            mainHandler.postDelayed(refreshCamerasRunnable, 150L)
+            mainHandler.postDelayed(refreshCamerasRunnable, 200L)
         }
         mapRefs.zoomObserver = zoomObserver
         mapView.model.mapViewPosition.addObserver(zoomObserver)
 
-        withContext(Dispatchers.IO) {
-            val cachedCameras = CameraRepository.getCachedCameras(context)
-            mapRefs.cameras = cachedCameras
-            withContext(Dispatchers.Main) { refreshCamerasRunnable.run() }
+        val cached = withContext(Dispatchers.IO) { CameraRepository.getCachedCameras(context) }
+        if (cached.isNotEmpty()) {
+            mapRefs.cameras = cached
+            refreshCamerasRunnable.run()
+        }
 
-            val updatedOnline = CameraRepository.updateCamerasOnlineInBackground(context)
-            if (updatedOnline != null) {
-                mapRefs.cameras = updatedOnline
+        withContext(Dispatchers.IO) {
+            val updated = CameraRepository.updateCamerasOnlineInBackground(context)
+            if (updated != null && updated.isNotEmpty()) {
+                mapRefs.cameras = updated
                 withContext(Dispatchers.Main) { refreshCamerasRunnable.run() }
             }
         }
-    }
-
-    LaunchedEffect(isNightMode) {
-        val mapView = mapRefs.mapView ?: return@LaunchedEffect
-        if (isNightMode) {
-            val paint = Paint()
-            val matrix = ColorMatrix(floatArrayOf(
-                -0.8f,  0f,    0f,    0f, 245f,
-                0f,   -0.8f,  0f,    0f, 245f,
-                0f,    0f,   -0.8f,  0f, 255f,
-                0f,    0f,    0f,    1f,   0f
-            ))
-            paint.colorFilter = ColorMatrixColorFilter(matrix)
-            mapView.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
-        } else {
-            mapView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
-        }
-        mapView.repaint()
     }
 
     DisposableEffect(Unit) {
@@ -566,22 +567,27 @@ fun MapsforgeWidget(
                             AndroidGraphicFactory.createInstance(ctx.applicationContext)
                         } catch (e: Exception) {}
 
+                        val mapFile = try {
+                            if (targetMapFile.exists() && targetMapFile.length() > 0) {
+                                org.mapsforge.map.reader.MapFile(targetMapFile)
+                            } else null
+                        } catch (e: Exception) {
+                            onMapLoadError("El archivo seleccionado no es válido.")
+                            null
+                        }
+
                         val mapView = MapView(ctx).apply {
                             keepScreenOn = true
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
-                            // 🚀 Optimización de GPU: reduce sobregiro y ajusta el tamaño nativo
-                            model.frameBufferModel.overdrawFactor = 1.05
-                            model.displayModel.userScaleFactor = 1.2f
-
+                            setBackgroundColor(android.graphics.Color.parseColor(if (isNightMode) "#1E1E1E" else "#E5E0D8"))
+                            model.frameBufferModel.overdrawFactor = 1.25
+                            model.displayModel.userScaleFactor = 1.15f
                             setZoomLevelMin(3.toByte())
                             setZoomLevelMax(18.toByte())
-                            model.mapViewPosition.setMapPosition(
-                                MapPosition(LatLong(4.6018403, -74.0796899), 16.toByte())
-                            )
-                            setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                            model.mapViewPosition.zoomLevel = 17.toByte()
                         }
 
                         var startTouchX = 0f
@@ -608,50 +614,36 @@ fun MapsforgeWidget(
                             mapView.mapZoomControls.setShowMapZoomControls(false)
                         } catch (e: Exception) {}
 
-                        val mapFile = try {
-                            if (targetMapFile.exists() && targetMapFile.length() > 0) {
-                                org.mapsforge.map.reader.MapFile(targetMapFile)
-                            } else null
-                        } catch (e: Exception) {
-                            onMapLoadError("El archivo seleccionado no es válido.")
-                            null
-                        }
-
                         if (mapFile != null) {
-                            // 🏎️ Caché ampliada a 1.5 para transiciones hiper-fluidas sin pausas de lectura
                             val tileCache = AndroidUtil.createTileCache(
                                 ctx,
                                 "mapcache",
                                 mapView.model.displayModel.tileSize,
-                                1f,
-                                1.5
+                                1.2f,
+                                1.25
                             )
 
                             val rendererLayer = org.mapsforge.map.layer.renderer.TileRendererLayer(
                                 tileCache,
                                 mapFile,
                                 mapView.model.mapViewPosition,
+                                false,
+                                true,
+                                true,
                                 AndroidGraphicFactory.INSTANCE
                             ).apply {
                                 setXmlRenderTheme(org.mapsforge.map.rendertheme.InternalRenderTheme.DEFAULT)
-                                setTextScale(1.2f)
+                                setTextScale(1.15f)
                             }
 
                             mapView.layerManager.layers.add(rendererLayer)
-
-                            try {
-                                val startPos = mapFile.mapFileInfo?.startPosition ?: mapFile.mapFileInfo?.boundingBox?.centerPoint
-                                if (startPos != null) {
-                                    mapView.model.mapViewPosition.setMapPosition(MapPosition(startPos, 17.toByte()))
-                                }
-                            } catch (e: Exception) {}
                         }
 
                         val staticGpsBitmap = createStaticGpsBitmap()
                         val mapsforgeDrawable = AndroidBitmap(staticGpsBitmap)
 
                         val cartMarker = Marker(
-                            LatLong(4.6018403, -74.0796899),
+                            LatLong(0.0, 0.0),
                             mapsforgeDrawable,
                             0,
                             0
@@ -659,16 +651,19 @@ fun MapsforgeWidget(
 
                         mapView.layerManager.layers.add(cartMarker)
 
+                        // 🛑 ASIGNAR MAPVIEW PRIMERO PARA QUE EL GPS NO FALLE
+                        mapRefs.mapView = mapView
+                        mapRefs.marker = cartMarker
+
                         val callback = startSmoothLocationTracking(
                             ctx,
+                            mapView,
                             mapRefs,
                             cartMarker,
                             isAutoCenterSupplier = { currentAutoCenterEnabled },
                             onLocationUpdated = onLocationUpdated
                         )
 
-                        mapRefs.mapView = mapView
-                        mapRefs.marker = cartMarker
                         mapRefs.locationCallback = callback
 
                         mapView
@@ -1371,23 +1366,24 @@ fun MapFileItemRow(file: File, onSelect: () -> Unit) {
 }
 
 // =================================================================
-// MOTOR DE NAVEGACIÓN FLUIDO (INTERPOLACIÓN ACTIVA TIPO WAZE)
+// MOTOR DE NAVEGACIÓN (CENTRADO FORZADO EN TIEMPO REAL)
 // =================================================================
 @SuppressLint("MissingPermission")
 fun startSmoothLocationTracking(
     context: Context,
+    mapView: MapView,
     mapRefs: MapRefs,
     cartMarker: Marker,
     isAutoCenterSupplier: () -> Boolean,
     onLocationUpdated: (LatLong) -> Unit
 ): LocationCallback {
     val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+    val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
 
-    // Coordenadas actuales interpoladas
-    var currentDisplayLat = cartMarker.latLong.latitude
-    var currentDisplayLng = cartMarker.latLong.longitude
+    var currentDisplayLat = 0.0
+    var currentDisplayLng = 0.0
     var currentDisplayBearing = 0f
-
+    var isFirstLocationFix = true
     var lastLocationTimestamp = 0L
 
     fun getShortestAngleDelta(from: Float, to: Float): Float {
@@ -1401,8 +1397,41 @@ fun startSmoothLocationTracking(
         setMinUpdateIntervalMillis(500L)
         setMinUpdateDistanceMeters(0.0f)
         setGranularity(Granularity.GRANULARITY_FINE)
-        setWaitForAccurateLocation(true)
+        setWaitForAccurateLocation(false)
     }.build()
+
+    fun applyFirstLocation(loc: Location) {
+        if (!isFirstLocationFix) return
+        isFirstLocationFix = false
+
+        currentDisplayLat = loc.latitude
+        currentDisplayLng = loc.longitude
+        val firstPos = LatLong(loc.latitude, loc.longitude)
+
+        // 🛑 COLOCAR CARRITO Y CENTRAR MAPA DIRECTAMENTE EN EL GPS REAL
+        cartMarker.latLong = firstPos
+        onLocationUpdated(firstPos)
+
+        mapView.model.mapViewPosition.setMapPosition(MapPosition(firstPos, 17.toByte()))
+        mapView.repaint()
+
+        mapRefs.alertManager?.checkProximity(loc.latitude, loc.longitude, mapRefs.cameras)
+    }
+
+    // 1. Detección inmediata en hardware nativo
+    try {
+        val nativeLoc = locationManager?.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+            ?: locationManager?.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+            ?: locationManager?.getLastKnownLocation(android.location.LocationManager.PASSIVE_PROVIDER)
+        if (nativeLoc != null) applyFirstLocation(nativeLoc)
+    } catch (e: Exception) {}
+
+    // 2. Detección inmediata en Google Fused
+    try {
+        fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
+            if (loc != null && isFirstLocationFix) applyFirstLocation(loc)
+        }
+    } catch (e: Exception) {}
 
     val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -1410,16 +1439,26 @@ fun startSmoothLocationTracking(
             val targetLat = location.latitude
             val targetLng = location.longitude
 
+            if (isFirstLocationFix) {
+                applyFirstLocation(location)
+                return
+            }
+
+            val targetPos = LatLong(targetLat, targetLng)
+
+            if (isAutoCenterSupplier()) {
+                mapView.model.mapViewPosition.center = targetPos
+            }
+            onLocationUpdated(targetPos)
+            mapRefs.alertManager?.checkProximity(targetLat, targetLng, mapRefs.cameras)
+
             val now = SystemClock.elapsedRealtime()
             val timeDelta = if (lastLocationTimestamp == 0L) 1000L else (now - lastLocationTimestamp).coerceIn(400L, 1400L)
             lastLocationTimestamp = now
 
-            mapRefs.alertManager?.checkProximity(targetLat, targetLng, mapRefs.cameras)
-
             val speedKmH = location.speed * 3.6f
             val isMoving = speedKmH > 3.0f
 
-            // 🎯 Filtro paso-bajo (Low-Pass) para evitar vibración de brújula
             val rawTargetBearing = if (location.hasBearing() && isMoving) location.bearing else currentDisplayBearing
             val deltaBearing = if (isMoving) getShortestAngleDelta(currentDisplayBearing, rawTargetBearing) else 0f
 
@@ -1429,7 +1468,6 @@ fun startSmoothLocationTracking(
 
             mapRefs.currentAnimator?.cancel()
 
-            // 🚗 Interpolación continua sin saltos de fotogramas
             val animator = ValueAnimator.ofFloat(0f, 1f).apply {
                 duration = timeDelta
                 interpolator = LinearInterpolator()
@@ -1438,18 +1476,12 @@ fun startSmoothLocationTracking(
                     val fraction = animation.animatedValue as Float
                     currentDisplayLat = startLat + (targetLat - startLat) * fraction
                     currentDisplayLng = startLng + (targetLng - startLng) * fraction
-                    currentDisplayBearing = startBearing + (deltaBearing * fraction)
+                    currentDisplayBearing = (startBearing + (deltaBearing * fraction)) % 360f
 
-                    val currentPos = LatLong(currentDisplayLat, currentDisplayLng)
-                    cartMarker.latLong = currentPos
-                    onLocationUpdated(currentPos)
+                    cartMarker.latLong = LatLong(currentDisplayLat, currentDisplayLng)
 
-                    val mapView = mapRefs.mapView
-                    if (mapView != null && isAutoCenterSupplier()) {
-                        mapView.model.mapViewPosition.center = currentPos
-                        if (isMoving) {
-                            mapView.rotation = -currentDisplayBearing
-                        }
+                    if (isAutoCenterSupplier() && isMoving) {
+                        mapView.rotation = -currentDisplayBearing
                     }
                 }
             }
@@ -1458,21 +1490,6 @@ fun startSmoothLocationTracking(
             mapRefs.currentAnimator = animator
         }
     }
-
-    try {
-        fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
-            if (loc != null) {
-                val startPos = LatLong(loc.latitude, loc.longitude)
-                cartMarker.latLong = startPos
-                currentDisplayLat = loc.latitude
-                currentDisplayLng = loc.longitude
-                if (isAutoCenterSupplier()) {
-                    mapRefs.mapView?.model?.mapViewPosition?.center = startPos
-                }
-                mapRefs.alertManager?.checkProximity(loc.latitude, loc.longitude, mapRefs.cameras)
-            }
-        }
-    } catch (e: Exception) {}
 
     fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
     return locationCallback
