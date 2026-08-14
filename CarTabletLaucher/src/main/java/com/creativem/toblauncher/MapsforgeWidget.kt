@@ -26,6 +26,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RawRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -132,20 +133,26 @@ out body;"""
     }
 
     fun getCachedCameras(context: Context): List<SpeedCamera> {
+        // 👇 1. AQUÍ DEFINES LA CÁMARA DE PRUEBA Y SUS COORDENADAS
+        val camaraPrueba = SpeedCamera(999999L, 4.736199, -74.100912, "50")
+
         val cacheFile = File(context.filesDir, CACHE_FILE_NAME)
         if (!cacheFile.exists() || cacheFile.length() == 0L) {
             Log.w(TAG, "⚠️ [CACHÉ] Archivo no existe o está vacío.")
-            return emptyList()
+            return listOf(camaraPrueba)
         }
 
         return try {
             val jsonString = cacheFile.readText(Charsets.UTF_8)
             val list = parseJson(jsonString)
             Log.d(TAG, "📦 [CACHÉ] Leídas ${list.size} cámaras locales (${cacheFile.length()} bytes)")
-            list
+
+            // 👇 2. SE LA SUMAMOS A LAS CÁMARAS REALES
+            list + camaraPrueba
+
         } catch (e: Exception) {
             Log.e(TAG, "❌ [CACHÉ] Error leyendo archivo: ${e.message}", e)
-            emptyList()
+            listOf(camaraPrueba)
         }
     }
 
@@ -338,55 +345,81 @@ class ProximityAlertManager(private val context: Context) {
     private var mediaPlayer: MediaPlayer? = null
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private var focusRequest: AudioFocusRequest? = null
-    private val alertedCameras = mutableSetOf<String>()
-    private var lastAlertTime = 0L
 
+    // Guarda el nivel de alerta por cámara:
+    // 0 = Sin alertar, 1 = Avisado a 300m, 2 = Avisado a 50m
+    private val cameraAlertLevels = mutableMapOf<String, Int>()
+
+    private var lastAlertTime = 0L
     var isAudioAlertsEnabled: Boolean = true
+
+    companion object {
+        private const val DISTANCE_FAR_ALERT = 300f   // 1er aviso (300m)
+        private const val DISTANCE_CLOSE_ALERT = 50f  // 2do aviso (50m)
+        private const val DISTANCE_RESET = 500f       // Reiniciar cámara al alejarse > 500m
+        private const val AUDIO_COOLDOWN_MS = 3000L   // Tiempo mínimo entre alertas (3 seg)
+    }
 
     fun checkProximity(currentLat: Double, currentLng: Double, cameras: List<SpeedCamera>) {
         if (!isAudioAlertsEnabled || cameras.isEmpty()) return
-        val alertDistanceMeters = 400f
+
         val now = System.currentTimeMillis()
-        if (now - lastAlertTime < 8000) return
+        if (now - lastAlertTime < AUDIO_COOLDOWN_MS) return
 
         val results = FloatArray(1)
+
         for (cam in cameras) {
             val camId = "${cam.lat}_${cam.lon}"
-            if (alertedCameras.contains(camId)) continue
-
             Location.distanceBetween(currentLat, currentLng, cam.lat, cam.lon, results)
             val distance = results[0]
-            if (distance <= alertDistanceMeters) {
-                Log.d("GPS_ALERT", "🚨 ¡CÁMARA EN RANGO! A ${distance.toInt()}m")
-                alertedCameras.add(camId)
+
+            // Si ya pasamos la cámara y nos alejamos > 500m, liberamos su estado
+            if (distance > DISTANCE_RESET) {
+                cameraAlertLevels.remove(camId)
+                continue
+            }
+
+            val currentLevel = cameraAlertLevels[camId] ?: 0
+
+            // CASO 1: Está a 50m o menos (Alerta inminente con audio diferente)
+            if (distance <= DISTANCE_CLOSE_ALERT && currentLevel < 2) {
+                cameraAlertLevels[camId] = 2
                 lastAlertTime = now
-                playAudioAlert()
+                Log.d("GPS_ALERT", "🚨 ¡CÁMARA INMINENTE! A ${distance.toInt()}m")
+                playAudioAlert(R.raw.alerta_cerca) // 👈 TU NUEVO AUDIO DE 50 METROS
+                break
+            }
+            // CASO 2: Está entre 51m y 300m (Primer aviso preventivo)
+            else if (distance <= DISTANCE_FAR_ALERT && distance > DISTANCE_CLOSE_ALERT && currentLevel < 1) {
+                cameraAlertLevels[camId] = 1
+                lastAlertTime = now
+                Log.d("GPS_ALERT", "⚠️ CÁMARA A 300m (${distance.toInt()}m)")
+                playAudioAlert(R.raw.alerta_camara) // 👈 AUDIO DE 300 METROS
                 break
             }
         }
-        if (alertedCameras.size > 50) alertedCameras.clear()
     }
 
-    private fun playAudioAlert() {
+    // 👇 Ahora recibe el recurso de audio específico
+    private fun playAudioAlert(@RawRes soundResId: Int) {
         if (!isAudioAlertsEnabled) return
         try {
-            mediaPlayer?.stop()
-            mediaPlayer?.release()
+            mediaPlayer?.let {
+                if (it.isPlaying) it.stop()
+                it.release()
+            }
             mediaPlayer = null
 
-            val afd = context.resources.openRawResourceFd(R.raw.alerta_camara) ?: return
+            val afd = context.resources.openRawResourceFd(soundResId) ?: return
             val audioAttributes = AudioAttributes.Builder()
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
-                .setLegacyStreamType(AudioManager.STREAM_NOTIFICATION)
                 .build()
 
             solicitarAudioFocus(audioAttributes)
 
             mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(audioAttributes)
-                @Suppress("DEPRECATION")
-                setAudioStreamType(AudioManager.STREAM_NOTIFICATION)
                 setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                 afd.close()
                 prepare()
@@ -437,16 +470,18 @@ class ProximityAlertManager(private val context: Context) {
 
     fun destroy() {
         try {
-            mediaPlayer?.stop()
-            mediaPlayer?.release()
+            mediaPlayer?.let {
+                if (it.isPlaying) it.stop()
+                it.release()
+            }
             mediaPlayer = null
+            cameraAlertLevels.clear()
             liberarAudioFocus()
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 }
-
 // ==========================================
 // DIBUJADO DE ÍCONOS
 // ==========================================
