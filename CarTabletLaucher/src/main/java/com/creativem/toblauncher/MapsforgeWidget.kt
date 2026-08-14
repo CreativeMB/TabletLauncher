@@ -111,7 +111,8 @@ out body;"""
                 e.printStackTrace()
             }
         }
-        cameraList.add(SpeedCamera(4.735566, -74.098225, "50"))
+        //camara de prueva para culaquier configuracion de la app
+//        cameraList.add(SpeedCamera(4.735566, -74.098225, "50"))
         return cameraList
     }
 
