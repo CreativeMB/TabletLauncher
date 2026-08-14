@@ -86,7 +86,7 @@ import java.net.URLEncoder
 import kotlin.math.abs
 
 // ==========================================
-// MODELO Y REPOSITORIO DE CÁMARAS
+// REPOSITORIO DE CÁMARAS CON DIAGNÓSTICO DETALLADO
 // ==========================================
 data class SpeedCamera(
     val lat: Double,
@@ -94,9 +94,21 @@ data class SpeedCamera(
     val maxSpeed: String
 )
 
+sealed class CameraSyncResult {
+    data class Success(val cameras: List<SpeedCamera>) : CameraSyncResult()
+    data class Error(val message: String) : CameraSyncResult()
+}
+
 object CameraRepository {
-    private const val OVERPASS_URL = "https://overpass-api.de/api/interpreter"
-    private const val OVERPASS_QUERY = """[out:json][timeout:45];
+    private const val TAG = "RADAR_DEBUG"
+
+    private val OVERPASS_ENDPOINTS = listOf(
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
+        "https://overpass-api.de/api/interpreter",
+        "https://lz4.overpass-api.de/api/interpreter"
+    )
+    private const val OVERPASS_QUERY = """[out:json][timeout:25];
 (
   node["highway"="speed_camera"](-4.5, -79.5, 13.5, -66.8);
   node["enforcement"="maxspeed"](-4.5, -79.5, 13.5, -66.8);
@@ -111,43 +123,96 @@ out body;"""
             try {
                 val jsonString = cacheFile.readText()
                 cameraList.addAll(parseJson(jsonString))
+                Log.d(TAG, "📦 [CACHÉ] Se leyeron ${cameraList.size} cámaras del archivo local")
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(TAG, "❌ [CACHÉ] Error leyendo archivo local: ${e.message}", e)
             }
+        } else {
+            Log.w(TAG, "⚠️ [CACHÉ] No existe archivo de caché local previo.")
         }
         return cameraList
     }
 
-    suspend fun updateCamerasOnlineInBackground(context: Context): List<SpeedCamera>? = withContext(Dispatchers.IO) {
-        try {
-            val url = URL(OVERPASS_URL)
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                connectTimeout = 15000
-                readTimeout = 45000
-                setRequestProperty("User-Agent", "TobLauncherApp/1.0 (Android Automotive)")
-                setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                setRequestProperty("Accept", "application/json")
-                val postData = "data=" + URLEncoder.encode(OVERPASS_QUERY, "UTF-8")
-                outputStream.use { it.write(postData.toByteArray(Charsets.UTF_8)) }
-            }
-            if (conn.responseCode == 200) {
-                val jsonString = conn.inputStream.bufferedReader().use { it.readText() }
-                val parsed = parseJson(jsonString)
-                if (parsed.isNotEmpty()) {
-                    val cacheFile = File(context.filesDir, "speed_cameras_colombia.json")
-                    cacheFile.writeText(jsonString)
-                    val result = parsed.toMutableList()
-                    return@withContext result
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return@withContext null
-    }
+    suspend fun updateCamerasOnline(context: Context): CameraSyncResult = withContext(Dispatchers.IO) {
+        Log.i(TAG, "==================================================")
+        Log.i(TAG, "🚀 [INICIO] Conectando directamente con servidores de Overpass...")
 
+        var lastErrorDetail = "No se pudo conectar a ningún servidor"
+        val postData = ("data=" + URLEncoder.encode(OVERPASS_QUERY, "UTF-8")).toByteArray(Charsets.UTF_8)
+
+        val existingCameras = getCachedCameras(context).toMutableList()
+        val cameraMap = existingCameras.associateBy { "${String.format("%.5f", it.lat)}_${String.format("%.5f", it.lon)}" }.toMutableMap()
+
+        for ((index, endpoint) in OVERPASS_ENDPOINTS.withIndex()) {
+            Log.i(TAG, "--------------------------------------------------")
+            Log.d(TAG, "🌐 [INTENTO ${index + 1}/${OVERPASS_ENDPOINTS.size}] Conectando a: $endpoint")
+
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL(endpoint)
+
+                connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    connectTimeout = 10000
+                    readTimeout = 20000
+                    setRequestProperty("User-Agent", "Mozilla/5.0 (Android; Mobile; rv:109.0) Gecko/119.0 Firefox/119.0")
+                    setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                    setRequestProperty("Accept", "application/json")
+                    setFixedLengthStreamingMode(postData.size)
+                }
+
+                Log.d(TAG, "📤 [ENVÍO] Enviando ${postData.size} bytes...")
+                connection.outputStream.use { it.write(postData) }
+
+                val responseCode = connection.responseCode
+                Log.d(TAG, "📥 [RESPUESTA] Código HTTP recibido: $responseCode")
+
+                if (responseCode == 200) {
+                    val jsonString = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    val downloadedList = parseJson(jsonString)
+                    Log.d(TAG, "📊 [DATOS] Radares procesados: ${downloadedList.size}")
+
+                    if (downloadedList.isNotEmpty()) {
+                        for (cam in downloadedList) {
+                            val key = "${String.format("%.5f", cam.lat)}_${String.format("%.5f", cam.lon)}"
+                            cameraMap[key] = cam
+                        }
+
+                        val mergedList = cameraMap.values.toList()
+                        val cacheFile = File(context.filesDir, "speed_cameras_colombia.json")
+                        val finalJson = JSONObject().apply {
+                            val array = org.json.JSONArray()
+                            for (cam in mergedList) {
+                                val obj = JSONObject().apply {
+                                    put("lat", cam.lat)
+                                    put("lon", cam.lon)
+                                    put("tags", JSONObject().apply { put("maxspeed", cam.maxSpeed) })
+                                }
+                                array.put(obj)
+                            }
+                            put("elements", array)
+                        }
+
+                        cacheFile.writeText(finalJson.toString())
+                        Log.i(TAG, "🎉 [ÉXITO] Base actualizada con ${mergedList.size} cámaras.")
+                        return@withContext CameraSyncResult.Success(mergedList)
+                    }
+                } else {
+                    lastErrorDetail = "Servidor $endpoint respondió HTTP $responseCode"
+                }
+
+            } catch (ex: Exception) {
+                lastErrorDetail = "${ex.javaClass.simpleName}: ${ex.localizedMessage}"
+                Log.w(TAG, "⚠️ Falló $endpoint ($lastErrorDetail), probando siguiente servidor...")
+            } finally {
+                connection?.disconnect()
+            }
+        }
+
+        Log.e(TAG, "💥 [FALLO FINAL] $lastErrorDetail")
+        return@withContext CameraSyncResult.Error(lastErrorDetail)
+    }
     private fun parseJson(jsonString: String): List<SpeedCamera> {
         val list = mutableListOf<SpeedCamera>()
         try {
@@ -162,12 +227,11 @@ out body;"""
                 list.add(SpeedCamera(lat, lon, speed))
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "❌ [PARSE JSON] Error: ${e.message}", e)
         }
         return list
     }
 }
-
 // ==========================================
 // CLASE CONTENEDORA DE REFERENCIAS
 // ==========================================
@@ -517,18 +581,11 @@ fun MapsforgeWidget(
         mapRefs.zoomObserver = zoomObserver
         mapView.model.mapViewPosition.addObserver(zoomObserver)
 
+        // 🛑 SOLO CARGA EL CACHÉ LOCAL OFFLINE (CERO PETICIONES A INTERNET AL ABRIR)
         val cached = withContext(Dispatchers.IO) { CameraRepository.getCachedCameras(context) }
         if (cached.isNotEmpty()) {
             mapRefs.cameras = cached
             refreshCamerasRunnable.run()
-        }
-
-        withContext(Dispatchers.IO) {
-            val updated = CameraRepository.updateCamerasOnlineInBackground(context)
-            if (updated != null && updated.isNotEmpty()) {
-                mapRefs.cameras = updated
-                withContext(Dispatchers.Main) { refreshCamerasRunnable.run() }
-            }
         }
     }
 
@@ -739,7 +796,7 @@ fun MapContainerWidget(
     val theme = LocalDashboardTheme.current
     val coroutineScope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("toblauncher_prefs", Context.MODE_PRIVATE) }
-
+    var isSyncingCameras by remember { mutableStateOf(false) }
     var isOnlineNavActive by remember {
         mutableStateOf(prefs.getBoolean("online_nav_active_mode", false))
     }
@@ -1053,6 +1110,99 @@ fun MapContainerWidget(
                                     }
 
                                     Divider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
+
+                                    // ==========================================
+// BOTÓN DE ACTUALIZACIÓN CORREGIDO (CON TRY/FINALLY)
+// ==========================================
+                                    Button(
+                                        onClick = {
+                                            if (!isSyncingCameras) {
+                                                isSyncingCameras = true
+                                                Log.d("RADAR_DEBUG", "👆 [BOTÓN] Usuario presionó 'Actualizar Radares Ahora'")
+
+                                                coroutineScope.launch {
+                                                    try {
+                                                        val syncResult = CameraRepository.updateCamerasOnline(context)
+
+                                                        when (syncResult) {
+                                                            is CameraSyncResult.Success -> {
+                                                                val cameras = syncResult.cameras
+                                                                mapRefs.cameras = cameras
+
+                                                                // 🛑 Refresco forzado en el mapa
+                                                                mapRefs.mapView?.let { mv ->
+                                                                    val currentZoom = mv.model.mapViewPosition.zoomLevel.toInt()
+                                                                    val targetBitmap = when {
+                                                                        currentZoom < 12 -> AndroidBitmap(createCameraMarkerBitmap(10f))
+                                                                        currentZoom < 14 -> AndroidBitmap(createCameraMarkerBitmap(13f))
+                                                                        currentZoom < 16 -> AndroidBitmap(createCameraMarkerBitmap(15f))
+                                                                        else -> AndroidBitmap(createCameraMarkerBitmap(17f))
+                                                                    }
+
+                                                                    for (oldMarker in mapRefs.cameraMarkers) {
+                                                                        mv.layerManager.layers.remove(oldMarker)
+                                                                    }
+                                                                    mapRefs.cameraMarkers.clear()
+
+                                                                    for (cam in cameras) {
+                                                                        val camMarker = Marker(LatLong(cam.lat, cam.lon), targetBitmap, 0, 0)
+                                                                        mapRefs.cameraMarkers.add(camMarker)
+                                                                        mv.layerManager.layers.add(camMarker)
+                                                                    }
+
+                                                                    mv.layerManager.redrawLayers()
+                                                                    mv.repaint()
+                                                                }
+
+                                                                android.widget.Toast.makeText(
+                                                                    context.applicationContext,
+                                                                    "✅ ¡Éxito! ${cameras.size} cámaras guardadas",
+                                                                    android.widget.Toast.LENGTH_LONG
+                                                                ).show()
+                                                            }
+                                                            is CameraSyncResult.Error -> {
+                                                                android.widget.Toast.makeText(
+                                                                    context.applicationContext,
+                                                                    "⚠️ ${syncResult.message}",
+                                                                    android.widget.Toast.LENGTH_LONG
+                                                                ).show()
+                                                            }
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        Log.e("RADAR_DEBUG", "❌ Error en corrutina del botón: ${e.message}", e)
+                                                        android.widget.Toast.makeText(
+                                                            context.applicationContext,
+                                                            "Error: ${e.localizedMessage}",
+                                                            android.widget.Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    } finally {
+                                                        // 🌟 Garantiza que el botón siempre vuelva a quedar habilitado
+                                                        isSyncingCameras = false
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        enabled = !isSyncingCameras,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFF03DAC5),
+                                            disabledContainerColor = Color(0x5503DAC5),
+                                            contentColor = Color.Black
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        if (isSyncingCameras) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(14.dp),
+                                                color = Color.Black,
+                                                strokeWidth = 2.dp
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Descargando...", fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        } else {
+                                            Text("🔄 Actualizar Radares Ahora", fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+
 
                                     Button(
                                         onClick = {
