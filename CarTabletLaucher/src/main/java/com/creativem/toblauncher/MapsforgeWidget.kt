@@ -133,13 +133,13 @@ out body;"""
     }
 
     fun getCachedCameras(context: Context): List<SpeedCamera> {
-        // 👇 1. AQUÍ DEFINES LA CÁMARA DE PRUEBA Y SUS COORDENADAS
-        val camaraPrueba = SpeedCamera(999999L, 4.736199, -74.100912, "50")
+
+
 
         val cacheFile = File(context.filesDir, CACHE_FILE_NAME)
         if (!cacheFile.exists() || cacheFile.length() == 0L) {
             Log.w(TAG, "⚠️ [CACHÉ] Archivo no existe o está vacío.")
-            return listOf(camaraPrueba)
+            return listOf()
         }
 
         return try {
@@ -148,11 +148,11 @@ out body;"""
             Log.d(TAG, "📦 [CACHÉ] Leídas ${list.size} cámaras locales (${cacheFile.length()} bytes)")
 
             // 👇 2. SE LA SUMAMOS A LAS CÁMARAS REALES
-            list + camaraPrueba
+            list
 
         } catch (e: Exception) {
             Log.e(TAG, "❌ [CACHÉ] Error leyendo archivo: ${e.message}", e)
-            listOf(camaraPrueba)
+            listOf()
         }
     }
 
@@ -911,7 +911,7 @@ fun MapContainerWidget(
 
     var isSyncingCameras by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
-    var isAutoCenterEnabled by remember { mutableStateOf(prefs.getBoolean("auto_center", true)) }
+    var isAutoCenterEnabled by remember { mutableStateOf(true) }
     var isCameraAudioEnabled by remember {
         mutableStateOf(prefs.getBoolean("camera_audio_alert_enabled", true))
     }
@@ -1595,7 +1595,7 @@ fun MapFileItemRow(file: File, onSelect: () -> Unit) {
 }
 
 // =================================================================
-// MOTOR DE NAVEGACIÓN (CENTRADO FORZADO EN TIEMPO REAL)
+// MOTOR DE NAVEGACIÓN SUAVE (60 FPS SIN JALONES TIPO WAZE)
 // =================================================================
 @SuppressLint("MissingPermission")
 fun startSmoothLocationTracking(
@@ -1622,10 +1622,12 @@ fun startSmoothLocationTracking(
         return delta
     }
 
-    val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L).apply {
-        setMinUpdateIntervalMillis(500L)
-        setMinUpdateDistanceMeters(0.0f)
-        setGranularity(Granularity.GRANULARITY_FINE)
+    // 👇 REEMPLAZA ESTE BLOQUE PARA MÁXIMA PRECISIÓN Y CERO RETRASO
+    val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 500L).apply {
+        setMinUpdateIntervalMillis(200L)             // Captura cada pulso de satélite sin perder ninguno
+        setMaxUpdateDelayMillis(0L)                   // CERO acumulación: entrega la señal de inmediato al mapa
+        setMinUpdateDistanceMeters(0.0f)              // Lee hasta el más mínimo centímetro de avance
+        setGranularity(Granularity.GRANULARITY_FINE)  // Obliga el uso de GNSS/Satélites de alta precisión
         setWaitForAccurateLocation(false)
     }.build()
 
@@ -1635,6 +1637,7 @@ fun startSmoothLocationTracking(
 
         currentDisplayLat = loc.latitude
         currentDisplayLng = loc.longitude
+        currentDisplayBearing = if (loc.hasBearing()) loc.bearing else 0f
         val firstPos = LatLong(loc.latitude, loc.longitude)
 
         cartMarker.latLong = firstPos
@@ -1670,45 +1673,60 @@ fun startSmoothLocationTracking(
                 return
             }
 
-            val targetPos = LatLong(targetLat, targetLng)
-
-            if (isAutoCenterSupplier()) {
-                mapView.model.mapViewPosition.center = targetPos
-            }
-            onLocationUpdated(targetPos)
+            // Alertas de radar en segundo plano
             mapRefs.alertManager?.checkProximity(targetLat, targetLng, mapRefs.cameras)
 
+            // Cálculo dinámico del tiempo real entre señales GPS
             val now = SystemClock.elapsedRealtime()
-            val timeDelta = if (lastLocationTimestamp == 0L) 1000L else (now - lastLocationTimestamp).coerceIn(400L, 1400L)
+            val timeDelta = if (lastLocationTimestamp == 0L) 1000L else (now - lastLocationTimestamp).coerceIn(300L, 1500L)
             lastLocationTimestamp = now
 
             val speedKmH = location.speed * 3.6f
-            val isMoving = speedKmH > 3.0f
+            val isMoving = speedKmH >= 4.0f // Filtro anti-temblor cuando el carro está quieto
 
             val rawTargetBearing = if (location.hasBearing() && isMoving) location.bearing else currentDisplayBearing
             val deltaBearing = if (isMoving) getShortestAngleDelta(currentDisplayBearing, rawTargetBearing) else 0f
 
+            // Capturar la posición exacta en el instante del fotograma actual
             val startLat = currentDisplayLat
             val startLng = currentDisplayLng
             val startBearing = currentDisplayBearing
 
             mapRefs.currentAnimator?.cancel()
 
+            // Animador suave continuo
             val animator = ValueAnimator.ofFloat(0f, 1f).apply {
                 duration = timeDelta
-                interpolator = LinearInterpolator()
+                interpolator = LinearInterpolator() // Movimiento constante sin frenazos
 
                 addUpdateListener { animation ->
                     val fraction = animation.animatedValue as Float
+
+                    // 1. Interpolación matemática de posición
                     currentDisplayLat = startLat + (targetLat - startLat) * fraction
                     currentDisplayLng = startLng + (targetLng - startLng) * fraction
-                    currentDisplayBearing = (startBearing + (deltaBearing * fraction)) % 360f
 
-                    cartMarker.latLong = LatLong(currentDisplayLat, currentDisplayLng)
-
-                    if (isAutoCenterSupplier() && isMoving) {
-                        mapView.rotation = -currentDisplayBearing
+                    // 2. Interpolación suave de rotación (solo si gira más de 1.5°)
+                    if (isMoving && Math.abs(deltaBearing) > 1.5f) {
+                        currentDisplayBearing = (startBearing + (deltaBearing * fraction) + 360f) % 360f
                     }
+
+                    val currentPos = LatLong(currentDisplayLat, currentDisplayLng)
+
+                    // 3. Mover el marcador
+                    cartMarker.latLong = currentPos
+                    onLocationUpdated(currentPos)
+
+                    // 4. Centrado y rotación SUAVE del mapa en cada cuadro (60 FPS)
+                    if (isAutoCenterSupplier()) {
+                        mapView.model.mapViewPosition.center = currentPos
+                        if (isMoving) {
+                            mapView.rotation = -currentDisplayBearing
+                        }
+                    }
+
+                    // Refrescar mapa fluidamente
+                    mapView.repaint()
                 }
             }
 
