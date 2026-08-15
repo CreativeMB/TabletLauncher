@@ -156,6 +156,31 @@ out body;"""
         }
     }
 
+//    fun getCachedCameras(context: Context): List<SpeedCamera> {
+//        // 👇 AQUÍ CAMBIAS LAS COORDENADAS DE TU CÁMARA DE PRUEBA 👇
+//        val camaraPrueba = SpeedCamera(999999L, 4.735547, -74.098204, "50")
+//
+//        val cacheFile = File(context.filesDir, CACHE_FILE_NAME)
+//        if (!cacheFile.exists() || cacheFile.length() == 0L) {
+//            Log.w(TAG, "⚠️ [CACHÉ] Archivo no existe o está vacío. Mostrando solo prueba.")
+//            return listOf(camaraPrueba)
+//        }
+//
+//        return try {
+//            val jsonString = cacheFile.readText(Charsets.UTF_8)
+//            val list = parseJson(jsonString)
+//            Log.d(TAG, "📦 [CACHÉ] Leídas ${list.size} cámaras reales + 1 de prueba")
+//
+//            // Une tus cámaras reales con la cámara falsa
+//            list + camaraPrueba
+//
+//        } catch (e: Exception) {
+//            Log.e(TAG, "❌ [CACHÉ] Error leyendo archivo: ${e.message}", e)
+//            listOf(camaraPrueba)
+//        }
+//    }
+
+
     suspend fun updateCamerasOnline(context: Context, mapFileTarget: File): CameraSyncResult = withContext(Dispatchers.IO) {
         Log.i(TAG, "==================================================")
         Log.i(TAG, "🚀 [INICIO] Sincronizando radares oficiales...")
@@ -414,12 +439,14 @@ class ProximityAlertManager(private val context: Context) {
             val audioAttributes = AudioAttributes.Builder()
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                .setLegacyStreamType(AudioManager.STREAM_NOTIFICATION)
                 .build()
 
             solicitarAudioFocus(audioAttributes)
 
             mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(audioAttributes)
+                setAudioStreamType(AudioManager.STREAM_NOTIFICATION)
                 setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                 afd.close()
                 prepare()
