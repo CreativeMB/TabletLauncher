@@ -94,5 +94,10 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
+    // Motor de rutas offline GraphHopper
+    implementation("com.graphhopper:graphhopper-core:0.13.0") {
+        exclude(group = "org.openstreetmap.osmosis", module = "osmosis-osm-binary")
+    }
+    implementation("androidx.compose.material:material-icons-extended")
 
 }

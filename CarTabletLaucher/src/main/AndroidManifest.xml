@@ -66,6 +66,13 @@
             <action android:name="android.settings.HOME_SETTINGS" />
         </intent>
     </queries>
+    <!-- Permiso para consultar la app BRouter -->
+    <queries>
+        <package android:name="btools.routingapp" />
+        <intent>
+            <action android:name="btools.routingapp.IBRouterService" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="true"
