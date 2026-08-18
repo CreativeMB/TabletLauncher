@@ -70,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -101,7 +102,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.*
-import androidx.compose.ui.graphics.toArgb
+
 // ==========================================
 // MODELO Y RESULTADO DE CÁMARAS
 // ==========================================
@@ -135,14 +136,22 @@ data class NavigationStatus(
     val remainingDistanceMeters: Double = 0.0,
     val remainingTimeMillis: Long = 0L,
     val etaString: String = "--:--",
-    val hasArrived: Boolean = false
+    val hasArrived: Boolean = false,
+    val isOffRoute: Boolean = false,
+    val remainingPoints: List<LatLong> = emptyList()
 )
 
-class LiveNavigationTracker(private val route: RouteOption) {
+class LiveNavigationTracker(private var route: RouteOption) {
+
+    fun updateRoute(newRoute: RouteOption) {
+        this.route = newRoute
+    }
+
     fun updateProgress(currentLoc: LatLong): NavigationStatus {
         val points = route.points
         if (points.isEmpty()) return NavigationStatus()
 
+        // 1. Encontrar el punto más cercano en la ruta
         var closestIdx = 0
         var minDistance = Double.MAX_VALUE
         for (i in points.indices) {
@@ -153,8 +162,18 @@ class LiveNavigationTracker(private val route: RouteOption) {
             }
         }
 
+        // 2. DETECCIÓN DE DESVÍO / RECALCULAR SI SE ALEJA MÁS DE 20 METROS
+        if (minDistance > 20.0 && closestIdx < points.size - 2) {
+            return NavigationStatus(
+                isOffRoute = true,
+                maneuverInstruction = "Recalculando ruta...",
+                remainingPoints = points
+            )
+        }
+
+        // 3. Chequear si ya llegó al destino
         val distToGoal = calculateDistance(currentLoc, points.last())
-        if (closestIdx >= points.size - 2 || distToGoal <= 25.0) {
+        if (closestIdx >= points.size - 2 || distToGoal <= 20.0) {
             return NavigationStatus(
                 nextManeuver = ManeuverType.ARRIVAL,
                 maneuverInstruction = "¡Has llegado a tu destino!",
@@ -162,8 +181,16 @@ class LiveNavigationTracker(private val route: RouteOption) {
                 remainingDistanceMeters = 0.0,
                 remainingTimeMillis = 0L,
                 etaString = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date()),
-                hasArrived = true
+                hasArrived = true,
+                remainingPoints = emptyList()
             )
+        }
+
+        // 4. GENERAR PUNTOS RESTANTES (BORRADO DE RUTA DETRÁS DEL AUTO)
+        val remainingPts = mutableListOf<LatLong>()
+        remainingPts.add(currentLoc)
+        for (i in (closestIdx + 1) until points.size) {
+            remainingPts.add(points[i])
         }
 
         var remainingDist = calculateDistance(currentLoc, points[closestIdx])
@@ -171,6 +198,7 @@ class LiveNavigationTracker(private val route: RouteOption) {
             remainingDist += calculateDistance(points[i], points[i + 1])
         }
 
+        // 5. Cálculo de Próxima Maniobra
         var maneuver = ManeuverType.STRAIGHT
         var distToTurn = remainingDist
         var turnInstruction = "Continúe por esta vía"
@@ -235,7 +263,9 @@ class LiveNavigationTracker(private val route: RouteOption) {
             remainingDistanceMeters = remainingDist,
             remainingTimeMillis = remainingMs,
             etaString = etaStr,
-            hasArrived = false
+            hasArrived = false,
+            isOffRoute = false,
+            remainingPoints = remainingPts
         )
     }
 
@@ -252,13 +282,13 @@ class LiveNavigationTracker(private val route: RouteOption) {
         val lat2 = Math.toRadians(p2.latitude)
         val dLon = Math.toRadians(p2.longitude - p1.longitude)
         val y = sin(dLon) * cos(lat2)
-        val x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+        val x = cos(lat1) * sin(lat2) - sin(lat1) * cos(dLon)
         return (Math.toDegrees(atan2(y, x)) + 360) % 360
     }
 }
 
 // =========================================================================
-// ESTADO GLOBAL DE NAVEGACIÓN (PERSISTE ENTRE WIDGET Y PANTALLA COMPLETA)
+// ESTADO GLOBAL DE NAVEGACIÓN
 // =========================================================================
 object NavigationStateHolder {
     var calculatedRoutes by mutableStateOf<List<RouteOption>>(emptyList())
@@ -268,8 +298,12 @@ object NavigationStateHolder {
     var navStatus by mutableStateOf(NavigationStatus())
     var destinationLocation by mutableStateOf<LatLong?>(null)
     var isCalculatingRoute by mutableStateOf(false)
+    var isSilentRecalculating = false
+    var calculationJob: kotlinx.coroutines.Job? = null
 
     fun clear() {
+        calculationJob?.cancel()
+        calculationJob = null
         calculatedRoutes = emptyList()
         selectedRouteId = 0
         isNavigatingActive = false
@@ -277,11 +311,12 @@ object NavigationStateHolder {
         navStatus = NavigationStatus()
         destinationLocation = null
         isCalculatingRoute = false
+        isSilentRecalculating = false
     }
 }
 
 // ==========================================
-// REPOSITORIO DE CÁMARAS ULTRA-RÁPIDO
+// REPOSITORIO DE CÁMARAS
 // ==========================================
 object CameraRepository {
     private const val TAG = "RADAR_DEBUG"
@@ -462,6 +497,8 @@ class MapRefs {
     var alertManager: ProximityAlertManager? = null
     var zoomObserver: Observer? = null
     var routeLayerManager: RouteLayerManager? = null
+    var staticGpsBitmap: AndroidBitmap? = null
+    var navArrowBitmap: AndroidBitmap? = null
 }
 
 // ==========================================
@@ -641,6 +678,68 @@ fun createStaticGpsBitmap(): Bitmap {
     return bitmap
 }
 
+// NUEVO: ÍCONO DE FLECHA DE NAVEGACIÓN 3D PROFESIONAL
+fun createNavigationArrowBitmap(): Bitmap {
+    val size = 110
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val center = size / 2f
+
+    val shadowPaint = Paint().apply {
+        color = android.graphics.Color.argb(70, 0, 0, 0)
+        isAntiAlias = true
+        style = Paint.Style.FILL
+    }
+
+    val arrowPath = Path().apply {
+        moveTo(center, 12f)
+        lineTo(center + 36f, size - 18f)
+        lineTo(center, size - 32f)
+        lineTo(center - 36f, size - 18f)
+        close()
+    }
+
+    val shadowPath = Path().apply {
+        moveTo(center, 18f)
+        lineTo(center + 38f, size - 12f)
+        lineTo(center, size - 26f)
+        lineTo(center - 38f, size - 12f)
+        close()
+    }
+    canvas.drawPath(shadowPath, shadowPaint)
+
+    val strokePaint = Paint().apply {
+        color = android.graphics.Color.WHITE
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+        strokeWidth = 7f
+        strokeJoin = Paint.Join.ROUND
+    }
+    canvas.drawPath(arrowPath, strokePaint)
+
+    val fillPaintCyan = Paint().apply {
+        color = android.graphics.Color.parseColor("#00E5FF")
+        isAntiAlias = true
+        style = Paint.Style.FILL
+    }
+    canvas.drawPath(arrowPath, fillPaintCyan)
+
+    val rightHalf = Path().apply {
+        moveTo(center, 12f)
+        lineTo(center + 36f, size - 18f)
+        lineTo(center, size - 32f)
+        close()
+    }
+    val rightShadowPaint = Paint().apply {
+        color = android.graphics.Color.argb(45, 0, 0, 0)
+        isAntiAlias = true
+        style = Paint.Style.FILL
+    }
+    canvas.drawPath(rightHalf, rightShadowPaint)
+
+    return bitmap
+}
+
 fun createDestinationMarkerBitmap(): Bitmap {
     val size = 90
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
@@ -749,9 +848,6 @@ fun createCameraMarkerBitmap(zoomLevel: Float = 16f): Bitmap {
     return bitmap
 }
 
-// ==========================================
-// COMPOSABLE DEL MAPA (OFFLINE PURO)
-// ==========================================
 @SuppressLint("RememberReturnType", "ClickableViewAccessibility")
 @Composable
 fun MapsforgeWidget(
@@ -773,26 +869,38 @@ fun MapsforgeWidget(
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
     val currentAutoCenterEnabled by rememberUpdatedState(isAutoCenterEnabled)
+    val currentOnLocationUpdated by rememberUpdatedState(onLocationUpdated)
 
-    val microBitmap = remember { AndroidBitmap(createCameraMarkerBitmap(10f)) }
-    val smallBitmap = remember { AndroidBitmap(createCameraMarkerBitmap(13f)) }
-    val mediumBitmap = remember { AndroidBitmap(createCameraMarkerBitmap(15f)) }
-    val largeBitmap = remember { AndroidBitmap(createCameraMarkerBitmap(17f)) }
-
-    fun getMarkerForZoom(zoom: Int): AndroidBitmap {
-        return when {
-            zoom < 12 -> microBitmap
-            zoom < 14 -> smallBitmap
-            zoom < 16 -> mediumBitmap
-            else -> largeBitmap
-        }
+    LaunchedEffect(Unit) {
+        try { AndroidGraphicFactory.createInstance(context.applicationContext) } catch (e: Exception) {}
     }
 
     LaunchedEffect(isCameraAudioEnabled) {
         mapRefs.alertManager?.isAudioAlertsEnabled = isCameraAudioEnabled
     }
 
-    LaunchedEffect(mapRefs.mapView, theme.id) { // 👈 Se agrega theme.id para que reaccione al cambio de tema
+    // 🎯 Cambio de icono automático (Flecha al navegar / Punto al esperar)
+    LaunchedEffect(NavigationStateHolder.isNavigatingActive, mapRefs.marker) {
+        val marker = mapRefs.marker ?: return@LaunchedEffect
+        try { AndroidGraphicFactory.createInstance(context.applicationContext) } catch (e: Exception) {}
+        marker.bitmap = if (NavigationStateHolder.isNavigatingActive) {
+            AndroidBitmap(createNavigationArrowBitmap())
+        } else {
+            AndroidBitmap(createStaticGpsBitmap())
+        }
+        mapRefs.mapView?.layerManager?.redrawLayers()
+        mapRefs.mapView?.repaint()
+    }
+
+    // 🎨 Actualizar colores de tema
+    LaunchedEffect(theme.accentCyan, theme.accentPurple, theme.id, mapRefs.routeLayerManager) {
+        mapRefs.routeLayerManager?.updateThemeColors(
+            primaryColorInt = theme.accentCyan.toArgb(),
+            secondaryColorInt = theme.accentPurple.toArgb()
+        )
+    }
+
+    LaunchedEffect(mapRefs.mapView) {
         val mapView = mapRefs.mapView ?: return@LaunchedEffect
         val mainHandler = android.os.Handler(Looper.getMainLooper())
 
@@ -803,7 +911,6 @@ fun MapsforgeWidget(
         }
 
         var lastZoomBucket = -1
-
         val refreshCamerasRunnable = Runnable {
             if (mapRefs.cameras.isNotEmpty() && mapRefs.mapView != null) {
                 val currentZoom = mapView.model.mapViewPosition.zoomLevel.toInt()
@@ -816,7 +923,13 @@ fun MapsforgeWidget(
 
                 if (currentBucket != lastZoomBucket || mapRefs.cameraMarkers.isEmpty()) {
                     lastZoomBucket = currentBucket
-                    val targetBitmap = getMarkerForZoom(currentZoom)
+                    val zoomFloat = when (currentBucket) {
+                        1 -> 10f
+                        2 -> 13f
+                        3 -> 15f
+                        else -> 17f
+                    }
+                    val targetBitmap = AndroidBitmap(createCameraMarkerBitmap(zoomFloat))
 
                     for (oldMarker in mapRefs.cameraMarkers) {
                         mapView.layerManager.layers.remove(oldMarker)
@@ -850,16 +963,13 @@ fun MapsforgeWidget(
             refreshCamerasRunnable.run()
         }
 
-        // =========================================================================
-        // RESTAURAR LÍNEAS Y DESTINO CON LOS COLORES DEL TEMA ACTIVO
-        // =========================================================================
         if (NavigationStateHolder.calculatedRoutes.isNotEmpty()) {
             mapRefs.routeLayerManager?.renderRoutes(
                 routes = NavigationStateHolder.calculatedRoutes,
                 selectedRouteId = NavigationStateHolder.selectedRouteId,
-                primaryColorInt = theme.accentCyan.toArgb(),   // 👈 Nativo y sin errores
-                secondaryColorInt = theme.accentPurple.toArgb(), // 👈 Nativo y sin errores
-                accentColorInt = theme.accentOrange.toArgb()    // 👈 Nativo y sin errores
+                primaryColorInt = theme.accentCyan.toArgb(),
+                secondaryColorInt = theme.accentPurple.toArgb(),
+                accentColorInt = theme.accentOrange.toArgb()
             )
         }
 
@@ -872,7 +982,6 @@ fun MapsforgeWidget(
             mapView.repaint()
         }
     }
-
 
     DisposableEffect(Unit) {
         onDispose {
@@ -906,14 +1015,10 @@ fun MapsforgeWidget(
             key(targetMapFile.absolutePath, targetMapFile.lastModified(), targetMapFile.length()) {
                 AndroidView(
                     factory = { ctx ->
-                        try {
-                            AndroidGraphicFactory.createInstance(ctx.applicationContext)
-                        } catch (e: Exception) {}
+                        try { AndroidGraphicFactory.createInstance(ctx.applicationContext) } catch (e: Exception) {}
 
                         val mapFile = try {
-                            if (targetMapFile.exists() && targetMapFile.length() > 0) {
-                                MapFile(targetMapFile)
-                            } else null
+                            if (targetMapFile.exists() && targetMapFile.length() > 0) MapFile(targetMapFile) else null
                         } catch (e: Exception) {
                             onMapLoadError("El archivo seleccionado no es válido.")
                             null
@@ -921,10 +1026,7 @@ fun MapsforgeWidget(
 
                         val mapView = MapView(ctx).apply {
                             keepScreenOn = true
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
+                            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                             setBackgroundColor(android.graphics.Color.parseColor("#E5E0D8"))
                             model.frameBufferModel.overdrawFactor = 1.25
                             model.displayModel.userScaleFactor = 1.15f
@@ -935,7 +1037,7 @@ fun MapsforgeWidget(
 
                         val gestureDetector = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
                             override fun onLongPress(e: MotionEvent) {
-                                // ⛔ BLOQUEO: Si se está calculando, si ya hay rutas mostradas o si se está navegando, no hace nada
+                                // ⛔ BLOQUEO TOTAL: Si está calculando, si ya hay rutas o si navega, no permite poner bandera
                                 if (NavigationStateHolder.isCalculatingRoute ||
                                     NavigationStateHolder.calculatedRoutes.isNotEmpty() ||
                                     NavigationStateHolder.isNavigatingActive) {
@@ -956,14 +1058,9 @@ fun MapsforgeWidget(
                         mapView.setOnTouchListener { _, event ->
                             gestureDetector.onTouchEvent(event)
                             when (event.actionMasked) {
-                                MotionEvent.ACTION_DOWN -> {
-                                    startTouchX = event.x
-                                    startTouchY = event.y
-                                }
+                                MotionEvent.ACTION_DOWN -> { startTouchX = event.x; startTouchY = event.y }
                                 MotionEvent.ACTION_MOVE -> {
-                                    val dx = abs(event.x - startTouchX)
-                                    val dy = abs(event.y - startTouchY)
-                                    if (dx > 15f || dy > 15f) {
+                                    if (abs(event.x - startTouchX) > 15f || abs(event.y - startTouchY) > 15f) {
                                         onDisableAutoCenter()
                                     }
                                 }
@@ -977,40 +1074,19 @@ fun MapsforgeWidget(
                         } catch (e: Exception) {}
 
                         if (mapFile != null) {
-                            val tileCache = AndroidUtil.createTileCache(
-                                ctx,
-                                "mapcache",
-                                mapView.model.displayModel.tileSize,
-                                1.2f,
-                                1.25
-                            )
-
+                            val tileCache = AndroidUtil.createTileCache(ctx, "mapcache", mapView.model.displayModel.tileSize, 1.2f, 1.25)
                             val rendererLayer = org.mapsforge.map.layer.renderer.TileRendererLayer(
-                                tileCache,
-                                mapFile,
-                                mapView.model.mapViewPosition,
-                                false,
-                                true,
-                                true,
-                                AndroidGraphicFactory.INSTANCE
+                                tileCache, mapFile, mapView.model.mapViewPosition, false, true, true, AndroidGraphicFactory.INSTANCE
                             ).apply {
                                 setXmlRenderTheme(org.mapsforge.map.rendertheme.InternalRenderTheme.DEFAULT)
                                 setTextScale(1.15f)
                             }
-
                             mapView.layerManager.layers.add(rendererLayer)
                         }
 
                         val staticGpsBitmap = createStaticGpsBitmap()
                         val mapsforgeDrawable = AndroidBitmap(staticGpsBitmap)
-
-                        val cartMarker = Marker(
-                            LatLong(0.0, 0.0),
-                            mapsforgeDrawable,
-                            0,
-                            0
-                        )
-
+                        val cartMarker = Marker(LatLong(0.0, 0.0), mapsforgeDrawable, 0, 0)
                         mapView.layerManager.layers.add(cartMarker)
 
                         mapRefs.mapView = mapView
@@ -1018,14 +1094,10 @@ fun MapsforgeWidget(
                         mapRefs.routeLayerManager = RouteLayerManager(mapView)
 
                         val callback = startSmoothLocationTracking(
-                            ctx,
-                            mapView,
-                            mapRefs,
-                            cartMarker,
+                            ctx, mapView, mapRefs, cartMarker,
                             isAutoCenterSupplier = { currentAutoCenterEnabled },
-                            onLocationUpdated = onLocationUpdated
+                            onLocationUpdated = { loc -> currentOnLocationUpdated(loc) }
                         )
-
                         mapRefs.locationCallback = callback
 
                         mapView
@@ -1034,17 +1106,22 @@ fun MapsforgeWidget(
                 )
             }
 
-            // Botones Flotantes de Zoom
+            // 🔍 BOTONES DE ZOOM TOTALMENTE FUNCIONALES
             Column(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 6.dp),
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 FloatingActionButton(
                     onClick = {
                         onDisableAutoCenter()
-                        mapRefs.mapView?.model?.mapViewPosition?.zoomIn()
+                        mapRefs.mapView?.let { mv ->
+                            val cur = mv.model.mapViewPosition.zoomLevel
+                            val max = mv.model.mapViewPosition.zoomLevelMax
+                            if (cur < max) {
+                                mv.model.mapViewPosition.zoomLevel = (cur + 1).toByte()
+                                mv.repaint()
+                            }
+                        }
                     },
                     containerColor = Color(0xCC1E1E1E),
                     contentColor = Color.White,
@@ -1056,7 +1133,14 @@ fun MapsforgeWidget(
                 FloatingActionButton(
                     onClick = {
                         onDisableAutoCenter()
-                        mapRefs.mapView?.model?.mapViewPosition?.zoomOut()
+                        mapRefs.mapView?.let { mv ->
+                            val cur = mv.model.mapViewPosition.zoomLevel
+                            val min = mv.model.mapViewPosition.zoomLevelMin
+                            if (cur > min) {
+                                mv.model.mapViewPosition.zoomLevel = (cur - 1).toByte()
+                                mv.repaint()
+                            }
+                        }
                     },
                     containerColor = Color(0xCC1E1E1E),
                     contentColor = Color.White,
@@ -1067,10 +1151,7 @@ fun MapsforgeWidget(
             }
         } else {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF1E1E1E))
-                    .padding(24.dp),
+                modifier = Modifier.fillMaxSize().background(Color(0xFF1E1E1E)).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
@@ -1089,7 +1170,6 @@ fun MapsforgeWidget(
         }
     }
 }
-
 // ==========================================
 // CONTENEDOR PRINCIPAL DEL MAPA (OFFLINE)
 // ==========================================
@@ -1155,95 +1235,9 @@ fun MapContainerWidget(
     LaunchedEffect(mapRefs.cameras.size) {
         cameraCountDisplay = mapRefs.cameras.size
     }
-
-    fun openPlayStoreForBRouter() {
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=btools.routingapp")).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=btools.routingapp")).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(webIntent)
-        }
-    }
-
-    fun launchBRouterApp() {
-        val launchIntent = context.packageManager.getLaunchIntentForPackage("btools.routingapp")
-        if (launchIntent != null) {
-            context.startActivity(launchIntent)
-        } else {
-            openPlayStoreForBRouter()
-        }
-    }
-
-    fun stopNavigation() {
-        NavigationStateHolder.clear()
-        mapRefs.routeLayerManager?.clearRoutes()
-        mapRefs.mapView?.let { mv ->
-            mapRefs.destinationMarker?.let { mv.layerManager.layers.remove(it) }
-            mapRefs.destinationMarker = null
-            mv.repaint()
-        }
-    }
-
-    fun onRequestRouteTo(destination: LatLong) {
-        if (NavigationStateHolder.isCalculatingRoute ||
-            NavigationStateHolder.calculatedRoutes.isNotEmpty() ||
-            NavigationStateHolder.isNavigatingActive) {
-            return
-        }
-        val start = lastKnownLocation
-        if (start == null) {
-            android.widget.Toast.makeText(context, "⚠️ Esperando señal GPS del auto...", android.widget.Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        if (!BRouterEngine.isBRouterInstalled(context)) {
-            openPlayStoreForBRouter()
-            return
-        }
-
-        NavigationStateHolder.isCalculatingRoute = true
-        NavigationStateHolder.isNavigatingActive = false
-        NavigationStateHolder.destinationLocation = destination
-
-        mapRefs.mapView?.let { mv ->
-            mapRefs.destinationMarker?.let { mv.layerManager.layers.remove(it) }
-            val flagBitmap = AndroidBitmap(createDestinationMarkerBitmap())
-            val destMarker = Marker(destination, flagBitmap, 0, -35)
-            mapRefs.destinationMarker = destMarker
-            mv.layerManager.layers.add(destMarker)
-            mv.repaint()
-        }
-
-        coroutineScope.launch {
-            val routes = BRouterEngine.getTop3Routes(start, destination)
-            NavigationStateHolder.isCalculatingRoute = false
-            if (routes.isNotEmpty()) {
-                NavigationStateHolder.calculatedRoutes = routes
-                NavigationStateHolder.selectedRouteId = 0
-
-                // 👇 AQUÍ SE PINTA POR PRIMERA VEZ CON LOS COLORES DEL TEMA
-                mapRefs.routeLayerManager?.renderRoutes(
-                    routes = routes,
-                    selectedRouteId = 0,
-                    primaryColorInt = theme.accentCyan.toArgb(),
-                    secondaryColorInt = theme.accentPurple.toArgb(),
-                    accentColorInt = theme.accentOrange.toArgb()
-                )
-            } else {
-                android.widget.Toast.makeText(
-                    context,
-                    "⚠️ No se encontró vía offline aquí. Descarga tu zona en BRouter.",
-                    android.widget.Toast.LENGTH_LONG
-                ).show()
-            }
-        }
-    }
-
+    // =========================================================================
+    // 📌 DECLARACIÓN DE LOS SELECTORES AQUÍ ARRIBA (RESUELVE EL ERROR)
+    // =========================================================================
     val mapPickerLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { selectedUri ->
             isLoadingFile = true
@@ -1284,6 +1278,135 @@ fun MapContainerWidget(
                 withContext(Dispatchers.Main) {
                     if (OfflineMapManager.isPoiDownloaded(context)) isPoiAvailable = true
                     isLoadingFile = false
+                }
+            }
+        }
+    }
+
+    fun openPlayStoreForBRouter() {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=btools.routingapp")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=btools.routingapp")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(webIntent)
+        }
+    }
+
+    fun launchBRouterApp() {
+        val launchIntent = context.packageManager.getLaunchIntentForPackage("btools.routingapp")
+        if (launchIntent != null) {
+            context.startActivity(launchIntent)
+        } else {
+            openPlayStoreForBRouter()
+        }
+    }
+
+    fun stopNavigation() {
+        NavigationStateHolder.clear()
+        mapRefs.routeLayerManager?.clearRoutes()
+        mapRefs.marker?.let { m ->
+            if (mapRefs.staticGpsBitmap == null) {
+                mapRefs.staticGpsBitmap = AndroidBitmap(createStaticGpsBitmap())
+            }
+            m.bitmap = mapRefs.staticGpsBitmap
+        }
+        mapRefs.mapView?.let { mv ->
+            mapRefs.destinationMarker?.let { mv.layerManager.layers.remove(it) }
+            mapRefs.destinationMarker = null
+            mv.repaint()
+        }
+    }
+
+    // =========================================================================
+    // FUNCIÓN DE RE-CÁLCULO AUTOMÁTICO SILENCIOSO (DESVÍO O NUEVA CUADRA)
+    // =========================================================================
+    fun triggerSilentRecalculation(currentLocation: LatLong) {
+        val destination = NavigationStateHolder.destinationLocation ?: return
+        if (NavigationStateHolder.isSilentRecalculating) return
+
+        NavigationStateHolder.isSilentRecalculating = true
+
+        coroutineScope.launch(Dispatchers.IO) {
+            val routes = BRouterEngine.getTop3Routes(currentLocation, destination)
+            if (routes.isNotEmpty()) {
+                val fastestRoute = routes.first()
+                withContext(Dispatchers.Main) {
+                    NavigationStateHolder.calculatedRoutes = routes
+                    NavigationStateHolder.selectedRouteId = fastestRoute.id
+                    NavigationStateHolder.liveTracker?.updateRoute(fastestRoute)
+
+                    // Redibujar inmediatamente la ruta nueva en el mapa sin trabas
+                    mapRefs.routeLayerManager?.renderRoutes(
+                        routes = routes,
+                        selectedRouteId = fastestRoute.id,
+                        primaryColorInt = theme.accentCyan.toArgb(),
+                        secondaryColorInt = theme.accentPurple.toArgb(),
+                        accentColorInt = theme.accentOrange.toArgb()
+                    )
+                }
+            }
+            NavigationStateHolder.isSilentRecalculating = false
+        }
+    }
+
+    fun onRequestRouteTo(destination: LatLong) {
+        // ⛔ BLOQUEO ESTRICTO: Si ya está calculando o navegando, no permite buscar ni marcar otra ruta
+        if (NavigationStateHolder.isCalculatingRoute || NavigationStateHolder.isNavigatingActive) {
+            return
+        }
+
+        val start = lastKnownLocation
+        if (start == null) {
+            android.widget.Toast.makeText(context, "⚠️ Esperando señal GPS del auto...", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (!BRouterEngine.isBRouterInstalled(context)) {
+            openPlayStoreForBRouter()
+            return
+        }
+
+        // Limpiar estado anterior, poner bandera y activar cálculo global
+        NavigationStateHolder.clear()
+        NavigationStateHolder.isCalculatingRoute = true
+        NavigationStateHolder.destinationLocation = destination
+
+        mapRefs.mapView?.let { mv ->
+            mapRefs.destinationMarker?.let { mv.layerManager.layers.remove(it) }
+            val flagBitmap = AndroidBitmap(createDestinationMarkerBitmap())
+            val destMarker = Marker(destination, flagBitmap, 0, -35)
+            mapRefs.destinationMarker = destMarker
+            mv.layerManager.layers.add(destMarker)
+            mv.repaint()
+        }
+
+        // 🚀 CÁLCULO INDEPENDIENTE DEL TAMAÑO DE PANTALLA (No muere al pasar a pantalla completa o widget)
+        NavigationStateHolder.calculationJob = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            val routes = BRouterEngine.getTop3Routes(start, destination)
+            withContext(Dispatchers.Main) {
+                NavigationStateHolder.isCalculatingRoute = false
+                if (routes.isNotEmpty()) {
+                    NavigationStateHolder.calculatedRoutes = routes
+                    NavigationStateHolder.selectedRouteId = 0
+
+                    mapRefs.routeLayerManager?.renderRoutes(
+                        routes = routes,
+                        selectedRouteId = 0,
+                        primaryColorInt = theme.accentCyan.toArgb(),
+                        secondaryColorInt = theme.accentPurple.toArgb(),
+                        accentColorInt = theme.accentOrange.toArgb()
+                    )
+                } else {
+                    android.widget.Toast.makeText(
+                        context,
+                        "⚠️ No se encontró vía offline aquí. Descarga tu zona en BRouter.",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
@@ -1344,9 +1467,29 @@ fun MapContainerWidget(
                         if (NavigationStateHolder.isNavigatingActive && NavigationStateHolder.liveTracker != null) {
                             val status = NavigationStateHolder.liveTracker!!.updateProgress(loc)
                             NavigationStateHolder.navStatus = status
+
                             if (status.hasArrived) {
                                 android.widget.Toast.makeText(context, "🎉 ¡Has llegado a tu destino!", android.widget.Toast.LENGTH_LONG).show()
                                 stopNavigation()
+                            } else {
+                                // 🚗 Recorta el camino recorrido en tiempo real
+                                val points = NavigationStateHolder.calculatedRoutes.find { it.id == NavigationStateHolder.selectedRouteId }?.points
+                                if (!points.isNullOrEmpty()) {
+                                    val closestIdx = points.indices.minByOrNull {
+                                        Location.distanceBetween(loc.latitude, loc.longitude, points[it].latitude, points[it].longitude, FloatArray(1))
+                                        FloatArray(1)[0]
+                                    } ?: 0
+
+                                    // Si se desvía más de 25m, recalcular
+                                    val distToRoute = FloatArray(1)
+                                    Location.distanceBetween(loc.latitude, loc.longitude, points[closestIdx].latitude, points[closestIdx].longitude, distToRoute)
+                                    if (distToRoute[0] > 25f) {
+                                        triggerSilentRecalculation(loc)
+                                    } else {
+                                        val remaining = listOf(loc) + points.subList((closestIdx + 1).coerceAtMost(points.size), points.size)
+                                        mapRefs.routeLayerManager?.updateActiveRouteProgress(remaining)
+                                    }
+                                }
                             }
                         }
                     },
@@ -1362,9 +1505,8 @@ fun MapContainerWidget(
                     onMapLoadError = { error -> mapLoadError = error },
                     onOpenCustomExplorer = { customExplorerType = "map" }
                 )
-// =========================================================================
-// 🔍 BARRA DE BÚSQUEDA HÍBRIDA (ONLINE / POI OFFLINE)
-// =========================================================================
+
+                // 🔍 BARRA DE BÚSQUEDA HÍBRIDA
                 if (!NavigationStateHolder.isNavigatingActive) {
                     Box(
                         modifier = Modifier
@@ -1377,7 +1519,6 @@ fun MapContainerWidget(
                             poiFile = targetPoiFile,
                             theme = theme,
                             onLocationSelected = { selectedDest ->
-                                // Centra el mapa en el lugar buscado y calcula las 3 rutas
                                 mapRefs.mapView?.model?.mapViewPosition?.center = selectedDest
                                 onRequestRouteTo(selectedDest)
                             }
@@ -1385,10 +1526,6 @@ fun MapContainerWidget(
                     }
                 }
 
-
-                // =========================================================================
-// FUNCIÓN AUXILIAR PARA PASAR COLORES DEL TEMA A LA CAPA DEL MAPA
-// =========================================================================
                 fun Color.toAndroidColorInt(): Int = android.graphics.Color.argb(
                     (alpha * 255).toInt(),
                     (red * 255).toInt(),
@@ -1396,9 +1533,7 @@ fun MapContainerWidget(
                     (blue * 255).toInt()
                 )
 
-// =========================================================================
-// 1. HUD SUPERIOR: PRÓXIMA MANIOBRA (PÍLDORA CENTRADA ARRIBA)
-// =========================================================================
+                // 1. HUD SUPERIOR: PRÓXIMA MANIOBRA
                 if (NavigationStateHolder.isNavigatingActive) {
                     Box(
                         modifier = Modifier
@@ -1443,9 +1578,7 @@ fun MapContainerWidget(
                     }
                 }
 
-// =========================================================================
-// 2. AVISO SUPERIOR: CALCULANDO RUTAS (FLOTANTE COMPACTO)
-// =========================================================================
+                // 2. AVISO SUPERIOR: CALCULANDO RUTAS
                 if (NavigationStateHolder.isCalculatingRoute) {
                     Box(
                         modifier = Modifier
@@ -1481,8 +1614,8 @@ fun MapContainerWidget(
                     }
                 }
 
-// =========================================================================
-// 3. HUD INFERIOR DERECHO: TIEMPO / KM / LLEGADA (CONDUCCIÓN EN VIVO)
+                // =========================================================================
+// 3. HUD INFERIOR DERECHO: SOLO DISTANCIA RESTANTE (KM / M)
 // =========================================================================
                 if (NavigationStateHolder.isNavigatingActive) {
                     Box(
@@ -1499,36 +1632,26 @@ fun MapContainerWidget(
                             elevation = CardDefaults.cardElevation(6.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                val remainingMin = (NavigationStateHolder.navStatus.remainingTimeMillis / 60000).toInt()
                                 val distFormatted = if (NavigationStateHolder.navStatus.remainingDistanceMeters >= 1000) {
                                     String.format(Locale.US, "%.1f km", NavigationStateHolder.navStatus.remainingDistanceMeters / 1000.0)
                                 } else {
                                     "${NavigationStateHolder.navStatus.remainingDistanceMeters.toInt()} m"
                                 }
 
-                                Column(horizontalAlignment = Alignment.Start) {
-                                    Text(
-                                        text = "$remainingMin min • $distFormatted",
-                                        color = theme.accentCyan, // 1er Tono: Distancia y tiempo
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = "Llegada: ${NavigationStateHolder.navStatus.etaString}",
-                                        color = theme.accentPurple, // 2do Tono: ETA
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
+                                Text(
+                                    text = distFormatted,
+                                    color = theme.accentCyan,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
 
-                                // Botón Salir (3er Tono: Naranja de Alerta)
                                 Box(
                                     modifier = Modifier
-                                        .size(26.dp)
+                                        .size(24.dp)
                                         .clip(CircleShape)
                                         .background(theme.accentOrange)
                                         .clickable { stopNavigation() },
@@ -1538,7 +1661,7 @@ fun MapContainerWidget(
                                         imageVector = Icons.Default.Close,
                                         contentDescription = "Salir",
                                         tint = Color.Black,
-                                        modifier = Modifier.size(14.dp)
+                                        modifier = Modifier.size(13.dp)
                                     )
                                 }
                             }
@@ -1546,9 +1669,7 @@ fun MapContainerWidget(
                     }
                 }
 
-// =========================================================================
-// 4. SELECTOR DE 3 RUTAS (ESQUINA INFERIOR DERECHA)
-// =========================================================================
+                // 4. SELECTOR DE 3 RUTAS
                 if (!NavigationStateHolder.isNavigatingActive && NavigationStateHolder.calculatedRoutes.isNotEmpty()) {
                     Box(
                         modifier = Modifier
@@ -1578,6 +1699,14 @@ fun MapContainerWidget(
                                 isAutoCenterEnabled = true
                                 prefs.edit().putBoolean("auto_center", true).apply()
 
+                                // CAMBIO AL ÍCONO DE NAVEGACIÓN DIRECTO
+                                mapRefs.marker?.let { m ->
+                                    if (mapRefs.navArrowBitmap == null) {
+                                        mapRefs.navArrowBitmap = AndroidBitmap(createNavigationArrowBitmap())
+                                    }
+                                    m.bitmap = mapRefs.navArrowBitmap
+                                }
+
                                 mapRefs.mapView?.let { mv ->
                                     mv.model.mapViewPosition.zoomLevel = 18.toByte()
                                     lastKnownLocation?.let { mv.model.mapViewPosition.center = it }
@@ -1589,9 +1718,7 @@ fun MapContainerWidget(
                     }
                 }
 
-// =========================================================================
-// 5. BOTONES FLOTANTES INFERIORES IZQUIERDOS (SIEMPRE VISIBLES)
-// =========================================================================
+                // 5. BOTONES FLOTANTES INFERIORES IZQUIERDOS
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1634,7 +1761,7 @@ fun MapContainerWidget(
                         FloatingActionButton(
                             onClick = onExpandClicked,
                             containerColor = theme.cardBackground.copy(alpha = 0.9f),
-                            contentColor = theme.accentOrange, // 3er Tono: Pantalla completa
+                            contentColor = theme.accentOrange,
                             modifier = Modifier.size(36.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
@@ -1643,9 +1770,7 @@ fun MapContainerWidget(
                     }
                 }
 
-// =========================================================================
-// 6. FONDO SOMBREADO PARA CIERRE DEL MENÚ LATERAL
-// =========================================================================
+                // 6. MENÚ LATERAL
                 AnimatedVisibility(
                     visible = showMenu,
                     enter = fadeIn(),
@@ -1662,10 +1787,6 @@ fun MapContainerWidget(
                     )
                 }
 
-
-                // ==========================================
-                // MENÚ LATERAL (MÁS ANCHO: 400.dp Y TEXTOS 12.sp)
-                // ==========================================
                 AnimatedVisibility(
                     visible = showMenu,
                     enter = slideInHorizontally(initialOffsetX = { -it }) + fadeIn(),

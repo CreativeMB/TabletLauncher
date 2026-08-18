@@ -91,7 +91,7 @@ class BRouterServiceClient(private val remoteBinder: IBinder) {
 }
 
 // =========================================================================
-// MOTOR DE ENRUTAMIENTO HÍBRIDO (ONLINE OSRM + OFFLINE BROUTER BLINDADO)
+// MOTOR DE ENRUTAMIENTO OFFLINE BROUTER + RESPALDO ONLINE
 // =========================================================================
 object BRouterEngine {
     private const val TAG = "BROUTER_ENGINE"
@@ -110,7 +110,7 @@ object BRouterEngine {
             if (service != null) {
                 brouterClient = BRouterServiceClient(service)
                 isBound = true
-                Log.i(TAG, "✅ BRouter Conectado.")
+                Log.i(TAG, "✅ BRouter Conectado con éxito.")
             }
         }
 
@@ -168,7 +168,7 @@ object BRouterEngine {
     }
 
     /**
-     * Calcula rutas garantizadas (Intento Online primero, si no hay red usa BRouter con radio de 1000m)
+     * Calcula rutas garantizadas offline para viajes cortos y largos
      */
     suspend fun getTop3Routes(
         start: LatLong,
@@ -176,73 +176,74 @@ object BRouterEngine {
     ): List<RouteOption> = withContext(Dispatchers.IO) {
         val startTimeMs = System.currentTimeMillis()
 
-        // 1. INTENTO ONLINE: OSRM (Calcula en 100ms y tiene auto-atracción a la avenida)
+        // 1. Asegurar enlace IPC con BRouter
+        if (brouterClient == null || brouterClient?.isAlive() != true) {
+            appContext?.let { bind(it) }
+            var wait = 0
+            while ((brouterClient == null || brouterClient?.isAlive() != true) && wait < 15) {
+                kotlinx.coroutines.delay(80L)
+                wait++
+            }
+        }
+
+        val client = brouterClient
+        if (client != null && client.isAlive()) {
+            val routes = mutableListOf<RouteOption>()
+
+            // 🚀 1. RUTA PRINCIPAL (Prioridad máxima: calcula viajes largos en segundos)
+            val mainRoute = queryBRouterTrack(client, start, destination, altIndex = 0)
+            if (mainRoute != null) {
+                routes.add(mainRoute)
+
+                // 2. Alternativas secundarias (solo si no es un viaje excesivamente largo)
+                if (mainRoute.distanceMeters < 150000.0) { // Menos de 150 km
+                    for (altIndex in 1..2) {
+                        try {
+                            val alt = queryBRouterTrack(client, start, destination, altIndex = altIndex)
+                            if (alt != null) {
+                                val isDuplicate = routes.any { abs(it.distanceMeters - alt.distanceMeters) < 30.0 }
+                                if (!isDuplicate) routes.add(alt)
+                            }
+                        } catch (e: Exception) {}
+                    }
+                }
+
+                val elapsed = System.currentTimeMillis() - startTimeMs
+                Log.i(TAG, "⚡ ${routes.size} ruta(s) obtenida(s) OFFLINE en ${elapsed} ms.")
+                return@withContext routes
+            }
+        }
+
+        // Respaldo Online (si faltó algún cuadro .rd5 en el camino)
         try {
             val onlineRoutes = calculateOnlineOSRM(start, destination)
             if (onlineRoutes.isNotEmpty()) {
-                val elapsed = System.currentTimeMillis() - startTimeMs
-                Log.i(TAG, "⚡ ${onlineRoutes.size} ruta(s) obtenida(s) ONLINE (OSRM) en ${elapsed} ms.")
                 return@withContext onlineRoutes
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "⚠️ OSRM Online no disponible, usando BRouter Offline: ${e.message}")
-        }
+        } catch (e: Exception) {}
 
-        // 2. INTENTO OFFLINE: BRouter con rango de búsqueda ampliado (1000m)
-        val client = brouterClient
-        if (client == null || !client.isAlive()) {
-            Log.e(TAG, "❌ BRouter no está vinculado.")
-            return@withContext emptyList()
-        }
-
-        val lonlats = String.format(
-            Locale.US,
-            "%.6f,%.6f|%.6f,%.6f",
-            start.longitude, start.latitude,
-            destination.longitude, destination.latitude
-        )
-
-        val routes = mutableListOf<RouteOption>()
-        val mainRoute = queryBRouterTrack(client, lonlats, altIndex = 0, profile = "car-eco")
-            ?: queryBRouterTrack(client, lonlats, altIndex = 0, profile = "car-fast")
-            ?: queryBRouterTrack(client, lonlats, altIndex = 0, profile = "car-test")
-
-        if (mainRoute != null) {
-            routes.add(mainRoute)
-
-            // Alternativas secundarias
-            for (altIndex in 1..2) {
-                try {
-                    val alt = queryBRouterTrack(client, lonlats, altIndex = altIndex, profile = "car-eco")
-                    if (alt != null) {
-                        val isDuplicate = routes.any { abs(it.distanceMeters - alt.distanceMeters) < 25.0 }
-                        if (!isDuplicate) routes.add(alt)
-                    }
-                } catch (e: Exception) {}
-            }
-        }
-
-        val elapsed = System.currentTimeMillis() - startTimeMs
-        Log.i(TAG, "⚡ ${routes.size} ruta(s) obtenida(s) OFFLINE (BRouter) en ${elapsed} ms.")
-
-        routes
+        emptyList()
     }
 
     private fun queryBRouterTrack(
         client: BRouterServiceClient,
-        lonlats: String,
-        altIndex: Int,
-        profile: String
+        start: LatLong,
+        destination: LatLong,
+        altIndex: Int
     ): RouteOption? {
+        // 🛠️ FORMATO NATIVO ESTÁNDAR DE BROUTER (AIDL OFICIAL)
         val params = Bundle().apply {
             putString("trackFormat", "gpx")
             putString("v", "motorcar")
-            putString("profile", profile)
-            putString("lonlats", lonlats)
+            putString("fast", "1")
+            putDoubleArray("lats", doubleArrayOf(start.latitude, destination.latitude))
+            putDoubleArray("lons", doubleArrayOf(start.longitude, destination.longitude))
             putInt("alternativeidx", altIndex)
-            // 👇 ESTE ES EL SECRETO: Expande el radio de búsqueda hasta 1000m para atrapar avenidas lejanas al GPS
+            putInt("engineMode", 0)
             putInt("waypointCatchingRange", 1000)
             putString("waypointCatchingRange", "1000")
+            putInt("straight", 1)
+            putString("straight", "1")
         }
 
         val result = client.getTrackFromParams(params) ?: return null
@@ -250,11 +251,11 @@ object BRouterEngine {
         return if (result.contains("<gpx", ignoreCase = true) && result.contains("<trkpt")) {
             parseGpxFast(result, altIndex)
         } else {
-            Log.w(TAG, "⚠️ BRouter mensaje ($profile): $result")
+            // Imprime en Logcat la razón exacta de BRouter (ej: falta segmento .rd5 o perfil)
+            Log.e(TAG, "❌ BRouter error al calcular: $result")
             null
         }
     }
-
     private fun parseGpxFast(gpxXml: String, index: Int): RouteOption? {
         return try {
             val parser = Xml.newPullParser()
@@ -310,7 +311,7 @@ object BRouterEngine {
     }
 
     // =========================================================================
-    // CONSULTA OSRM (100 MS CON AUTO-SNAP A CARRETERAS)
+    // CONSULTA OSRM DE RESPALDO
     // =========================================================================
     private fun calculateOnlineOSRM(start: LatLong, destination: LatLong): List<RouteOption> {
         val routes = mutableListOf<RouteOption>()
@@ -326,8 +327,8 @@ object BRouterEngine {
             val url = URL(urlStr)
             connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
-                connectTimeout = 2500
-                readTimeout = 2500
+                connectTimeout = 2000
+                readTimeout = 2000
                 setRequestProperty("User-Agent", "CarTabletLauncher/15.0")
             }
 
