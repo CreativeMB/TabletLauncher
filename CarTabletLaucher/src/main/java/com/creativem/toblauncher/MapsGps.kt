@@ -641,12 +641,18 @@ class ProximityAlertManager(private val context: Context) {
 // ==========================================
 // DIBUJADO DE ÍCONOS
 // ==========================================
-fun createStaticGpsBitmap(): Bitmap {
-    val size = 120
+fun createStaticGpsBitmap(zoomLevel: Float = 17f): Bitmap {
+    val size = when {
+        zoomLevel < 12f -> 36
+        zoomLevel < 14f -> 54
+        zoomLevel < 16f -> 80
+        else -> 110
+    }
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val center = size / 2f
-    val innerDotRadius = 14f
+    val scale = size / 110f
+    val innerDotRadius = 14f * scale
 
     val pulsePaint = Paint().apply {
         color = android.graphics.Color.argb(70, 66, 133, 244)
@@ -657,7 +663,7 @@ fun createStaticGpsBitmap(): Bitmap {
         color = android.graphics.Color.argb(120, 66, 133, 244)
         isAntiAlias = true
         style = Paint.Style.STROKE
-        strokeWidth = 3f
+        strokeWidth = 3f * scale
     }
     val dotPaint = Paint().apply {
         color = android.graphics.Color.rgb(66, 133, 244)
@@ -668,51 +674,41 @@ fun createStaticGpsBitmap(): Bitmap {
         color = android.graphics.Color.WHITE
         isAntiAlias = true
         style = Paint.Style.STROKE
-        strokeWidth = 6f
+        strokeWidth = 5f * scale
     }
 
-    canvas.drawCircle(center, center, 30f, pulsePaint)
-    canvas.drawCircle(center, center, 30f, pulseStrokePaint)
+    canvas.drawCircle(center, center, 28f * scale, pulsePaint)
+    canvas.drawCircle(center, center, 28f * scale, pulseStrokePaint)
     canvas.drawCircle(center, center, innerDotRadius, dotPaint)
     canvas.drawCircle(center, center, innerDotRadius, whiteBorderPaint)
     return bitmap
 }
 
-// NUEVO: ÍCONO DE FLECHA DE NAVEGACIÓN 3D PROFESIONAL
-fun createNavigationArrowBitmap(): Bitmap {
-    val size = 110
+fun createNavigationArrowBitmap(zoomLevel: Float = 18f): Bitmap {
+    val size = when {
+        zoomLevel < 12f -> 32
+        zoomLevel < 14f -> 48
+        zoomLevel < 16f -> 70
+        else -> 96
+    }
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val center = size / 2f
-
-    val shadowPaint = Paint().apply {
-        color = android.graphics.Color.argb(70, 0, 0, 0)
-        isAntiAlias = true
-        style = Paint.Style.FILL
-    }
+    val scale = size / 96f
 
     val arrowPath = Path().apply {
-        moveTo(center, 12f)
-        lineTo(center + 36f, size - 18f)
-        lineTo(center, size - 32f)
-        lineTo(center - 36f, size - 18f)
+        moveTo(center, 10f * scale)
+        lineTo(center + 30f * scale, size - 15f * scale)
+        lineTo(center, size - 26f * scale)
+        lineTo(center - 30f * scale, size - 15f * scale)
         close()
     }
-
-    val shadowPath = Path().apply {
-        moveTo(center, 18f)
-        lineTo(center + 38f, size - 12f)
-        lineTo(center, size - 26f)
-        lineTo(center - 38f, size - 12f)
-        close()
-    }
-    canvas.drawPath(shadowPath, shadowPaint)
 
     val strokePaint = Paint().apply {
         color = android.graphics.Color.WHITE
         isAntiAlias = true
         style = Paint.Style.STROKE
-        strokeWidth = 7f
+        strokeWidth = 6f * scale
         strokeJoin = Paint.Join.ROUND
     }
     canvas.drawPath(arrowPath, strokePaint)
@@ -725,9 +721,9 @@ fun createNavigationArrowBitmap(): Bitmap {
     canvas.drawPath(arrowPath, fillPaintCyan)
 
     val rightHalf = Path().apply {
-        moveTo(center, 12f)
-        lineTo(center + 36f, size - 18f)
-        lineTo(center, size - 32f)
+        moveTo(center, 10f * scale)
+        lineTo(center + 30f * scale, size - 15f * scale)
+        lineTo(center, size - 26f * scale)
         close()
     }
     val rightShadowPaint = Paint().apply {
@@ -740,30 +736,36 @@ fun createNavigationArrowBitmap(): Bitmap {
     return bitmap
 }
 
-fun createDestinationMarkerBitmap(): Bitmap {
-    val size = 90
+fun createDestinationMarkerBitmap(zoomLevel: Float = 17f): Bitmap {
+    val size = when {
+        zoomLevel < 12f -> 30
+        zoomLevel < 14f -> 44
+        zoomLevel < 16f -> 60
+        else -> 80
+    }
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
+    val scale = size / 80f
     val paint = Paint().apply { isAntiAlias = true }
 
     paint.color = android.graphics.Color.parseColor("#E53935")
     paint.style = Paint.Style.FILL
     val path = Path().apply {
-        moveTo(25f, 15f)
-        lineTo(75f, 32f)
-        lineTo(25f, 50f)
+        moveTo(22f * scale, 12f * scale)
+        lineTo(68f * scale, 28f * scale)
+        lineTo(22f * scale, 44f * scale)
         close()
     }
     canvas.drawPath(path, paint)
 
     paint.color = android.graphics.Color.parseColor("#FFFFFF")
-    paint.strokeWidth = 6f
+    paint.strokeWidth = 5f * scale
     paint.style = Paint.Style.STROKE
-    canvas.drawLine(25f, 15f, 25f, 80f, paint)
+    canvas.drawLine(22f * scale, 12f * scale, 22f * scale, 72f * scale, paint)
 
     paint.color = android.graphics.Color.parseColor("#E53935")
     paint.style = Paint.Style.FILL
-    canvas.drawCircle(25f, 80f, 7f, paint)
+    canvas.drawCircle(22f * scale, 72f * scale, 6f * scale, paint)
 
     return bitmap
 }
@@ -893,11 +895,20 @@ fun MapsforgeWidget(
     }
 
     // 🎨 Actualizar colores de tema
-    LaunchedEffect(theme.accentCyan, theme.accentPurple, theme.id, mapRefs.routeLayerManager) {
+    LaunchedEffect(theme.accentCyan, theme.accentPurple, theme.accentOrange, theme.id, mapRefs.routeLayerManager) {
         mapRefs.routeLayerManager?.updateThemeColors(
             primaryColorInt = theme.accentCyan.toArgb(),
             secondaryColorInt = theme.accentPurple.toArgb()
         )
+        if (NavigationStateHolder.calculatedRoutes.isNotEmpty()) {
+            mapRefs.routeLayerManager?.renderRoutes(
+                routes = NavigationStateHolder.calculatedRoutes,
+                selectedRouteId = NavigationStateHolder.selectedRouteId,
+                primaryColorInt = theme.accentCyan.toArgb(),
+                secondaryColorInt = theme.accentPurple.toArgb(),
+                accentColorInt = theme.accentOrange.toArgb()
+            )
+        }
     }
 
     LaunchedEffect(mapRefs.mapView) {
@@ -912,7 +923,7 @@ fun MapsforgeWidget(
 
         var lastZoomBucket = -1
         val refreshCamerasRunnable = Runnable {
-            if (mapRefs.cameras.isNotEmpty() && mapRefs.mapView != null) {
+            if (mapRefs.mapView != null) {
                 val currentZoom = mapView.model.mapViewPosition.zoomLevel.toInt()
                 val currentBucket = when {
                     currentZoom < 12 -> 1
@@ -921,7 +932,7 @@ fun MapsforgeWidget(
                     else -> 4
                 }
 
-                if (currentBucket != lastZoomBucket || mapRefs.cameraMarkers.isEmpty()) {
+                if (currentBucket != lastZoomBucket) {
                     lastZoomBucket = currentBucket
                     val zoomFloat = when (currentBucket) {
                         1 -> 10f
@@ -929,18 +940,39 @@ fun MapsforgeWidget(
                         3 -> 15f
                         else -> 17f
                     }
-                    val targetBitmap = AndroidBitmap(createCameraMarkerBitmap(zoomFloat))
 
-                    for (oldMarker in mapRefs.cameraMarkers) {
-                        mapView.layerManager.layers.remove(oldMarker)
+                    // 🎯 Redimensionar Marcador del Auto / Flecha
+                    mapRefs.marker?.let { m ->
+                        m.bitmap = if (NavigationStateHolder.isNavigatingActive) {
+                            AndroidBitmap(createNavigationArrowBitmap(zoomFloat))
+                        } else {
+                            AndroidBitmap(createStaticGpsBitmap(zoomFloat))
+                        }
                     }
-                    mapRefs.cameraMarkers.clear()
 
-                    for (cam in mapRefs.cameras) {
-                        val camMarker = Marker(LatLong(cam.lat, cam.lon), targetBitmap, 0, 0)
-                        mapRefs.cameraMarkers.add(camMarker)
-                        mapView.layerManager.layers.add(camMarker)
+                    // 🚩 Redimensionar Bandera de Destino
+                    mapRefs.destinationMarker?.let { dm ->
+                        dm.bitmap = AndroidBitmap(createDestinationMarkerBitmap(zoomFloat))
+                        dm.verticalOffset = (-30 * (zoomFloat / 17f)).toInt()
                     }
+
+                    // 📷 Redimensionar Cámaras
+                    if (mapRefs.cameras.isNotEmpty()) {
+                        val targetCamBitmap = AndroidBitmap(createCameraMarkerBitmap(zoomFloat))
+                        for (oldMarker in mapRefs.cameraMarkers) {
+                            mapView.layerManager.layers.remove(oldMarker)
+                        }
+                        mapRefs.cameraMarkers.clear()
+
+                        for (cam in mapRefs.cameras) {
+                            val camMarker = Marker(LatLong(cam.lat, cam.lon), targetCamBitmap, 0, 0)
+                            mapRefs.cameraMarkers.add(camMarker)
+                            mapView.layerManager.layers.add(camMarker)
+                        }
+                    }
+
+                    mapView.layerManager.redrawLayers()
+                    mapView.repaint()
                 }
 
                 mapRefs.marker?.latLong?.let { pos ->
@@ -1179,6 +1211,7 @@ fun MapContainerWidget(
 ) {
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
+    val currentTheme by rememberUpdatedState(theme)
     val coroutineScope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("toblauncher_prefs", Context.MODE_PRIVATE) }
 
@@ -1344,9 +1377,9 @@ fun MapContainerWidget(
                     mapRefs.routeLayerManager?.renderRoutes(
                         routes = routes,
                         selectedRouteId = fastestRoute.id,
-                        primaryColorInt = theme.accentCyan.toArgb(),
-                        secondaryColorInt = theme.accentPurple.toArgb(),
-                        accentColorInt = theme.accentOrange.toArgb()
+                        primaryColorInt = currentTheme.accentCyan.toArgb(),
+                        secondaryColorInt = currentTheme.accentPurple.toArgb(),
+                        accentColorInt = currentTheme.accentOrange.toArgb()
                     )
                 }
             }
@@ -1397,9 +1430,9 @@ fun MapContainerWidget(
                     mapRefs.routeLayerManager?.renderRoutes(
                         routes = routes,
                         selectedRouteId = 0,
-                        primaryColorInt = theme.accentCyan.toArgb(),
-                        secondaryColorInt = theme.accentPurple.toArgb(),
-                        accentColorInt = theme.accentOrange.toArgb()
+                        primaryColorInt = currentTheme.accentCyan.toArgb(),
+                        secondaryColorInt = currentTheme.accentPurple.toArgb(),
+                        accentColorInt = currentTheme.accentOrange.toArgb()
                     )
                 } else {
                     android.widget.Toast.makeText(
@@ -1686,9 +1719,9 @@ fun MapContainerWidget(
                                 mapRefs.routeLayerManager?.renderRoutes(
                                     routes = NavigationStateHolder.calculatedRoutes,
                                     selectedRouteId = id,
-                                    primaryColorInt = theme.accentCyan.toAndroidColorInt(),
-                                    secondaryColorInt = theme.accentPurple.toAndroidColorInt(),
-                                    accentColorInt = theme.accentOrange.toAndroidColorInt()
+                                    primaryColorInt = currentTheme.accentCyan.toArgb(),
+                                    secondaryColorInt = currentTheme.accentPurple.toArgb(),
+                                    accentColorInt = currentTheme.accentOrange.toArgb()
                                 )
                             },
                             onStartNavigation = {
