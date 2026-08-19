@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
@@ -151,19 +152,33 @@ class LiveNavigationTracker(private var route: RouteOption) {
         val points = route.points
         if (points.isEmpty()) return NavigationStatus()
 
-        // 1. Encontrar el punto más cercano en la ruta
-        var closestIdx = 0
+        // 1. Proyección geométrica exacta sobre el tramo de la vía
+        var closestSegmentIdx = 0
         var minDistance = Double.MAX_VALUE
-        for (i in points.indices) {
-            val dist = calculateDistance(currentLoc, points[i])
+        var projectedPoint = points.first()
+
+        for (i in 0 until points.size - 1) {
+            val p1 = points[i]
+            val p2 = points[i + 1]
+
+            val l2 = calculateDistance(p1, p2).pow(2)
+            val proj = if (l2 == 0.0) p1 else {
+                val t = (((currentLoc.latitude - p1.latitude) * (p2.latitude - p1.latitude) +
+                        (currentLoc.longitude - p1.longitude) * (p2.longitude - p1.longitude)) /
+                        ((p2.latitude - p1.latitude).pow(2) + (p2.longitude - p1.longitude).pow(2))).coerceIn(0.0, 1.0)
+                LatLong(p1.latitude + t * (p2.latitude - p1.latitude), p1.longitude + t * (p2.longitude - p1.longitude))
+            }
+
+            val dist = calculateDistance(currentLoc, proj)
             if (dist < minDistance) {
                 minDistance = dist
-                closestIdx = i
+                closestSegmentIdx = i
+                projectedPoint = proj
             }
         }
 
-        // 2. DETECCIÓN DE DESVÍO / RECALCULAR SI SE ALEJA MÁS DE 20 METROS
-        if (minDistance > 20.0 && closestIdx < points.size - 2) {
+        // 2. TOLERANCIA DOBLE CALZADA: 55 metros para evitar falsos recálculos en autopistas o túneles
+        if (minDistance > 55.0 && closestSegmentIdx < points.size - 2) {
             return NavigationStatus(
                 isOffRoute = true,
                 maneuverInstruction = "Recalculando ruta...",
@@ -171,55 +186,53 @@ class LiveNavigationTracker(private var route: RouteOption) {
             )
         }
 
-        // 3. Chequear si ya llegó al destino
+        // 3. Chequear llegada al destino
         val distToGoal = calculateDistance(currentLoc, points.last())
-        if (closestIdx >= points.size - 2 || distToGoal <= 20.0) {
+        if ((closestSegmentIdx >= points.size - 2 && distToGoal <= 25.0) || distToGoal <= 15.0) {
             return NavigationStatus(
                 nextManeuver = ManeuverType.ARRIVAL,
                 maneuverInstruction = "¡Has llegado a tu destino!",
-                distanceToManeuverMeters = 0.0,
-                remainingDistanceMeters = 0.0,
-                remainingTimeMillis = 0L,
-                etaString = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date()),
                 hasArrived = true,
                 remainingPoints = emptyList()
             )
         }
 
-        // 4. GENERAR PUNTOS RESTANTES (BORRADO DE RUTA DETRÁS DEL AUTO)
-        val remainingPts = mutableListOf<LatLong>()
-        remainingPts.add(currentLoc)
-        for (i in (closestIdx + 1) until points.size) {
+        // 4. BORRADO PERFECTO: La ruta arranca exactamente desde el auto hacia el resto del camino
+        val remainingPts = ArrayList<LatLong>(points.size - closestSegmentIdx + 1)
+        remainingPts.add(currentLoc) // Punto 0: El GPS actual
+
+        // Si el punto proyectado aún no rebasa el vértice, lo agregamos para no cortar curvas
+        for (i in (closestSegmentIdx + 1) until points.size) {
             remainingPts.add(points[i])
         }
 
-        var remainingDist = calculateDistance(currentLoc, points[closestIdx])
-        for (i in closestIdx until points.size - 1) {
+        var remainingDist = calculateDistance(currentLoc, points[(closestSegmentIdx + 1).coerceAtMost(points.size - 1)])
+        for (i in (closestSegmentIdx + 1) until points.size - 1) {
             remainingDist += calculateDistance(points[i], points[i + 1])
         }
 
-        // 5. Cálculo de Próxima Maniobra
+        // 5. Cálculo de Maniobra
         var maneuver = ManeuverType.STRAIGHT
         var distToTurn = remainingDist
-        var turnInstruction = "Continúe por esta vía"
+        var turnInstruction = "Continúe por la vía"
 
-        for (i in closestIdx until (points.size - 2).coerceAtMost(closestIdx + 30)) {
-            val p1 = if (i == closestIdx) currentLoc else points[i]
-            val p2 = points[i + 1]
-            val p3 = points[i + 2]
+        for (i in (closestSegmentIdx + 1) until (points.size - 2).coerceAtMost(closestSegmentIdx + 25)) {
+            val p1 = points[i - 1]
+            val p2 = points[i]
+            val p3 = points[i + 1]
 
-            val bearing1 = calculateBearing(p1, p2)
-            val bearing2 = calculateBearing(p2, p3)
-            var delta = (bearing2 - bearing1) % 360
+            val b1 = calculateBearing(p1, p2)
+            val b2 = calculateBearing(p2, p3)
+            var delta = (b2 - b1) % 360
             if (delta > 180) delta -= 360
             if (delta < -180) delta += 360
 
             if (abs(delta) >= 35.0) {
-                var distFromCurrentToTurn = calculateDistance(currentLoc, points[closestIdx])
-                for (j in closestIdx until i) {
-                    distFromCurrentToTurn += calculateDistance(points[j], points[j + 1])
+                var distAcc = calculateDistance(currentLoc, points[(closestSegmentIdx + 1).coerceAtMost(points.size - 1)])
+                for (j in (closestSegmentIdx + 1) until i) {
+                    distAcc += calculateDistance(points[j], points[j + 1])
                 }
-                distToTurn = distFromCurrentToTurn
+                distToTurn = distAcc
 
                 maneuver = when {
                     delta in 35.0..65.0 -> ManeuverType.TURN_RIGHT
@@ -231,12 +244,7 @@ class LiveNavigationTracker(private var route: RouteOption) {
                     else -> ManeuverType.UTURN
                 }
 
-                val distFormat = if (distToTurn >= 1000) {
-                    String.format(Locale.US, "%.1f km", distToTurn / 1000)
-                } else {
-                    "${(distToTurn / 10).roundToInt() * 10} m"
-                }
-
+                val distFormat = if (distToTurn >= 1000) String.format(Locale.US, "%.1f km", distToTurn / 1000) else "${(distToTurn / 10).roundToInt() * 10} m"
                 val actionText = when (maneuver) {
                     ManeuverType.TURN_RIGHT -> "Gire a la derecha"
                     ManeuverType.SHARP_RIGHT -> "Giro cerrado a la derecha"
@@ -245,7 +253,6 @@ class LiveNavigationTracker(private var route: RouteOption) {
                     ManeuverType.UTURN -> "Haga un giro en U"
                     else -> "Continúe recto"
                 }
-
                 turnInstruction = "En $distFormat $actionText"
                 break
             }
@@ -268,6 +275,7 @@ class LiveNavigationTracker(private var route: RouteOption) {
             remainingPoints = remainingPts
         )
     }
+
 
     private fun calculateDistance(p1: LatLong, p2: LatLong): Double {
         val r = 6371000.0
@@ -504,6 +512,9 @@ class MapRefs {
 // ==========================================
 // GESTOR DE AUDIO Y ALERTAS POR PROXIMIDAD
 // ==========================================
+// ==========================================
+// GESTOR DE AUDIO Y ALERTAS POR PROXIMIDAD (CORREGIDO)
+// ==========================================
 class ProximityAlertManager(private val context: Context) {
     private var mediaPlayer: MediaPlayer? = null
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -517,17 +528,16 @@ class ProximityAlertManager(private val context: Context) {
         private const val DISTANCE_FAR_ALERT = 300f
         private const val DISTANCE_CLOSE_ALERT = 50f
         private const val DISTANCE_RESET = 500f
-        private const val AUDIO_COOLDOWN_MS = 3000L
+        private const val AUDIO_COOLDOWN_MS = 5000L // 5 segundos mínimos entre avisos
     }
 
     fun checkProximity(currentLat: Double, currentLng: Double, cameras: List<SpeedCamera>) {
         if (!isAudioAlertsEnabled || cameras.isEmpty()) return
 
-        val now = System.currentTimeMillis()
-        if (now - lastAlertTime < AUDIO_COOLDOWN_MS) return
-
         val results = FloatArray(1)
+        val camerasInRange = mutableListOf<Pair<SpeedCamera, Float>>()
 
+        // 1. Clasificar y limpiar distancias de todas las cámaras
         for (cam in cameras) {
             val camId = "${cam.lat}_${cam.lon}"
             Location.distanceBetween(currentLat, currentLng, cam.lat, cam.lon, results)
@@ -535,21 +545,49 @@ class ProximityAlertManager(private val context: Context) {
 
             if (distance > DISTANCE_RESET) {
                 cameraAlertLevels.remove(camId)
-                continue
+            } else {
+                camerasInRange.add(cam to distance)
             }
+        }
 
-            val currentLevel = cameraAlertLevels[camId] ?: 0
+        if (camerasInRange.isEmpty()) return
 
-            if (distance <= DISTANCE_CLOSE_ALERT && currentLevel < 2) {
-                cameraAlertLevels[camId] = 2
+        val now = System.currentTimeMillis()
+        if (now - lastAlertTime < AUDIO_COOLDOWN_MS) return
+
+        // 2. Buscar la cámara más cercana del grupo
+        val closestCamEntry = camerasInRange.minByOrNull { it.second } ?: return
+        val minDistance = closestCamEntry.second
+
+        // 3. Evaluar alerta para todo el grupo en la zona
+        if (minDistance <= DISTANCE_CLOSE_ALERT) {
+            // Verificar si alguna cámara cercana no ha alcanzado el nivel 2
+            val needsAlert = camerasInRange.any { (_, dist) -> dist <= DISTANCE_FAR_ALERT && (cameraAlertLevels["${closestCamEntry.first.lat}_${closestCamEntry.first.lon}"] ?: 0) < 2 }
+            if (needsAlert) {
+                // Marcar TODAS las cámaras en el rango como nivel 2 para evitar avisos duplicados
+                for ((cam, dist) in camerasInRange) {
+                    if (dist <= DISTANCE_FAR_ALERT) {
+                        cameraAlertLevels["${cam.lat}_${cam.lon}"] = 2
+                    }
+                }
                 lastAlertTime = now
                 playAudioAlert(R.raw.alerta_cerca)
-                break
-            } else if (distance <= DISTANCE_FAR_ALERT && distance > DISTANCE_CLOSE_ALERT && currentLevel < 1) {
-                cameraAlertLevels[camId] = 1
+            }
+        } else if (minDistance <= DISTANCE_FAR_ALERT) {
+            // Verificar si alguna cámara no ha recibido ni siquiera el primer aviso
+            val needsAlert = camerasInRange.any { (_, dist) -> dist <= DISTANCE_FAR_ALERT && (cameraAlertLevels["${closestCamEntry.first.lat}_${closestCamEntry.first.lon}"] ?: 0) < 1 }
+            if (needsAlert) {
+                // Marcar TODAS las cámaras en el rango como nivel 1
+                for ((cam, dist) in camerasInRange) {
+                    if (dist <= DISTANCE_FAR_ALERT) {
+                        val current = cameraAlertLevels["${cam.lat}_${cam.lon}"] ?: 0
+                        if (current < 1) {
+                            cameraAlertLevels["${cam.lat}_${cam.lon}"] = 1
+                        }
+                    }
+                }
                 lastAlertTime = now
                 playAudioAlert(R.raw.alerta_camara)
-                break
             }
         }
     }
@@ -557,11 +595,7 @@ class ProximityAlertManager(private val context: Context) {
     private fun playAudioAlert(@RawRes soundResId: Int) {
         if (!isAudioAlertsEnabled) return
         try {
-            mediaPlayer?.let {
-                if (it.isPlaying) it.stop()
-                it.release()
-            }
-            mediaPlayer = null
+            stopAndReleasePlayer()
 
             val afd = context.resources.openRawResourceFd(soundResId) ?: return
             val audioAttributes = AudioAttributes.Builder()
@@ -579,33 +613,32 @@ class ProximityAlertManager(private val context: Context) {
                 afd.close()
                 prepare()
                 setVolume(1.0f, 1.0f)
-                setOnCompletionListener { mp ->
-                    mp.release()
-                    mediaPlayer = null
-                    liberarAudioFocus()
+                setOnCompletionListener {
+                    stopAndReleasePlayer()
                 }
-                setOnErrorListener { mp, _, _ ->
-                    mp.release()
-                    mediaPlayer = null
-                    liberarAudioFocus()
+                setOnErrorListener { _, _, _ ->
+                    stopAndReleasePlayer()
                     true
                 }
                 start()
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            liberarAudioFocus()
+            stopAndReleasePlayer()
         }
     }
 
     private fun solicitarAudioFocus(attributes: AudioAttributes) {
         if (audioManager == null) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-                .setAudioAttributes(attributes)
-                .setAcceptsDelayedFocusGain(false)
-                .setOnAudioFocusChangeListener { }
-                .build().also { audioManager.requestAudioFocus(it) }
+            if (focusRequest == null) {
+                focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                    .setAudioAttributes(attributes)
+                    .setAcceptsDelayedFocusGain(false)
+                    .setOnAudioFocusChangeListener { }
+                    .build()
+            }
+            focusRequest?.let { audioManager.requestAudioFocus(it) }
         } else {
             @Suppress("DEPRECATION")
             audioManager.requestAudioFocus(null, AudioManager.STREAM_NOTIFICATION, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
@@ -614,27 +647,41 @@ class ProximityAlertManager(private val context: Context) {
 
     private fun liberarAudioFocus() {
         if (audioManager == null) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
-            focusRequest = null
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.abandonAudioFocus(null)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                focusRequest?.let {
+                    audioManager.abandonAudioFocusRequest(it)
+                    focusRequest = null
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.abandonAudioFocus(null)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun stopAndReleasePlayer() {
+        try {
+            mediaPlayer?.let {
+                if (it.isPlaying) {
+                    it.stop()
+                }
+                it.reset()
+                it.release()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            mediaPlayer = null
+            liberarAudioFocus()
         }
     }
 
     fun destroy() {
-        try {
-            mediaPlayer?.let {
-                if (it.isPlaying) it.stop()
-                it.release()
-            }
-            mediaPlayer = null
-            cameraAlertLevels.clear()
-            liberarAudioFocus()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        cameraAlertLevels.clear()
+        stopAndReleasePlayer()
     }
 }
 
@@ -1504,25 +1551,11 @@ fun MapContainerWidget(
                             if (status.hasArrived) {
                                 android.widget.Toast.makeText(context, "🎉 ¡Has llegado a tu destino!", android.widget.Toast.LENGTH_LONG).show()
                                 stopNavigation()
+                            } else if (status.isOffRoute) {
+                                triggerSilentRecalculation(loc)
                             } else {
-                                // 🚗 Recorta el camino recorrido en tiempo real
-                                val points = NavigationStateHolder.calculatedRoutes.find { it.id == NavigationStateHolder.selectedRouteId }?.points
-                                if (!points.isNullOrEmpty()) {
-                                    val closestIdx = points.indices.minByOrNull {
-                                        Location.distanceBetween(loc.latitude, loc.longitude, points[it].latitude, points[it].longitude, FloatArray(1))
-                                        FloatArray(1)[0]
-                                    } ?: 0
-
-                                    // Si se desvía más de 25m, recalcular
-                                    val distToRoute = FloatArray(1)
-                                    Location.distanceBetween(loc.latitude, loc.longitude, points[closestIdx].latitude, points[closestIdx].longitude, distToRoute)
-                                    if (distToRoute[0] > 25f) {
-                                        triggerSilentRecalculation(loc)
-                                    } else {
-                                        val remaining = listOf(loc) + points.subList((closestIdx + 1).coerceAtMost(points.size), points.size)
-                                        mapRefs.routeLayerManager?.updateActiveRouteProgress(remaining)
-                                    }
-                                }
+                                // 🚗 Dibuja el camino desde el auto hacia adelante, borrando lo recorrido
+                                mapRefs.routeLayerManager?.updateActiveRouteProgress(status.remainingPoints)
                             }
                         }
                     },
@@ -2310,10 +2343,10 @@ fun MapFileItemRow(file: File, onSelect: () -> Unit) {
         Text("${sizeMb} MB", color = Color(0xFF03DAC5), fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }
-
-// =================================================================
-// MOTOR DE NAVEGACIÓN SUAVE (60 FPS SIN JALONES TIPO WAZE)
-// =================================================================
+fun rotateBitmap(source: Bitmap, angle: Float): Bitmap {
+    val matrix = Matrix().apply { postRotate(angle) }
+    return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+}
 @SuppressLint("MissingPermission")
 fun startSmoothLocationTracking(
     context: Context,
@@ -2331,12 +2364,23 @@ fun startSmoothLocationTracking(
     var currentDisplayBearing = 0f
     var isFirstLocationFix = true
     var lastLocationTimestamp = 0L
+    var lastRotatedBearing = -999f
+    var baseArrowBitmap: Bitmap? = null
 
     fun getShortestAngleDelta(from: Float, to: Float): Float {
         var delta = (to - from) % 360f
         if (delta > 180f) delta -= 360f
         if (delta < -180f) delta += 360f
         return delta
+    }
+
+    fun calculateHeading(p1: LatLong, p2: LatLong): Float {
+        val lat1 = Math.toRadians(p1.latitude)
+        val lat2 = Math.toRadians(p2.latitude)
+        val dLon = Math.toRadians(p2.longitude - p1.longitude)
+        val y = sin(dLon) * cos(lat2)
+        val x = cos(lat1) * sin(lat2) - sin(lat1) * cos(dLon)
+        return ((Math.toDegrees(atan2(y, x)) + 360) % 360).toFloat()
     }
 
     val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 500L).apply {
@@ -2397,10 +2441,7 @@ fun startSmoothLocationTracking(
             lastLocationTimestamp = now
 
             val speedKmH = location.speed * 3.6f
-            val isMoving = speedKmH >= 4.0f
-
-            val rawTargetBearing = if (location.hasBearing() && isMoving) location.bearing else currentDisplayBearing
-            val deltaBearing = if (isMoving) getShortestAngleDelta(currentDisplayBearing, rawTargetBearing) else 0f
+            val isMoving = speedKmH >= 2.5f
 
             val startLat = currentDisplayLat
             val startLng = currentDisplayLng
@@ -2417,21 +2458,39 @@ fun startSmoothLocationTracking(
 
                     currentDisplayLat = startLat + (targetLat - startLat) * fraction
                     currentDisplayLng = startLng + (targetLng - startLng) * fraction
-
-                    if (isMoving && Math.abs(deltaBearing) > 1.5f) {
-                        currentDisplayBearing = (startBearing + (deltaBearing * fraction) + 360f) % 360f
-                    }
-
                     val currentPos = LatLong(currentDisplayLat, currentDisplayLng)
 
+                    // 🎯 ALINEACIÓN EXACTA: Apunta al siguiente tramo de la línea (15-20m adelante)
+                    val targetBearing = if (NavigationStateHolder.isNavigatingActive && NavigationStateHolder.navStatus.remainingPoints.size >= 2) {
+                        val pts = NavigationStateHolder.navStatus.remainingPoints
+                        val targetPt = if (pts.size > 2) pts[2] else pts[1]
+                        calculateHeading(currentPos, targetPt)
+                    } else if (location.hasBearing() && isMoving) {
+                        location.bearing
+                    } else {
+                        currentDisplayBearing
+                    }
+
+                    if (isMoving || NavigationStateHolder.isNavigatingActive) {
+                        val delta = getShortestAngleDelta(currentDisplayBearing, targetBearing)
+                        currentDisplayBearing = (startBearing + (delta * fraction) + 360f) % 360f
+                    }
+
                     cartMarker.latLong = currentPos
+
+                    // 🔄 ROTA EL TRIÁNGULO EN TIEMPO REAL
+                    if (NavigationStateHolder.isNavigatingActive) {
+                        if (baseArrowBitmap == null) baseArrowBitmap = createNavigationArrowBitmap()
+                        if (abs(currentDisplayBearing - lastRotatedBearing) >= 1.0f) {
+                            lastRotatedBearing = currentDisplayBearing
+                            cartMarker.bitmap = AndroidBitmap(rotateBitmap(baseArrowBitmap!!, currentDisplayBearing))
+                        }
+                    }
+
                     onLocationUpdated(currentPos)
 
                     if (isAutoCenterSupplier()) {
                         mapView.model.mapViewPosition.center = currentPos
-                        if (isMoving) {
-                            mapView.rotation = -currentDisplayBearing
-                        }
                     }
 
                     mapView.repaint()
