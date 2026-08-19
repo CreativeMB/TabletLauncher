@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
@@ -29,6 +28,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RawRes
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -127,7 +127,15 @@ sealed class CameraSyncResult {
 // MODELO Y DETECTOR DE NAVEGACIÓN EN VIVO
 // ==========================================
 enum class ManeuverType {
-    STRAIGHT, TURN_LEFT, TURN_RIGHT, SHARP_LEFT, SHARP_RIGHT, UTURN, ARRIVAL
+    STRAIGHT,
+    SLIGHT_LEFT,
+    TURN_LEFT,
+    SHARP_LEFT,
+    SLIGHT_RIGHT,
+    TURN_RIGHT,
+    SHARP_RIGHT,
+    UTURN,
+    ARRIVAL
 }
 
 data class NavigationStatus(
@@ -142,6 +150,9 @@ data class NavigationStatus(
     val remainingPoints: List<LatLong> = emptyList()
 )
 
+// ==========================================
+// DETECTOR DE NAVEGACIÓN EN VIVO (CORREGIDO)
+// ==========================================
 class LiveNavigationTracker(private var route: RouteOption) {
 
     fun updateRoute(newRoute: RouteOption) {
@@ -150,9 +161,9 @@ class LiveNavigationTracker(private var route: RouteOption) {
 
     fun updateProgress(currentLoc: LatLong): NavigationStatus {
         val points = route.points
-        if (points.isEmpty()) return NavigationStatus()
+        if (points.size < 2) return NavigationStatus()
 
-        // 1. Proyección geométrica exacta sobre el tramo de la vía
+        // 1. Encontrar el segmento más cercano a la posición actual
         var closestSegmentIdx = 0
         var minDistance = Double.MAX_VALUE
         var projectedPoint = points.first()
@@ -161,12 +172,15 @@ class LiveNavigationTracker(private var route: RouteOption) {
             val p1 = points[i]
             val p2 = points[i + 1]
 
-            val l2 = calculateDistance(p1, p2).pow(2)
+            // Proyección escalar perpendicular
+            val dLat = p2.latitude - p1.latitude
+            val dLon = p2.longitude - p1.longitude
+            val l2 = dLat * dLat + dLon * dLon
+
             val proj = if (l2 == 0.0) p1 else {
-                val t = (((currentLoc.latitude - p1.latitude) * (p2.latitude - p1.latitude) +
-                        (currentLoc.longitude - p1.longitude) * (p2.longitude - p1.longitude)) /
-                        ((p2.latitude - p1.latitude).pow(2) + (p2.longitude - p1.longitude).pow(2))).coerceIn(0.0, 1.0)
-                LatLong(p1.latitude + t * (p2.latitude - p1.latitude), p1.longitude + t * (p2.longitude - p1.longitude))
+                val t = (((currentLoc.latitude - p1.latitude) * dLat +
+                        (currentLoc.longitude - p1.longitude) * dLon) / l2).coerceIn(0.0, 1.0)
+                LatLong(p1.latitude + t * dLat, p1.longitude + t * dLon)
             }
 
             val dist = calculateDistance(currentLoc, proj)
@@ -177,8 +191,8 @@ class LiveNavigationTracker(private var route: RouteOption) {
             }
         }
 
-        // 2. TOLERANCIA DOBLE CALZADA: 55 metros para evitar falsos recálculos en autopistas o túneles
-        if (minDistance > 55.0 && closestSegmentIdx < points.size - 2) {
+        // 2. Detección de salida de ruta (> 65 metros del trazado)
+        if (minDistance > 65.0 && closestSegmentIdx < points.size - 2) {
             return NavigationStatus(
                 isOffRoute = true,
                 maneuverInstruction = "Recalculando ruta...",
@@ -186,9 +200,9 @@ class LiveNavigationTracker(private var route: RouteOption) {
             )
         }
 
-        // 3. Chequear llegada al destino
+        // 3. Llegada a destino
         val distToGoal = calculateDistance(currentLoc, points.last())
-        if ((closestSegmentIdx >= points.size - 2 && distToGoal <= 25.0) || distToGoal <= 15.0) {
+        if ((closestSegmentIdx >= points.size - 2 && distToGoal <= 35.0) || distToGoal <= 20.0) {
             return NavigationStatus(
                 nextManeuver = ManeuverType.ARRIVAL,
                 maneuverInstruction = "¡Has llegado a tu destino!",
@@ -197,75 +211,95 @@ class LiveNavigationTracker(private var route: RouteOption) {
             )
         }
 
-        // 4. BORRADO PERFECTO: La ruta arranca exactamente desde el auto hacia el resto del camino
+        // 4. Polilínea restante para dibujar en el mapa
         val remainingPts = ArrayList<LatLong>(points.size - closestSegmentIdx + 1)
-        remainingPts.add(currentLoc) // Punto 0: El GPS actual
-
-        // Si el punto proyectado aún no rebasa el vértice, lo agregamos para no cortar curvas
+        remainingPts.add(currentLoc)
         for (i in (closestSegmentIdx + 1) until points.size) {
             remainingPts.add(points[i])
         }
 
+        // 5. Distancia restante total al destino
         var remainingDist = calculateDistance(currentLoc, points[(closestSegmentIdx + 1).coerceAtMost(points.size - 1)])
         for (i in (closestSegmentIdx + 1) until points.size - 1) {
             remainingDist += calculateDistance(points[i], points[i + 1])
         }
 
-        // 5. Cálculo de Maniobra
-        var maneuver = ManeuverType.STRAIGHT
+        // 6. DETECTOR REAL DE INTERSECCIONES Y GIROS (Vértice a Vértice)
+        var detectedManeuver = ManeuverType.STRAIGHT
         var distToTurn = remainingDist
-        var turnInstruction = "Continúe por la vía"
+        var turnFound = false
+        var accumulatedDist = calculateDistance(currentLoc, points[(closestSegmentIdx + 1).coerceAtMost(points.size - 1)])
 
-        for (i in (closestSegmentIdx + 1) until (points.size - 2).coerceAtMost(closestSegmentIdx + 25)) {
-            val p1 = points[i - 1]
-            val p2 = points[i]
-            val p3 = points[i + 1]
+        // Analizamos cada esquina / vértice delante del vehículo
+        for (i in (closestSegmentIdx + 1) until (points.size - 1)) {
+            val pPrev = points[i - 1]
+            val pCur = points[i]
+            val pNext = points[i + 1]
 
-            val b1 = calculateBearing(p1, p2)
-            val b2 = calculateBearing(p2, p3)
-            var delta = (b2 - b1) % 360
-            if (delta > 180) delta -= 360
-            if (delta < -180) delta += 360
+            val inBearing = calculateBearing(pPrev, pCur)
+            val outBearing = calculateBearing(pCur, pNext)
 
-            if (abs(delta) >= 35.0) {
-                var distAcc = calculateDistance(currentLoc, points[(closestSegmentIdx + 1).coerceAtMost(points.size - 1)])
-                for (j in (closestSegmentIdx + 1) until i) {
-                    distAcc += calculateDistance(points[j], points[j + 1])
-                }
-                distToTurn = distAcc
+            var angleDelta = (outBearing - inBearing) % 360.0
+            if (angleDelta > 180.0) angleDelta -= 360.0
+            if (angleDelta < -180.0) angleDelta += 360.0
 
-                maneuver = when {
-                    delta in 35.0..65.0 -> ManeuverType.TURN_RIGHT
-                    delta > 65.0 && delta <= 125.0 -> ManeuverType.TURN_RIGHT
-                    delta > 125.0 -> ManeuverType.SHARP_RIGHT
-                    delta in -65.0..-35.0 -> ManeuverType.TURN_LEFT
-                    delta < -65.0 && delta >= -125.0 -> ManeuverType.TURN_LEFT
-                    delta < -125.0 && delta >= -160.0 -> ManeuverType.SHARP_LEFT
+            // Si hay un cambio de dirección de al menos 28 grados en esta esquina
+            if (abs(angleDelta) >= 28.0) {
+                distToTurn = accumulatedDist
+                turnFound = true
+
+                detectedManeuver = when {
+                    angleDelta in 28.0..55.0 -> ManeuverType.SLIGHT_RIGHT
+                    angleDelta in 55.1..125.0 -> ManeuverType.TURN_RIGHT
+                    angleDelta in 125.1..165.0 -> ManeuverType.SHARP_RIGHT
+                    angleDelta in -55.0..-28.0 -> ManeuverType.SLIGHT_LEFT
+                    angleDelta in -125.0..-55.1 -> ManeuverType.TURN_LEFT
+                    angleDelta in -165.0..-125.1 -> ManeuverType.SHARP_LEFT
                     else -> ManeuverType.UTURN
                 }
-
-                val distFormat = if (distToTurn >= 1000) String.format(Locale.US, "%.1f km", distToTurn / 1000) else "${(distToTurn / 10).roundToInt() * 10} m"
-                val actionText = when (maneuver) {
-                    ManeuverType.TURN_RIGHT -> "Gire a la derecha"
-                    ManeuverType.SHARP_RIGHT -> "Giro cerrado a la derecha"
-                    ManeuverType.TURN_LEFT -> "Gire a la izquierda"
-                    ManeuverType.SHARP_LEFT -> "Giro cerrado a la izquierda"
-                    ManeuverType.UTURN -> "Haga un giro en U"
-                    else -> "Continúe recto"
-                }
-                turnInstruction = "En $distFormat $actionText"
                 break
+            }
+
+            accumulatedDist += calculateDistance(points[i], points[i + 1])
+            if (accumulatedDist > 4000.0) break // Máxima anticipación: 4 km
+        }
+
+        // 7. Formateo de instrucciones visuales
+        val maneuverInstructionText = if (turnFound) {
+            val actionName = when (detectedManeuver) {
+                ManeuverType.SLIGHT_RIGHT -> "Gire levemente a la derecha"
+                ManeuverType.TURN_RIGHT -> "Gire a la derecha"
+                ManeuverType.SHARP_RIGHT -> "Giro cerrado a la derecha"
+                ManeuverType.SLIGHT_LEFT -> "Gire levemente a la izquierda"
+                ManeuverType.TURN_LEFT -> "Gire a la izquierda"
+                ManeuverType.SHARP_LEFT -> "Giro cerrado a la izquierda"
+                ManeuverType.UTURN -> "Haga un giro en U"
+                else -> "Continúe recto"
+            }
+
+            when {
+                distToTurn <= 30.0 -> "$actionName ahora"
+                distToTurn < 100.0 -> "En ${(distToTurn / 10.0).roundToInt() * 10} m $actionName"
+                distToTurn < 1000.0 -> "En ${(distToTurn / 50.0).roundToInt() * 50} m $actionName"
+                else -> String.format(Locale.US, "En %.1f km %s", distToTurn / 1000.0, actionName)
+            }
+        } else {
+            if (remainingDist >= 1000.0) {
+                String.format(Locale.US, "Continúe recto por %.1f km", remainingDist / 1000.0)
+            } else {
+                val m = ((remainingDist / 50.0).roundToInt() * 50).coerceAtLeast(50)
+                "Continúe recto por $m m"
             }
         }
 
-        val speedMps = 40.0 * 1000 / 3600
+        val speedMps = 40.0 * 1000.0 / 3600.0
         val remainingMs = ((remainingDist / speedMps) * 1000).toLong()
         val etaDate = Date(System.currentTimeMillis() + remainingMs)
         val etaStr = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(etaDate)
 
         return NavigationStatus(
-            nextManeuver = maneuver,
-            maneuverInstruction = turnInstruction,
+            nextManeuver = detectedManeuver,
+            maneuverInstruction = maneuverInstructionText,
             distanceToManeuverMeters = distToTurn,
             remainingDistanceMeters = remainingDist,
             remainingTimeMillis = remainingMs,
@@ -275,7 +309,6 @@ class LiveNavigationTracker(private var route: RouteOption) {
             remainingPoints = remainingPts
         )
     }
-
 
     private fun calculateDistance(p1: LatLong, p2: LatLong): Double {
         val r = 6371000.0
@@ -291,10 +324,9 @@ class LiveNavigationTracker(private var route: RouteOption) {
         val dLon = Math.toRadians(p2.longitude - p1.longitude)
         val y = sin(dLon) * cos(lat2)
         val x = cos(lat1) * sin(lat2) - sin(lat1) * cos(dLon)
-        return (Math.toDegrees(atan2(y, x)) + 360) % 360
+        return (Math.toDegrees(atan2(y, x)) + 360.0) % 360.0
     }
 }
-
 // =========================================================================
 // ESTADO GLOBAL DE NAVEGACIÓN
 // =========================================================================
@@ -308,6 +340,9 @@ object NavigationStateHolder {
     var isCalculatingRoute by mutableStateOf(false)
     var isSilentRecalculating = false
     var calculationJob: kotlinx.coroutines.Job? = null
+
+    var lastKnownLocation by mutableStateOf<LatLong?>(null)
+    var lastKnownBearing by mutableStateOf(0f)
 
     fun clear() {
         calculationJob?.cancel()
@@ -505,30 +540,26 @@ class MapRefs {
     var alertManager: ProximityAlertManager? = null
     var zoomObserver: Observer? = null
     var routeLayerManager: RouteLayerManager? = null
-    var staticGpsBitmap: AndroidBitmap? = null
-    var navArrowBitmap: AndroidBitmap? = null
 }
 
 // ==========================================
 // GESTOR DE AUDIO Y ALERTAS POR PROXIMIDAD
-// ==========================================
-// ==========================================
-// GESTOR DE AUDIO Y ALERTAS POR PROXIMIDAD (CORREGIDO)
 // ==========================================
 class ProximityAlertManager(private val context: Context) {
     private var mediaPlayer: MediaPlayer? = null
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private var focusRequest: AudioFocusRequest? = null
 
-    private val cameraAlertLevels = mutableMapOf<String, Int>()
-    private var lastAlertTime = 0L
     var isAudioAlertsEnabled: Boolean = true
 
     companion object {
         private const val DISTANCE_FAR_ALERT = 300f
         private const val DISTANCE_CLOSE_ALERT = 50f
         private const val DISTANCE_RESET = 500f
-        private const val AUDIO_COOLDOWN_MS = 5000L // 5 segundos mínimos entre avisos
+        private const val AUDIO_COOLDOWN_MS = 5000L
+
+        private val cameraAlertLevels = mutableMapOf<String, Int>()
+        private var lastAlertTime = 0L
     }
 
     fun checkProximity(currentLat: Double, currentLng: Double, cameras: List<SpeedCamera>) {
@@ -537,7 +568,6 @@ class ProximityAlertManager(private val context: Context) {
         val results = FloatArray(1)
         val camerasInRange = mutableListOf<Pair<SpeedCamera, Float>>()
 
-        // 1. Clasificar y limpiar distancias de todas las cámaras
         for (cam in cameras) {
             val camId = "${cam.lat}_${cam.lon}"
             Location.distanceBetween(currentLat, currentLng, cam.lat, cam.lon, results)
@@ -555,16 +585,13 @@ class ProximityAlertManager(private val context: Context) {
         val now = System.currentTimeMillis()
         if (now - lastAlertTime < AUDIO_COOLDOWN_MS) return
 
-        // 2. Buscar la cámara más cercana del grupo
         val closestCamEntry = camerasInRange.minByOrNull { it.second } ?: return
         val minDistance = closestCamEntry.second
+        val closestId = "${closestCamEntry.first.lat}_${closestCamEntry.first.lon}"
 
-        // 3. Evaluar alerta para todo el grupo en la zona
         if (minDistance <= DISTANCE_CLOSE_ALERT) {
-            // Verificar si alguna cámara cercana no ha alcanzado el nivel 2
-            val needsAlert = camerasInRange.any { (_, dist) -> dist <= DISTANCE_FAR_ALERT && (cameraAlertLevels["${closestCamEntry.first.lat}_${closestCamEntry.first.lon}"] ?: 0) < 2 }
-            if (needsAlert) {
-                // Marcar TODAS las cámaras en el rango como nivel 2 para evitar avisos duplicados
+            val currentLevel = cameraAlertLevels[closestId] ?: 0
+            if (currentLevel < 2) {
                 for ((cam, dist) in camerasInRange) {
                     if (dist <= DISTANCE_FAR_ALERT) {
                         cameraAlertLevels["${cam.lat}_${cam.lon}"] = 2
@@ -574,14 +601,12 @@ class ProximityAlertManager(private val context: Context) {
                 playAudioAlert(R.raw.alerta_cerca)
             }
         } else if (minDistance <= DISTANCE_FAR_ALERT) {
-            // Verificar si alguna cámara no ha recibido ni siquiera el primer aviso
-            val needsAlert = camerasInRange.any { (_, dist) -> dist <= DISTANCE_FAR_ALERT && (cameraAlertLevels["${closestCamEntry.first.lat}_${closestCamEntry.first.lon}"] ?: 0) < 1 }
-            if (needsAlert) {
-                // Marcar TODAS las cámaras en el rango como nivel 1
+            val currentLevel = cameraAlertLevels[closestId] ?: 0
+            if (currentLevel < 1) {
                 for ((cam, dist) in camerasInRange) {
                     if (dist <= DISTANCE_FAR_ALERT) {
-                        val current = cameraAlertLevels["${cam.lat}_${cam.lon}"] ?: 0
-                        if (current < 1) {
+                        val lvl = cameraAlertLevels["${cam.lat}_${cam.lon}"] ?: 0
+                        if (lvl < 1) {
                             cameraAlertLevels["${cam.lat}_${cam.lon}"] = 1
                         }
                     }
@@ -613,9 +638,7 @@ class ProximityAlertManager(private val context: Context) {
                 afd.close()
                 prepare()
                 setVolume(1.0f, 1.0f)
-                setOnCompletionListener {
-                    stopAndReleasePlayer()
-                }
+                setOnCompletionListener { stopAndReleasePlayer() }
                 setOnErrorListener { _, _, _ ->
                     stopAndReleasePlayer()
                     true
@@ -665,9 +688,7 @@ class ProximityAlertManager(private val context: Context) {
     private fun stopAndReleasePlayer() {
         try {
             mediaPlayer?.let {
-                if (it.isPlaying) {
-                    it.stop()
-                }
+                if (it.isPlaying) it.stop()
                 it.reset()
                 it.release()
             }
@@ -680,62 +701,21 @@ class ProximityAlertManager(private val context: Context) {
     }
 
     fun destroy() {
-        cameraAlertLevels.clear()
         stopAndReleasePlayer()
     }
 }
 
-// ==========================================
-// DIBUJADO DE ÍCONOS
-// ==========================================
-fun createStaticGpsBitmap(zoomLevel: Float = 17f): Bitmap {
-    val size = when {
-        zoomLevel < 12f -> 36
-        zoomLevel < 14f -> 54
-        zoomLevel < 16f -> 80
-        else -> 110
-    }
-    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    val center = size / 2f
-    val scale = size / 110f
-    val innerDotRadius = 14f * scale
-
-    val pulsePaint = Paint().apply {
-        color = android.graphics.Color.argb(70, 66, 133, 244)
-        isAntiAlias = true
-        style = Paint.Style.FILL
-    }
-    val pulseStrokePaint = Paint().apply {
-        color = android.graphics.Color.argb(120, 66, 133, 244)
-        isAntiAlias = true
-        style = Paint.Style.STROKE
-        strokeWidth = 3f * scale
-    }
-    val dotPaint = Paint().apply {
-        color = android.graphics.Color.rgb(66, 133, 244)
-        isAntiAlias = true
-        style = Paint.Style.FILL
-    }
-    val whiteBorderPaint = Paint().apply {
-        color = android.graphics.Color.WHITE
-        isAntiAlias = true
-        style = Paint.Style.STROKE
-        strokeWidth = 5f * scale
-    }
-
-    canvas.drawCircle(center, center, 28f * scale, pulsePaint)
-    canvas.drawCircle(center, center, 28f * scale, pulseStrokePaint)
-    canvas.drawCircle(center, center, innerDotRadius, dotPaint)
-    canvas.drawCircle(center, center, innerDotRadius, whiteBorderPaint)
-    return bitmap
-}
-
-fun createNavigationArrowBitmap(zoomLevel: Float = 18f): Bitmap {
+fun createVehicleLocationBitmap(
+    zoomLevel: Float = 17f,
+    accentCyanInt: Int = android.graphics.Color.parseColor("#00E5FF"),
+    accentPurpleInt: Int = android.graphics.Color.parseColor("#D500F9"),
+    accentOrangeInt: Int = android.graphics.Color.parseColor("#FF6D00")
+): Bitmap {
+    // 📏 Escala de tamaño dinámico según el zoom del mapa
     val size = when {
         zoomLevel < 12f -> 32
-        zoomLevel < 14f -> 48
-        zoomLevel < 16f -> 70
+        zoomLevel < 14f -> 50
+        zoomLevel < 16f -> 72
         else -> 96
     }
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
@@ -743,42 +723,84 @@ fun createNavigationArrowBitmap(zoomLevel: Float = 18f): Bitmap {
     val center = size / 2f
     val scale = size / 96f
 
-    val arrowPath = Path().apply {
-        moveTo(center, 10f * scale)
-        lineTo(center + 30f * scale, size - 15f * scale)
-        lineTo(center, size - 26f * scale)
-        lineTo(center - 30f * scale, size - 15f * scale)
-        close()
+    fun darken(color: Int, factor: Float): Int {
+        val a = android.graphics.Color.alpha(color)
+        val r = (android.graphics.Color.red(color) * factor).toInt().coerceIn(0, 255)
+        val g = (android.graphics.Color.green(color) * factor).toInt().coerceIn(0, 255)
+        val b = (android.graphics.Color.blue(color) * factor).toInt().coerceIn(0, 255)
+        return android.graphics.Color.argb(a, r, g, b)
     }
 
-    val strokePaint = Paint().apply {
-        color = android.graphics.Color.WHITE
+    // 1. Sombra en el suelo
+    val shadowPaint = Paint().apply {
+        isAntiAlias = true
+        style = Paint.Style.FILL
+        color = android.graphics.Color.argb(110, 0, 0, 0)
+    }
+    canvas.drawCircle(center, center + (4f * scale), 28f * scale, shadowPaint)
+
+    // 2. Halo exterior de luz Neón
+    val auraPaint = Paint().apply {
+        isAntiAlias = true
+        style = Paint.Style.FILL
+        color = android.graphics.Color.argb(60, android.graphics.Color.red(accentCyanInt), android.graphics.Color.green(accentCyanInt), android.graphics.Color.blue(accentCyanInt))
+    }
+    canvas.drawCircle(center, center, 32f * scale, auraPaint)
+
+    val auraStroke = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.STROKE
-        strokeWidth = 6f * scale
-        strokeJoin = Paint.Join.ROUND
+        strokeWidth = (2.5f * scale).coerceAtLeast(1f)
+        color = android.graphics.Color.argb(160, android.graphics.Color.red(accentCyanInt), android.graphics.Color.green(accentCyanInt), android.graphics.Color.blue(accentCyanInt))
     }
-    canvas.drawPath(arrowPath, strokePaint)
+    canvas.drawCircle(center, center, 32f * scale, auraStroke)
 
-    val fillPaintCyan = Paint().apply {
-        color = android.graphics.Color.parseColor("#00E5FF")
+    // 3. Base de la pirámide (Nivel Naranja)
+    val tier1Paint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
+        shader = android.graphics.RadialGradient(
+            center, center, (24f * scale).coerceAtLeast(1f),
+            intArrayOf(accentOrangeInt, darken(accentOrangeInt, 0.4f)),
+            floatArrayOf(0.2f, 1.0f),
+            android.graphics.Shader.TileMode.CLAMP
+        )
     }
-    canvas.drawPath(arrowPath, fillPaintCyan)
+    canvas.drawCircle(center, center, 24f * scale, tier1Paint)
 
-    val rightHalf = Path().apply {
-        moveTo(center, 10f * scale)
-        lineTo(center + 30f * scale, size - 15f * scale)
-        lineTo(center, size - 26f * scale)
-        close()
-    }
-    val rightShadowPaint = Paint().apply {
-        color = android.graphics.Color.argb(45, 0, 0, 0)
+    // 4. Nivel medio (Púrpura)
+    val tier2Paint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
+        shader = android.graphics.RadialGradient(
+            center, center - (2f * scale), (17f * scale).coerceAtLeast(1f),
+            intArrayOf(accentPurpleInt, darken(accentPurpleInt, 0.4f)),
+            floatArrayOf(0.2f, 1.0f),
+            android.graphics.Shader.TileMode.CLAMP
+        )
     }
-    canvas.drawPath(rightHalf, rightShadowPaint)
+    canvas.drawCircle(center, center - (2f * scale), 17f * scale, tier2Paint)
+
+    // 5. Nivel superior (Cyan brillante)
+    val tier3Paint = Paint().apply {
+        isAntiAlias = true
+        style = Paint.Style.FILL
+        shader = android.graphics.RadialGradient(
+            center, center - (4f * scale), (11f * scale).coerceAtLeast(1f),
+            intArrayOf(android.graphics.Color.WHITE, accentCyanInt, darken(accentCyanInt, 0.5f)),
+            floatArrayOf(0.0f, 0.4f, 1.0f),
+            android.graphics.Shader.TileMode.CLAMP
+        )
+    }
+    canvas.drawCircle(center, center - (4f * scale), 11f * scale, tier3Paint)
+
+    // 6. Destello blanco en el ápice
+    val glintPaint = Paint().apply {
+        isAntiAlias = true
+        style = Paint.Style.FILL
+        color = android.graphics.Color.WHITE
+    }
+    canvas.drawCircle(center - (1.5f * scale), center - (5.5f * scale), (2.5f * scale).coerceAtLeast(0.5f), glintPaint)
 
     return bitmap
 }
@@ -897,6 +919,9 @@ fun createCameraMarkerBitmap(zoomLevel: Float = 16f): Bitmap {
     return bitmap
 }
 
+// ==========================================
+// VISTA PRINCIPAL MAPSFORGE
+// ==========================================
 @SuppressLint("RememberReturnType", "ClickableViewAccessibility")
 @Composable
 fun MapsforgeWidget(
@@ -928,32 +953,38 @@ fun MapsforgeWidget(
         mapRefs.alertManager?.isAudioAlertsEnabled = isCameraAudioEnabled
     }
 
-    // 🎯 Cambio de icono automático (Flecha al navegar / Punto al esperar)
-    LaunchedEffect(NavigationStateHolder.isNavigatingActive, mapRefs.marker) {
-        val marker = mapRefs.marker ?: return@LaunchedEffect
-        try { AndroidGraphicFactory.createInstance(context.applicationContext) } catch (e: Exception) {}
-        marker.bitmap = if (NavigationStateHolder.isNavigatingActive) {
-            AndroidBitmap(createNavigationArrowBitmap())
-        } else {
-            AndroidBitmap(createStaticGpsBitmap())
-        }
-        mapRefs.mapView?.layerManager?.redrawLayers()
-        mapRefs.mapView?.repaint()
-    }
+    // 🎨 Actualizar colores del tema en el ícono del GPS y en las rutas dinámicamente
+    LaunchedEffect(theme.accentCyan, theme.accentPurple, theme.accentOrange, theme.id) {
+        val cyanInt = theme.accentCyan.toArgb()
+        val purpleInt = theme.accentPurple.toArgb()
+        val orangeInt = theme.accentOrange.toArgb()
 
-    // 🎨 Actualizar colores de tema
-    LaunchedEffect(theme.accentCyan, theme.accentPurple, theme.accentOrange, theme.id, mapRefs.routeLayerManager) {
+        // 🚗 1. Actualizar inmediatamente los colores del ícono de posición del auto
+        mapRefs.mapView?.let { mv ->
+            val currentZoom = mv.model.mapViewPosition.zoomLevel.toFloat()
+            mapRefs.marker?.bitmap = AndroidBitmap(
+                createVehicleLocationBitmap(
+                    zoomLevel = currentZoom,
+                    accentCyanInt = cyanInt,
+                    accentPurpleInt = purpleInt,
+                    accentOrangeInt = orangeInt
+                )
+            )
+            mv.repaint()
+        }
+
+        // 🛣️ 2. Actualizar colores de las líneas de navegación
         mapRefs.routeLayerManager?.updateThemeColors(
-            primaryColorInt = theme.accentCyan.toArgb(),
-            secondaryColorInt = theme.accentPurple.toArgb()
+            primaryColorInt = cyanInt,
+            secondaryColorInt = purpleInt
         )
         if (NavigationStateHolder.calculatedRoutes.isNotEmpty()) {
             mapRefs.routeLayerManager?.renderRoutes(
                 routes = NavigationStateHolder.calculatedRoutes,
                 selectedRouteId = NavigationStateHolder.selectedRouteId,
-                primaryColorInt = theme.accentCyan.toArgb(),
-                secondaryColorInt = theme.accentPurple.toArgb(),
-                accentColorInt = theme.accentOrange.toArgb()
+                primaryColorInt = cyanInt,
+                secondaryColorInt = purpleInt,
+                accentColorInt = orangeInt
             )
         }
     }
@@ -969,7 +1000,7 @@ fun MapsforgeWidget(
         }
 
         var lastZoomBucket = -1
-        val refreshCamerasRunnable = Runnable {
+        val refreshElementsRunnable = Runnable {
             if (mapRefs.mapView != null) {
                 val currentZoom = mapView.model.mapViewPosition.zoomLevel.toInt()
                 val currentBucket = when {
@@ -988,14 +1019,15 @@ fun MapsforgeWidget(
                         else -> 17f
                     }
 
-                    // 🎯 Redimensionar Marcador del Auto / Flecha
-                    mapRefs.marker?.let { m ->
-                        m.bitmap = if (NavigationStateHolder.isNavigatingActive) {
-                            AndroidBitmap(createNavigationArrowBitmap(zoomFloat))
-                        } else {
-                            AndroidBitmap(createStaticGpsBitmap(zoomFloat))
-                        }
-                    }
+                    // 🚗 Redimensionar ícono del Auto según el Zoom
+                    mapRefs.marker?.bitmap = AndroidBitmap(
+                        createVehicleLocationBitmap(
+                            zoomLevel = zoomFloat,
+                            accentCyanInt = theme.accentCyan.toArgb(),
+                            accentPurpleInt = theme.accentPurple.toArgb(),
+                            accentOrangeInt = theme.accentOrange.toArgb()
+                        )
+                    )
 
                     // 🚩 Redimensionar Bandera de Destino
                     mapRefs.destinationMarker?.let { dm ->
@@ -1018,7 +1050,12 @@ fun MapsforgeWidget(
                         }
                     }
 
-                    mapView.layerManager.redrawLayers()
+                    // 🔝 Asegurar que el GPS siempre esté arriba de todo
+                    mapRefs.marker?.let { m ->
+                        mapView.layerManager.layers.remove(m)
+                        mapView.layerManager.layers.add(m)
+                    }
+
                     mapView.repaint()
                 }
 
@@ -1030,8 +1067,8 @@ fun MapsforgeWidget(
 
         mapRefs.zoomObserver?.let { mapView.model.mapViewPosition.removeObserver(it) }
         val zoomObserver = Observer {
-            mainHandler.removeCallbacks(refreshCamerasRunnable)
-            mainHandler.postDelayed(refreshCamerasRunnable, 200L)
+            mainHandler.removeCallbacks(refreshElementsRunnable)
+            mainHandler.postDelayed(refreshElementsRunnable, 150L)
         }
         mapRefs.zoomObserver = zoomObserver
         mapView.model.mapViewPosition.addObserver(zoomObserver)
@@ -1039,7 +1076,7 @@ fun MapsforgeWidget(
         val cached = withContext(Dispatchers.IO) { CameraRepository.getCachedCameras(context) }
         if (cached.isNotEmpty()) {
             mapRefs.cameras = cached
-            refreshCamerasRunnable.run()
+            refreshElementsRunnable.run()
         }
 
         if (NavigationStateHolder.calculatedRoutes.isNotEmpty()) {
@@ -1068,24 +1105,14 @@ fun MapsforgeWidget(
             mapRefs.alertManager = null
             mapRefs.currentAnimator?.cancel()
             mapRefs.locationCallback?.let { callback ->
-                val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-                fusedLocationClient.removeLocationUpdates(callback)
+                LocationServices.getFusedLocationProviderClient(context).removeLocationUpdates(callback)
             }
             mapRefs.mapView?.let { mv ->
                 try {
                     mapRefs.zoomObserver?.let { mv.model.mapViewPosition.removeObserver(it) }
                     mv.destroyAll()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+                } catch (e: Exception) {}
             }
-            mapRefs.mapView = null
-            mapRefs.marker = null
-            mapRefs.destinationMarker = null
-            mapRefs.locationCallback = null
-            mapRefs.currentAnimator = null
-            mapRefs.zoomObserver = null
-            mapRefs.cameraMarkers.clear()
         }
     }
 
@@ -1103,6 +1130,9 @@ fun MapsforgeWidget(
                             null
                         }
 
+                        val targetZoom = if (NavigationStateHolder.isNavigatingActive) 18.toByte() else 17.toByte()
+                        val initialPos = NavigationStateHolder.lastKnownLocation ?: LatLong(4.7110, -74.0721)
+
                         val mapView = MapView(ctx).apply {
                             keepScreenOn = true
                             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -1111,12 +1141,14 @@ fun MapsforgeWidget(
                             model.displayModel.userScaleFactor = 1.15f
                             setZoomLevelMin(3.toByte())
                             setZoomLevelMax(18.toByte())
-                            model.mapViewPosition.zoomLevel = if (NavigationStateHolder.isNavigatingActive) 18.toByte() else 17.toByte()
+                            model.mapViewPosition.setMapPosition(MapPosition(initialPos, targetZoom))
+                            if (NavigationStateHolder.lastKnownBearing != 0f) {
+                                rotation = -NavigationStateHolder.lastKnownBearing
+                            }
                         }
 
                         val gestureDetector = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
                             override fun onLongPress(e: MotionEvent) {
-                                // ⛔ BLOQUEO TOTAL: Si está calculando, si ya hay rutas o si navega, no permite poner bandera
                                 if (NavigationStateHolder.isCalculatingRoute ||
                                     NavigationStateHolder.calculatedRoutes.isNotEmpty() ||
                                     NavigationStateHolder.isNavigatingActive) {
@@ -1163,9 +1195,14 @@ fun MapsforgeWidget(
                             mapView.layerManager.layers.add(rendererLayer)
                         }
 
-                        val staticGpsBitmap = createStaticGpsBitmap()
-                        val mapsforgeDrawable = AndroidBitmap(staticGpsBitmap)
-                        val cartMarker = Marker(LatLong(0.0, 0.0), mapsforgeDrawable, 0, 0)
+                        val initialMarkerBitmap = AndroidBitmap(
+                            createVehicleLocationBitmap(
+                                accentCyanInt = theme.accentCyan.toArgb(),
+                                accentPurpleInt = theme.accentPurple.toArgb(),
+                                accentOrangeInt = theme.accentOrange.toArgb()
+                            )
+                        )
+                        val cartMarker = Marker(initialPos, initialMarkerBitmap, 0, 0)
                         mapView.layerManager.layers.add(cartMarker)
 
                         mapRefs.mapView = mapView
@@ -1185,7 +1222,7 @@ fun MapsforgeWidget(
                 )
             }
 
-            // 🔍 BOTONES DE ZOOM TOTALMENTE FUNCIONALES
+            // BOTONES DE ZOOM
             Column(
                 modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1249,6 +1286,7 @@ fun MapsforgeWidget(
         }
     }
 }
+
 // ==========================================
 // CONTENEDOR PRINCIPAL DEL MAPA (OFFLINE)
 // ==========================================
@@ -1285,7 +1323,6 @@ fun MapContainerWidget(
 
     var mapLoadError by remember { mutableStateOf<String?>(null) }
     var lastKnownLocation by remember { mutableStateOf<LatLong?>(null) }
-
     var isBRouterInstalled by remember { mutableStateOf(false) }
 
     fun checkBRouter() {
@@ -1315,9 +1352,7 @@ fun MapContainerWidget(
     LaunchedEffect(mapRefs.cameras.size) {
         cameraCountDisplay = mapRefs.cameras.size
     }
-    // =========================================================================
-    // 📌 DECLARACIÓN DE LOS SELECTORES AQUÍ ARRIBA (RESUELVE EL ERROR)
-    // =========================================================================
+
     val mapPickerLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { selectedUri ->
             isLoadingFile = true
@@ -1389,22 +1424,14 @@ fun MapContainerWidget(
     fun stopNavigation() {
         NavigationStateHolder.clear()
         mapRefs.routeLayerManager?.clearRoutes()
-        mapRefs.marker?.let { m ->
-            if (mapRefs.staticGpsBitmap == null) {
-                mapRefs.staticGpsBitmap = AndroidBitmap(createStaticGpsBitmap())
-            }
-            m.bitmap = mapRefs.staticGpsBitmap
-        }
         mapRefs.mapView?.let { mv ->
+            mv.rotation = 0f
             mapRefs.destinationMarker?.let { mv.layerManager.layers.remove(it) }
             mapRefs.destinationMarker = null
             mv.repaint()
         }
     }
 
-    // =========================================================================
-    // FUNCIÓN DE RE-CÁLCULO AUTOMÁTICO SILENCIOSO (DESVÍO O NUEVA CUADRA)
-    // =========================================================================
     fun triggerSilentRecalculation(currentLocation: LatLong) {
         val destination = NavigationStateHolder.destinationLocation ?: return
         if (NavigationStateHolder.isSilentRecalculating) return
@@ -1420,7 +1447,6 @@ fun MapContainerWidget(
                     NavigationStateHolder.selectedRouteId = fastestRoute.id
                     NavigationStateHolder.liveTracker?.updateRoute(fastestRoute)
 
-                    // Redibujar inmediatamente la ruta nueva en el mapa sin trabas
                     mapRefs.routeLayerManager?.renderRoutes(
                         routes = routes,
                         selectedRouteId = fastestRoute.id,
@@ -1435,7 +1461,6 @@ fun MapContainerWidget(
     }
 
     fun onRequestRouteTo(destination: LatLong) {
-        // ⛔ BLOQUEO ESTRICTO: Si ya está calculando o navegando, no permite buscar ni marcar otra ruta
         if (NavigationStateHolder.isCalculatingRoute || NavigationStateHolder.isNavigatingActive) {
             return
         }
@@ -1451,7 +1476,6 @@ fun MapContainerWidget(
             return
         }
 
-        // Limpiar estado anterior, poner bandera y activar cálculo global
         NavigationStateHolder.clear()
         NavigationStateHolder.isCalculatingRoute = true
         NavigationStateHolder.destinationLocation = destination
@@ -1465,14 +1489,24 @@ fun MapContainerWidget(
             mv.repaint()
         }
 
-        // 🚀 CÁLCULO INDEPENDIENTE DEL TAMAÑO DE PANTALLA (No muere al pasar a pantalla completa o widget)
         NavigationStateHolder.calculationJob = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
             val routes = BRouterEngine.getTop3Routes(start, destination)
             withContext(Dispatchers.Main) {
                 NavigationStateHolder.isCalculatingRoute = false
                 if (routes.isNotEmpty()) {
+                    val bestRoute = routes.first()
                     NavigationStateHolder.calculatedRoutes = routes
                     NavigationStateHolder.selectedRouteId = 0
+
+                    // 🧭 PONER AL FRENTE DE INMEDIATO LA RUTA CALCULADA
+                    val initialBearing = getInitialRouteBearing(bestRoute.points, lastKnownLocation)
+                    NavigationStateHolder.lastKnownBearing = initialBearing
+
+                    mapRefs.mapView?.let { mv ->
+                        mv.rotation = -initialBearing
+                        lastKnownLocation?.let { mv.model.mapViewPosition.center = it }
+                        mv.repaint()
+                    }
 
                     mapRefs.routeLayerManager?.renderRoutes(
                         routes = routes,
@@ -1554,7 +1588,6 @@ fun MapContainerWidget(
                             } else if (status.isOffRoute) {
                                 triggerSilentRecalculation(loc)
                             } else {
-                                // 🚗 Dibuja el camino desde el auto hacia adelante, borrando lo recorrido
                                 mapRefs.routeLayerManager?.updateActiveRouteProgress(status.remainingPoints)
                             }
                         }
@@ -1572,7 +1605,6 @@ fun MapContainerWidget(
                     onOpenCustomExplorer = { customExplorerType = "map" }
                 )
 
-                // 🔍 BARRA DE BÚSQUEDA HÍBRIDA
                 if (!NavigationStateHolder.isNavigatingActive) {
                     Box(
                         modifier = Modifier
@@ -1592,14 +1624,6 @@ fun MapContainerWidget(
                     }
                 }
 
-                fun Color.toAndroidColorInt(): Int = android.graphics.Color.argb(
-                    (alpha * 255).toInt(),
-                    (red * 255).toInt(),
-                    (green * 255).toInt(),
-                    (blue * 255).toInt()
-                )
-
-                // 1. HUD SUPERIOR: PRÓXIMA MANIOBRA
                 if (NavigationStateHolder.isNavigatingActive) {
                     Box(
                         modifier = Modifier
@@ -1644,7 +1668,6 @@ fun MapContainerWidget(
                     }
                 }
 
-                // 2. AVISO SUPERIOR: CALCULANDO RUTAS
                 if (NavigationStateHolder.isCalculatingRoute) {
                     Box(
                         modifier = Modifier
@@ -1680,9 +1703,6 @@ fun MapContainerWidget(
                     }
                 }
 
-                // =========================================================================
-// 3. HUD INFERIOR DERECHO: SOLO DISTANCIA RESTANTE (KM / M)
-// =========================================================================
                 if (NavigationStateHolder.isNavigatingActive) {
                     Box(
                         modifier = Modifier
@@ -1735,7 +1755,6 @@ fun MapContainerWidget(
                     }
                 }
 
-                // 4. SELECTOR DE 3 RUTAS
                 if (!NavigationStateHolder.isNavigatingActive && NavigationStateHolder.calculatedRoutes.isNotEmpty()) {
                     Box(
                         modifier = Modifier
@@ -1749,6 +1768,18 @@ fun MapContainerWidget(
                             theme = theme,
                             onRouteSelected = { id ->
                                 NavigationStateHolder.selectedRouteId = id
+                                val selectedRoute = NavigationStateHolder.calculatedRoutes.find { it.id == id }
+
+                                // 🧭 Reorientar hacia la salida de la alternativa seleccionada
+                                if (selectedRoute != null) {
+                                    val routeBearing = getInitialRouteBearing(selectedRoute.points, lastKnownLocation)
+                                    NavigationStateHolder.lastKnownBearing = routeBearing
+                                    mapRefs.mapView?.let { mv ->
+                                        mv.rotation = -routeBearing
+                                        mv.repaint()
+                                    }
+                                }
+
                                 mapRefs.routeLayerManager?.renderRoutes(
                                     routes = NavigationStateHolder.calculatedRoutes,
                                     selectedRouteId = id,
@@ -1760,22 +1791,24 @@ fun MapContainerWidget(
                             onStartNavigation = {
                                 val activeRoute = NavigationStateHolder.calculatedRoutes.find { it.id == NavigationStateHolder.selectedRouteId }
                                     ?: NavigationStateHolder.calculatedRoutes.first()
+
                                 NavigationStateHolder.liveTracker = LiveNavigationTracker(activeRoute)
                                 NavigationStateHolder.isNavigatingActive = true
                                 isAutoCenterEnabled = true
                                 prefs.edit().putBoolean("auto_center", true).apply()
 
-                                // CAMBIO AL ÍCONO DE NAVEGACIÓN DIRECTO
-                                mapRefs.marker?.let { m ->
-                                    if (mapRefs.navArrowBitmap == null) {
-                                        mapRefs.navArrowBitmap = AndroidBitmap(createNavigationArrowBitmap())
-                                    }
-                                    m.bitmap = mapRefs.navArrowBitmap
-                                }
+                                // 🧭 ALINEACIÓN FRONTAL INMEDIATA
+                                val initialBearing = getInitialRouteBearing(activeRoute.points, lastKnownLocation)
+                                NavigationStateHolder.lastKnownBearing = initialBearing
 
                                 mapRefs.mapView?.let { mv ->
                                     mv.model.mapViewPosition.zoomLevel = 18.toByte()
                                     lastKnownLocation?.let { mv.model.mapViewPosition.center = it }
+                                    if (mv.width > 0 && mv.height > 0) {
+                                        mv.pivotX = mv.width / 2f
+                                        mv.pivotY = mv.height / 2f
+                                    }
+                                    mv.rotation = -initialBearing // 🚀 Pone la calle al frente al instante
                                     mv.repaint()
                                 }
                             },
@@ -1784,7 +1817,6 @@ fun MapContainerWidget(
                     }
                 }
 
-                // 5. BOTONES FLOTANTES INFERIORES IZQUIERDOS
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1836,7 +1868,6 @@ fun MapContainerWidget(
                     }
                 }
 
-                // 6. MENÚ LATERAL
                 AnimatedVisibility(
                     visible = showMenu,
                     enter = fadeIn(),
@@ -1875,7 +1906,6 @@ fun MapContainerWidget(
                                 color = Color.White
                             )
 
-                            // SECCIÓN BROUTER
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF262626)),
@@ -1944,7 +1974,6 @@ fun MapContainerWidget(
                                 }
                             }
 
-                            // SECCIÓN RADARES Y ARCHIVOS
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2009,7 +2038,6 @@ fun MapContainerWidget(
                                                                     mapRefs.cameraMarkers.add(camMarker)
                                                                     mv.layerManager.layers.add(camMarker)
                                                                 }
-                                                                mv.layerManager.redrawLayers()
                                                                 mv.repaint()
                                                             }
 
@@ -2109,7 +2137,7 @@ fun MapContainerWidget(
 }
 
 // ==========================================
-// FUNCIÓN AUXILIAR PARA SELECTOR DE ARCHIVOS
+// SELECCIÓN Y MODAL USB
 // ==========================================
 fun safeLaunchPicker(
     launcher: ActivityResultLauncher<String>,
@@ -2122,22 +2150,16 @@ fun safeLaunchPicker(
     }
 }
 
-// ==========================================
-// FUNCIÓN PARA OBTENER ÍCONO DE GIRO
-// ==========================================
 fun getManeuverIcon(type: ManeuverType): ImageVector {
     return when (type) {
-        ManeuverType.TURN_LEFT, ManeuverType.SHARP_LEFT -> Icons.Default.ArrowBack
-        ManeuverType.TURN_RIGHT, ManeuverType.SHARP_RIGHT -> Icons.Default.ArrowForward
+        ManeuverType.TURN_LEFT, ManeuverType.SHARP_LEFT, ManeuverType.SLIGHT_LEFT -> Icons.Default.ArrowBack
+        ManeuverType.TURN_RIGHT, ManeuverType.SHARP_RIGHT, ManeuverType.SLIGHT_RIGHT -> Icons.Default.ArrowForward
         ManeuverType.UTURN -> Icons.Default.Refresh
         ManeuverType.ARRIVAL -> Icons.Default.CheckCircle
         else -> Icons.Default.Navigation
     }
 }
 
-// ==========================================
-// MODAL EXPLORADOR NATIVO USB
-// ==========================================
 @Composable
 fun CustomUsbExplorerModal(
     extension: String,
@@ -2343,10 +2365,34 @@ fun MapFileItemRow(file: File, onSelect: () -> Unit) {
         Text("${sizeMb} MB", color = Color(0xFF03DAC5), fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }
-fun rotateBitmap(source: Bitmap, angle: Float): Bitmap {
-    val matrix = Matrix().apply { postRotate(angle) }
-    return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+
+// =========================================================================
+// UTILIDADES DE CÁLCULO ANGULAR Y RUMBO (ESTILO WAZE)
+// =========================================================================
+
+/**
+ * Calcula la diferencia angular más corta entre dos rumbos (-180° a +180°).
+ * Garantiza que la animación tome el camino más corto al rotar el mapa.
+ */
+private fun calculateShortestAngleDelta(from: Float, to: Float): Float {
+    var delta = (to - from) % 360f
+    if (delta > 180f) delta -= 360f
+    if (delta < -180f) delta += 360f
+    return delta
 }
+
+/**
+ * Calcula el rumbo geográfico (Bearing) en grados (0° a 360°) entre dos puntos.
+ */
+private fun calculateBearingBetween(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+    val dLon = Math.toRadians(lon2 - lon1)
+    val y = Math.sin(dLon) * Math.cos(Math.toRadians(lat2))
+    val x = Math.cos(Math.toRadians(lat1)) * Math.sin(Math.toRadians(lat2)) -
+            Math.sin(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.cos(dLon)
+    var bearing = Math.toDegrees(Math.atan2(y, x)).toFloat()
+    return (bearing + 360f) % 360f
+}
+
 @SuppressLint("MissingPermission")
 fun startSmoothLocationTracking(
     context: Context,
@@ -2359,149 +2405,164 @@ fun startSmoothLocationTracking(
     val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
     val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
 
-    var currentDisplayLat = 0.0
-    var currentDisplayLng = 0.0
-    var currentDisplayBearing = 0f
-    var isFirstLocationFix = true
-    var lastLocationTimestamp = 0L
-    var lastRotatedBearing = -999f
-    var baseArrowBitmap: Bitmap? = null
+    var lastFixLat = NavigationStateHolder.lastKnownLocation?.latitude ?: 0.0
+    var lastFixLng = NavigationStateHolder.lastKnownLocation?.longitude ?: 0.0
+    var currentDisplayLat = lastFixLat
+    var currentDisplayLng = lastFixLng
+    var currentDisplayBearing = NavigationStateHolder.lastKnownBearing
+    var hasValidInitialFix = (NavigationStateHolder.lastKnownLocation != null)
+    var smoothedTargetBearing = currentDisplayBearing
 
-    fun getShortestAngleDelta(from: Float, to: Float): Float {
-        var delta = (to - from) % 360f
-        if (delta > 180f) delta -= 360f
-        if (delta < -180f) delta += 360f
-        return delta
+    fun handleIncomingLocation(location: Location) {
+        val targetLat = location.latitude
+        val targetLng = location.longitude
+
+        val distResults = FloatArray(1)
+        if (hasValidInitialFix) {
+            Location.distanceBetween(lastFixLat, lastFixLng, targetLat, targetLng, distResults)
+        }
+        val movedDistanceMeters = if (hasValidInitialFix) distResults[0] else 0f
+
+        if (!hasValidInitialFix || movedDistanceMeters > 300f) {
+            hasValidInitialFix = true
+            lastFixLat = targetLat
+            lastFixLng = targetLng
+            currentDisplayLat = targetLat
+            currentDisplayLng = targetLng
+
+            val initialBearing = if (location.hasBearing() && location.bearing > 0.0f) location.bearing else currentDisplayBearing
+            currentDisplayBearing = initialBearing
+            smoothedTargetBearing = initialBearing
+
+            val firstPos = LatLong(targetLat, targetLng)
+            NavigationStateHolder.lastKnownLocation = firstPos
+            NavigationStateHolder.lastKnownBearing = currentDisplayBearing
+
+            cartMarker.latLong = firstPos
+            onLocationUpdated(firstPos)
+
+            val targetZoom = if (NavigationStateHolder.isNavigatingActive) 18.toByte() else 17.toByte()
+            mapView.model.mapViewPosition.setMapPosition(MapPosition(firstPos, targetZoom))
+            if (isAutoCenterSupplier()) {
+                mapView.rotation = -currentDisplayBearing
+            }
+            mapView.repaint()
+            return
+        }
+
+        // 🧭 Cálculo de Rumbo (inmune a fallos de hardware en radios de auto)
+        var newCalculatedBearing = -1f
+        if (location.hasBearing() && location.bearing > 0.0f) {
+            newCalculatedBearing = location.bearing
+        } else if (movedDistanceMeters >= 1.2f) {
+            newCalculatedBearing = calculateBearingBetween(lastFixLat, lastFixLng, targetLat, targetLng)
+        }
+
+        if (newCalculatedBearing >= 0f) {
+            val delta = calculateShortestAngleDelta(smoothedTargetBearing, newCalculatedBearing)
+            smoothedTargetBearing = (smoothedTargetBearing + delta * 0.75f + 360f) % 360f
+        }
+
+        lastFixLat = targetLat
+        lastFixLng = targetLng
+
+        val startLat = currentDisplayLat
+        val startLng = currentDisplayLng
+        val startBearing = currentDisplayBearing
+        val finalTargetBearing = smoothedTargetBearing
+
+        mapRefs.currentAnimator?.cancel()
+        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 400L
+            interpolator = LinearInterpolator()
+
+            addUpdateListener { animation ->
+                val fraction = animation.animatedValue as Float
+
+                currentDisplayLat = startLat + (targetLat - startLat) * fraction
+                currentDisplayLng = startLng + (targetLng - startLng) * fraction
+                val currentPos = LatLong(currentDisplayLat, currentDisplayLng)
+
+                val angleDelta = calculateShortestAngleDelta(startBearing, finalTargetBearing)
+                currentDisplayBearing = (startBearing + (angleDelta * fraction) + 360f) % 360f
+
+                NavigationStateHolder.lastKnownLocation = currentPos
+                NavigationStateHolder.lastKnownBearing = currentDisplayBearing
+
+                cartMarker.latLong = currentPos
+                onLocationUpdated(currentPos)
+
+                if (isAutoCenterSupplier()) {
+                    mapView.model.mapViewPosition.center = currentPos
+                    if (mapView.width > 0 && mapView.height > 0) {
+                        // El pivot en el centro para rotar la perspectiva hacia el frente
+                        mapView.pivotX = mapView.width / 2f
+                        mapView.pivotY = mapView.height / 2f
+                    }
+                    mapView.rotation = -currentDisplayBearing
+                }
+                mapView.repaint()
+            }
+        }
+
+        animator.start()
+        mapRefs.currentAnimator = animator
     }
 
-    fun calculateHeading(p1: LatLong, p2: LatLong): Float {
-        val lat1 = Math.toRadians(p1.latitude)
-        val lat2 = Math.toRadians(p2.latitude)
-        val dLon = Math.toRadians(p2.longitude - p1.longitude)
-        val y = sin(dLon) * cos(lat2)
-        val x = cos(lat1) * sin(lat2) - sin(lat1) * cos(dLon)
-        return ((Math.toDegrees(atan2(y, x)) + 360) % 360).toFloat()
-    }
+    try {
+        val nativeLoc = locationManager?.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+            ?: locationManager?.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+        if (nativeLoc != null) handleIncomingLocation(nativeLoc)
+    } catch (e: Exception) {}
 
     val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 500L).apply {
         setMinUpdateIntervalMillis(200L)
         setMaxUpdateDelayMillis(0L)
         setMinUpdateDistanceMeters(0.0f)
         setGranularity(Granularity.GRANULARITY_FINE)
-        setWaitForAccurateLocation(false)
     }.build()
-
-    fun applyFirstLocation(loc: Location) {
-        if (!isFirstLocationFix) return
-        isFirstLocationFix = false
-
-        currentDisplayLat = loc.latitude
-        currentDisplayLng = loc.longitude
-        currentDisplayBearing = if (loc.hasBearing()) loc.bearing else 0f
-        val firstPos = LatLong(loc.latitude, loc.longitude)
-
-        cartMarker.latLong = firstPos
-        onLocationUpdated(firstPos)
-
-        val targetZoom = if (NavigationStateHolder.isNavigatingActive) 18.toByte() else 17.toByte()
-        mapView.model.mapViewPosition.setMapPosition(MapPosition(firstPos, targetZoom))
-        mapView.repaint()
-
-        mapRefs.alertManager?.checkProximity(loc.latitude, loc.longitude, mapRefs.cameras)
-    }
-
-    try {
-        val nativeLoc = locationManager?.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
-            ?: locationManager?.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
-            ?: locationManager?.getLastKnownLocation(android.location.LocationManager.PASSIVE_PROVIDER)
-        if (nativeLoc != null) applyFirstLocation(nativeLoc)
-    } catch (e: Exception) {}
-
-    try {
-        fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
-            if (loc != null && isFirstLocationFix) applyFirstLocation(loc)
-        }
-    } catch (e: Exception) {}
 
     val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
             val location = result.lastLocation ?: return
-            val targetLat = location.latitude
-            val targetLng = location.longitude
-
-            if (isFirstLocationFix) {
-                applyFirstLocation(location)
-                return
-            }
-
-            mapRefs.alertManager?.checkProximity(targetLat, targetLng, mapRefs.cameras)
-
-            val now = SystemClock.elapsedRealtime()
-            val timeDelta = if (lastLocationTimestamp == 0L) 1000L else (now - lastLocationTimestamp).coerceIn(300L, 1500L)
-            lastLocationTimestamp = now
-
-            val speedKmH = location.speed * 3.6f
-            val isMoving = speedKmH >= 2.5f
-
-            val startLat = currentDisplayLat
-            val startLng = currentDisplayLng
-            val startBearing = currentDisplayBearing
-
-            mapRefs.currentAnimator?.cancel()
-
-            val animator = ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = timeDelta
-                interpolator = LinearInterpolator()
-
-                addUpdateListener { animation ->
-                    val fraction = animation.animatedValue as Float
-
-                    currentDisplayLat = startLat + (targetLat - startLat) * fraction
-                    currentDisplayLng = startLng + (targetLng - startLng) * fraction
-                    val currentPos = LatLong(currentDisplayLat, currentDisplayLng)
-
-                    // 🎯 ALINEACIÓN EXACTA: Apunta al siguiente tramo de la línea (15-20m adelante)
-                    val targetBearing = if (NavigationStateHolder.isNavigatingActive && NavigationStateHolder.navStatus.remainingPoints.size >= 2) {
-                        val pts = NavigationStateHolder.navStatus.remainingPoints
-                        val targetPt = if (pts.size > 2) pts[2] else pts[1]
-                        calculateHeading(currentPos, targetPt)
-                    } else if (location.hasBearing() && isMoving) {
-                        location.bearing
-                    } else {
-                        currentDisplayBearing
-                    }
-
-                    if (isMoving || NavigationStateHolder.isNavigatingActive) {
-                        val delta = getShortestAngleDelta(currentDisplayBearing, targetBearing)
-                        currentDisplayBearing = (startBearing + (delta * fraction) + 360f) % 360f
-                    }
-
-                    cartMarker.latLong = currentPos
-
-                    // 🔄 ROTA EL TRIÁNGULO EN TIEMPO REAL
-                    if (NavigationStateHolder.isNavigatingActive) {
-                        if (baseArrowBitmap == null) baseArrowBitmap = createNavigationArrowBitmap()
-                        if (abs(currentDisplayBearing - lastRotatedBearing) >= 1.0f) {
-                            lastRotatedBearing = currentDisplayBearing
-                            cartMarker.bitmap = AndroidBitmap(rotateBitmap(baseArrowBitmap!!, currentDisplayBearing))
-                        }
-                    }
-
-                    onLocationUpdated(currentPos)
-
-                    if (isAutoCenterSupplier()) {
-                        mapView.model.mapViewPosition.center = currentPos
-                    }
-
-                    mapView.repaint()
-                }
-            }
-
-            animator.start()
-            mapRefs.currentAnimator = animator
+            handleIncomingLocation(location)
         }
     }
 
     fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
     return locationCallback
+}
+/**
+ * Calcula el rumbo exacto de salida de la ruta trazada (mirando ~30m hacia adelante).
+ * Permite orientar el mapa al frente de inmediato aunque el auto esté estacionado.
+ */
+fun getInitialRouteBearing(routePoints: List<LatLong>, currentLocation: LatLong?): Float {
+    if (routePoints.size < 2) return 0f
+    val start = currentLocation ?: routePoints.first()
+
+    var targetPoint = routePoints[1]
+    var accumulatedDist = 0.0
+
+    // Buscamos un punto a ~25-35 metros para evitar micro-curvas de inicio
+    for (i in 0 until routePoints.size - 1) {
+        val d = calculateDistanceBetweenPoints(routePoints[i], routePoints[i + 1])
+        accumulatedDist += d
+        if (accumulatedDist >= 25.0) {
+            targetPoint = routePoints[i + 1]
+            break
+        }
+    }
+
+    return calculateBearingBetween(
+        start.latitude, start.longitude,
+        targetPoint.latitude, targetPoint.longitude
+    )
+}
+
+private fun calculateDistanceBetweenPoints(p1: LatLong, p2: LatLong): Double {
+    val r = 6371000.0
+    val dLat = Math.toRadians(p2.latitude - p1.latitude)
+    val dLon = Math.toRadians(p2.longitude - p1.longitude)
+    val a = sin(dLat / 2).pow(2) + cos(Math.toRadians(p1.latitude)) * cos(Math.toRadians(p2.latitude)) * sin(dLon / 2).pow(2)
+    return r * 2 * atan2(sqrt(a), sqrt(1 - a))
 }
