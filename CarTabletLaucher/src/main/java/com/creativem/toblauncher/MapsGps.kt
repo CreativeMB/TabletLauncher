@@ -1224,16 +1224,19 @@ fun MapsforgeWidget(
                         }
 
                         val targetZoom = if (NavigationStateHolder.isNavigatingActive) 18.toByte() else 17.toByte()
+
                         val initialPos = NavigationStateHolder.lastKnownLocation
-                            ?: (ctx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager)
-                                ?.let { lm ->
-                                    try {
-                                        (lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
-                                            ?: lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER))
-                                            ?.let { LatLong(it.latitude, it.longitude) }
-                                    } catch (e: Exception) { null }
+                            ?: run {
+                                @SuppressLint("MissingPermission")
+                                try {
+                                    val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+                                    val loc = lm?.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                                        ?: lm?.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+                                    if (loc != null) LatLong(loc.latitude, loc.longitude) else null
+                                } catch (e: Exception) {
+                                    null
                                 }
-                            ?: LatLong(0.0, 0.0)
+                            } ?: LatLong(0.0, 0.0)
 
                         val mapView = MapView(ctx).apply {
                             keepScreenOn = true
