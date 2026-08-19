@@ -105,6 +105,86 @@ import java.util.Locale
 import kotlin.math.*
 
 // ==========================================
+// MODELO Y REPOSITORIO DE FAVORITOS
+// ==========================================
+data class SavedFavorite(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String,
+    val lat: Double,
+    val lon: Double,
+    val isFixed: Boolean = false
+)
+
+object FavoritesRepository {
+    private const val PREFS_KEY = "saved_places_favorites"
+
+    fun getFavorites(context: Context): List<SavedFavorite> {
+        val prefs = context.getSharedPreferences("toblauncher_prefs", Context.MODE_PRIVATE)
+        val jsonString = prefs.getString(PREFS_KEY, null) ?: return defaultFavorites()
+        return try {
+            val array = org.json.JSONArray(jsonString)
+            val list = mutableListOf<SavedFavorite>()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(
+                    SavedFavorite(
+                        id = obj.getString("id"),
+                        name = obj.getString("name"),
+                        lat = obj.getDouble("lat"),
+                        lon = obj.getDouble("lon"),
+                        isFixed = obj.optBoolean("isFixed", false)
+                    )
+                )
+            }
+            list
+        } catch (e: Exception) {
+            defaultFavorites()
+        }
+    }
+
+    fun saveFavorite(context: Context, favorite: SavedFavorite) {
+        val current = getFavorites(context).toMutableList()
+        val index = current.indexOfFirst { it.id == favorite.id || (favorite.isFixed && it.name == favorite.name) }
+        if (index != -1) {
+            current[index] = favorite
+        } else {
+            current.add(favorite)
+        }
+        persist(context, current)
+    }
+
+    fun deleteFavorite(context: Context, id: String) {
+        val current = getFavorites(context).filter { it.id != id }
+        persist(context, current)
+    }
+
+    private fun persist(context: Context, list: List<SavedFavorite>) {
+        val array = org.json.JSONArray()
+        for (item in list) {
+            val obj = JSONObject().apply {
+                put("id", item.id)
+                put("name", item.name)
+                put("lat", item.lat)
+                put("lon", item.lon)
+                put("isFixed", item.isFixed)
+            }
+            array.put(obj)
+        }
+        context.getSharedPreferences("toblauncher_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString(PREFS_KEY, array.toString())
+            .apply()
+    }
+
+    private fun defaultFavorites(): List<SavedFavorite> {
+        return listOf(
+            SavedFavorite(id = "home", name = "Casa", lat = 0.0, lon = 0.0, isFixed = true),
+            SavedFavorite(id = "work", name = "Trabajo", lat = 0.0, lon = 0.0, isFixed = true)
+        )
+    }
+}
+
+// ==========================================
 // MODELO Y RESULTADO DE CÁMARAS
 // ==========================================
 data class SpeedCamera(
@@ -166,12 +246,10 @@ class LiveNavigationTracker(private var route: RouteOption) {
         val points = route.points
         if (points.size < 2) return NavigationStatus()
 
-        // 1. Encontrar el segmento más cercano al auto (Búsqueda inteligente hacia adelante)
         var closestSegmentIdx = lastClosestIndex
         var minDistance = Double.MAX_VALUE
         var projectedPoint = points[closestSegmentIdx.coerceIn(0, points.size - 1)]
 
-        // Buscamos en una ventana cercana para evitar que salte al final de la ruta por error
         val searchStart = (lastClosestIndex - 2).coerceAtLeast(0)
         val searchEnd = (lastClosestIndex + 25).coerceAtMost(points.size - 1)
 
@@ -198,7 +276,6 @@ class LiveNavigationTracker(private var route: RouteOption) {
         }
         lastClosestIndex = closestSegmentIdx
 
-        // 2. Detección de fuera de ruta (> 75m del trazado)
         if (minDistance > 75.0 && closestSegmentIdx < points.size - 3) {
             return NavigationStatus(
                 isOffRoute = true,
@@ -207,7 +284,6 @@ class LiveNavigationTracker(private var route: RouteOption) {
             )
         }
 
-        // 3. Llegada a destino
         val distToGoal = calculateDistance(currentLoc, points.last())
         if ((closestSegmentIdx >= points.size - 2 && distToGoal <= 35.0) || distToGoal <= 20.0) {
             return NavigationStatus(
@@ -218,37 +294,31 @@ class LiveNavigationTracker(private var route: RouteOption) {
             )
         }
 
-        // 4. Polilínea restante para el mapa
         val remainingPts = ArrayList<LatLong>(points.size - closestSegmentIdx + 1)
         remainingPts.add(currentLoc)
         for (i in (closestSegmentIdx + 1) until points.size) {
             remainingPts.add(points[i])
         }
 
-        // 5. Distancia restante total al destino final
         val nextPointIdx = (closestSegmentIdx + 1).coerceAtMost(points.size - 1)
         var remainingDist = calculateDistance(currentLoc, points[nextPointIdx])
         for (i in nextPointIdx until points.size - 1) {
             remainingDist += calculateDistance(points[i], points[i + 1])
         }
 
-        // 6. DETECTOR REAL DE INTERSECCIONES Y ESQUINAS (Vértice a Vértice con Ventana Vectorial)
         var detectedManeuver = ManeuverType.STRAIGHT
         var distToTurn = remainingDist
         var turnFound = false
         var accumulatedDist = calculateDistance(currentLoc, points[nextPointIdx])
 
         for (i in nextPointIdx until (points.size - 1)) {
-            // Rumbo con el que se entra a este vértice (mirando 15m atrás o segmento anterior)
             val inBearing = getIncomingBearing(points, i, 18.0)
-            // Rumbo con el que se sale de este vértice (mirando 18m adelante)
             val outBearing = getOutgoingBearing(points, i, 18.0)
 
             var deltaAngle = (outBearing - inBearing) % 360.0
             if (deltaAngle > 180.0) deltaAngle -= 360.0
             if (deltaAngle < -180.0) deltaAngle += 360.0
 
-            // Si en esta esquina la vía cambia más de 23 grados de dirección
             if (abs(deltaAngle) >= 23.0) {
                 distToTurn = accumulatedDist
                 turnFound = true
@@ -266,10 +336,9 @@ class LiveNavigationTracker(private var route: RouteOption) {
             }
 
             accumulatedDist += calculateDistance(points[i], points[i + 1])
-            if (accumulatedDist > 4000.0) break // Máxima anticipación: 4 km
+            if (accumulatedDist > 4000.0) break
         }
 
-        // 7. TEXTO DE LA INSTRUCCIÓN VISUAL
         val maneuverInstructionText = if (turnFound) {
             val actionName = when (detectedManeuver) {
                 ManeuverType.SLIGHT_RIGHT -> "Gire levemente a la derecha"
@@ -325,9 +394,6 @@ class LiveNavigationTracker(private var route: RouteOption) {
         )
     }
 
-    /**
-     * Calcula el rumbo de entrada hacia un vértice acumulando metros hacia atrás
-     */
     private fun getIncomingBearing(points: List<LatLong>, vertexIdx: Int, lookBackMeters: Double): Double {
         var acc = 0.0
         var sourceIdx = (vertexIdx - 1).coerceAtLeast(0)
@@ -339,9 +405,6 @@ class LiveNavigationTracker(private var route: RouteOption) {
         return calculateBearing(points[sourceIdx], points[vertexIdx])
     }
 
-    /**
-     * Calcula el rumbo de salida desde un vértice acumulando metros hacia adelante
-     */
     private fun getOutgoingBearing(points: List<LatLong>, vertexIdx: Int, lookAheadMeters: Double): Double {
         var acc = 0.0
         var targetIdx = (vertexIdx + 1).coerceAtMost(points.size - 1)
@@ -366,11 +429,11 @@ class LiveNavigationTracker(private var route: RouteOption) {
         val lat2 = Math.toRadians(p2.latitude)
         val dLon = Math.toRadians(p2.longitude - p1.longitude)
         val y = sin(dLon) * cos(lat2)
-        // 🔧 CORREGIDO: Se agregó "* cos(lat2)" que faltaba en la fórmula de Haversine
         val x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
         return (Math.toDegrees(atan2(y, x)) + 360.0) % 360.0
     }
 }
+
 // =========================================================================
 // ESTADO GLOBAL DE NAVEGACIÓN
 // =========================================================================
@@ -755,7 +818,6 @@ fun createVehicleLocationBitmap(
     accentPurpleInt: Int = android.graphics.Color.parseColor("#D500F9"),
     accentOrangeInt: Int = android.graphics.Color.parseColor("#FF6D00")
 ): Bitmap {
-    // 📏 Escala de tamaño dinámico según el zoom del mapa
     val size = when {
         zoomLevel < 12f -> 32
         zoomLevel < 14f -> 50
@@ -775,7 +837,6 @@ fun createVehicleLocationBitmap(
         return android.graphics.Color.argb(a, r, g, b)
     }
 
-    // 1. Sombra en el suelo
     val shadowPaint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
@@ -783,7 +844,6 @@ fun createVehicleLocationBitmap(
     }
     canvas.drawCircle(center, center + (4f * scale), 28f * scale, shadowPaint)
 
-    // 2. Halo exterior de luz Neón
     val auraPaint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
@@ -799,7 +859,6 @@ fun createVehicleLocationBitmap(
     }
     canvas.drawCircle(center, center, 32f * scale, auraStroke)
 
-    // 3. Base de la pirámide (Nivel Naranja)
     val tier1Paint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
@@ -812,7 +871,6 @@ fun createVehicleLocationBitmap(
     }
     canvas.drawCircle(center, center, 24f * scale, tier1Paint)
 
-    // 4. Nivel medio (Púrpura)
     val tier2Paint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
@@ -825,7 +883,6 @@ fun createVehicleLocationBitmap(
     }
     canvas.drawCircle(center, center - (2f * scale), 17f * scale, tier2Paint)
 
-    // 5. Nivel superior (Cyan brillante)
     val tier3Paint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
@@ -838,7 +895,6 @@ fun createVehicleLocationBitmap(
     }
     canvas.drawCircle(center, center - (4f * scale), 11f * scale, tier3Paint)
 
-    // 6. Destello blanco en el ápice
     val glintPaint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
@@ -997,13 +1053,11 @@ fun MapsforgeWidget(
         mapRefs.alertManager?.isAudioAlertsEnabled = isCameraAudioEnabled
     }
 
-    // 🎨 Actualizar colores del tema en el ícono del GPS y en las rutas dinámicamente
     LaunchedEffect(theme.accentCyan, theme.accentPurple, theme.accentOrange, theme.id) {
         val cyanInt = theme.accentCyan.toArgb()
         val purpleInt = theme.accentPurple.toArgb()
         val orangeInt = theme.accentOrange.toArgb()
 
-        // 🚗 1. Actualizar inmediatamente los colores del ícono de posición del auto
         mapRefs.mapView?.let { mv ->
             val currentZoom = mv.model.mapViewPosition.zoomLevel.toFloat()
             mapRefs.marker?.bitmap = AndroidBitmap(
@@ -1017,7 +1071,6 @@ fun MapsforgeWidget(
             mv.repaint()
         }
 
-        // 🛣️ 2. Actualizar colores de las líneas de navegación
         mapRefs.routeLayerManager?.updateThemeColors(
             primaryColorInt = cyanInt,
             secondaryColorInt = purpleInt
@@ -1063,7 +1116,6 @@ fun MapsforgeWidget(
                         else -> 17f
                     }
 
-                    // 🚗 Redimensionar ícono del Auto según el Zoom
                     mapRefs.marker?.bitmap = AndroidBitmap(
                         createVehicleLocationBitmap(
                             zoomLevel = zoomFloat,
@@ -1073,13 +1125,11 @@ fun MapsforgeWidget(
                         )
                     )
 
-                    // 🚩 Redimensionar Bandera de Destino
                     mapRefs.destinationMarker?.let { dm ->
                         dm.bitmap = AndroidBitmap(createDestinationMarkerBitmap(zoomFloat))
                         dm.verticalOffset = (-30 * (zoomFloat / 17f)).toInt()
                     }
 
-                    // 📷 Redimensionar Cámaras
                     if (mapRefs.cameras.isNotEmpty()) {
                         val targetCamBitmap = AndroidBitmap(createCameraMarkerBitmap(zoomFloat))
                         for (oldMarker in mapRefs.cameraMarkers) {
@@ -1094,7 +1144,6 @@ fun MapsforgeWidget(
                         }
                     }
 
-                    // 🔝 Asegurar que el GPS siempre esté arriba de todo
                     mapRefs.marker?.let { m ->
                         mapView.layerManager.layers.remove(m)
                         mapView.layerManager.layers.add(m)
@@ -1266,7 +1315,6 @@ fun MapsforgeWidget(
                 )
             }
 
-            // BOTONES DE ZOOM
             Column(
                 modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1343,6 +1391,10 @@ fun MapContainerWidget(
     val currentTheme by rememberUpdatedState(theme)
     val coroutineScope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("toblauncher_prefs", Context.MODE_PRIVATE) }
+
+    var savedFavorites by remember { mutableStateOf(FavoritesRepository.getFavorites(context)) }
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var pendingLocationToSave by remember { mutableStateOf<LatLong?>(null) }
 
     var isSyncingCameras by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
@@ -1542,7 +1594,6 @@ fun MapContainerWidget(
                     NavigationStateHolder.calculatedRoutes = routes
                     NavigationStateHolder.selectedRouteId = 0
 
-                    // 🧭 PONER AL FRENTE DE INMEDIATO LA RUTA CALCULADA
                     val initialBearing = getInitialRouteBearing(bestRoute.points, lastKnownLocation)
                     NavigationStateHolder.lastKnownBearing = initialBearing
 
@@ -1803,6 +1854,26 @@ fun MapContainerWidget(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
+                            .padding(top = 60.dp, end = 12.dp),
+                        contentAlignment = Alignment.TopEnd
+                    ) {
+                        FloatingActionButton(
+                            onClick = {
+                                pendingLocationToSave = NavigationStateHolder.destinationLocation
+                                showSaveDialog = true
+                            },
+                            containerColor = theme.cardBackground.copy(alpha = 0.95f),
+                            contentColor = theme.accentCyan,
+                            modifier = Modifier.size(40.dp),
+                            shape = CircleShape
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Guardar Lugar", modifier = Modifier.size(20.dp))
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
                             .padding(end = 8.dp, bottom = 8.dp),
                         contentAlignment = Alignment.BottomEnd
                     ) {
@@ -1814,7 +1885,6 @@ fun MapContainerWidget(
                                 NavigationStateHolder.selectedRouteId = id
                                 val selectedRoute = NavigationStateHolder.calculatedRoutes.find { it.id == id }
 
-                                // 🧭 Reorientar hacia la salida de la alternativa seleccionada
                                 if (selectedRoute != null) {
                                     val routeBearing = getInitialRouteBearing(selectedRoute.points, lastKnownLocation)
                                     NavigationStateHolder.lastKnownBearing = routeBearing
@@ -1842,16 +1912,13 @@ fun MapContainerWidget(
                                 isAutoCenterEnabled = true
                                 prefs.edit().putBoolean("auto_center", true).apply()
 
-                                // ⚡ UBICACIÓN VÁLIDA GARANTIZADA: Si una es null, usa la otra o el punto inicial de la ruta
                                 val currentLocation = lastKnownLocation
                                     ?: NavigationStateHolder.lastKnownLocation
                                     ?: activeRoute.points.first()
 
-                                // 🚀 FORZAR EVALUACIÓN INSTANTÁNEA DEL PRIMER GIRO
                                 val initialStatus = tracker.updateProgress(currentLocation)
                                 NavigationStateHolder.navStatus = initialStatus
 
-                                // 🧭 ALINEACIÓN FRONTAL INMEDIATA DEL MAPA AL FRENTE
                                 val initialBearing = getInitialRouteBearing(activeRoute.points, currentLocation)
                                 NavigationStateHolder.lastKnownBearing = initialBearing
 
@@ -2121,6 +2188,66 @@ fun MapContainerWidget(
                                     Text(text = "🔄 Actualizar Radares (${cameraCountDisplay})", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
 
+                                Text(
+                                    text = "📍 Mis Lugares Guardados",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF262626)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        savedFavorites.forEach { fav ->
+                                            val hasCoords = fav.lat != 0.0 && fav.lon != 0.0
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(if (hasCoords) Color(0x1AFFFFFF) else Color(0x0AFFFFFF))
+                                                    .clickable(enabled = hasCoords) {
+                                                        showMenu = false
+                                                        onRequestRouteTo(LatLong(fav.lat, fav.lon))
+                                                    }
+                                                    .padding(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = if (fav.name.equals("Casa", true)) "🏠" else if (fav.name.equals("Trabajo", true)) "🏢" else "📍",
+                                                        fontSize = 14.sp
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Column {
+                                                        Text(fav.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                        Text(
+                                                            text = if (hasCoords) "Toca para trazar ruta" else "Sin configurar (fija en mapa)",
+                                                            color = if (hasCoords) theme.accentCyan else Color.Gray,
+                                                            fontSize = 9.sp
+                                                        )
+                                                    }
+                                                }
+
+                                                if (!fav.isFixed) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            FavoritesRepository.deleteFavorite(context, fav.id)
+                                                            savedFavorites = FavoritesRepository.getFavorites(context)
+                                                        },
+                                                        modifier = Modifier.size(24.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Close, contentDescription = "Eliminar", tint = Color.Gray, modifier = Modifier.size(14.dp))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 Button(
                                     onClick = {
                                         showMenu = false
@@ -2156,6 +2283,19 @@ fun MapContainerWidget(
                     }
                 }
             }
+        }
+
+        if (showSaveDialog && pendingLocationToSave != null) {
+            SaveLocationDialog(
+                targetLocation = pendingLocationToSave!!,
+                onDismiss = { showSaveDialog = false },
+                onSaved = { newFav ->
+                    FavoritesRepository.saveFavorite(context, newFav)
+                    savedFavorites = FavoritesRepository.getFavorites(context)
+                    showSaveDialog = false
+                    android.widget.Toast.makeText(context, "✅ '${newFav.name}' guardado correctamente", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            )
         }
 
         if (showNoFileManagerError) {
@@ -2424,10 +2564,6 @@ fun MapFileItemRow(file: File, onSelect: () -> Unit) {
 // UTILIDADES DE CÁLCULO ANGULAR Y RUMBO (ESTILO WAZE)
 // =========================================================================
 
-/**
- * Calcula la diferencia angular más corta entre dos rumbos (-180° a +180°).
- * Garantiza que la animación tome el camino más corto al rotar el mapa.
- */
 private fun calculateShortestAngleDelta(from: Float, to: Float): Float {
     var delta = (to - from) % 360f
     if (delta > 180f) delta -= 360f
@@ -2435,9 +2571,6 @@ private fun calculateShortestAngleDelta(from: Float, to: Float): Float {
     return delta
 }
 
-/**
- * Calcula el rumbo geográfico (Bearing) en grados (0° a 360°) entre dos puntos.
- */
 private fun calculateBearingBetween(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
     val dLon = Math.toRadians(lon2 - lon1)
     val y = Math.sin(dLon) * Math.cos(Math.toRadians(lat2))
@@ -2504,7 +2637,6 @@ fun startSmoothLocationTracking(
             return
         }
 
-        // 🧭 Cálculo de Rumbo (inmune a fallos de hardware en radios de auto)
         var newCalculatedBearing = -1f
         if (location.hasBearing() && location.bearing > 0.0f) {
             newCalculatedBearing = location.bearing
@@ -2549,7 +2681,6 @@ fun startSmoothLocationTracking(
                 if (isAutoCenterSupplier()) {
                     mapView.model.mapViewPosition.center = currentPos
                     if (mapView.width > 0 && mapView.height > 0) {
-                        // El pivot en el centro para rotar la perspectiva hacia el frente
                         mapView.pivotX = mapView.width / 2f
                         mapView.pivotY = mapView.height / 2f
                     }
@@ -2586,10 +2717,7 @@ fun startSmoothLocationTracking(
     fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
     return locationCallback
 }
-/**
- * Calcula el rumbo exacto de salida de la ruta trazada (mirando ~30m hacia adelante).
- * Permite orientar el mapa al frente de inmediato aunque el auto esté estacionado.
- */
+
 fun getInitialRouteBearing(routePoints: List<LatLong>, currentLocation: LatLong?): Float {
     if (routePoints.size < 2) return 0f
     val start = currentLocation ?: routePoints.first()
@@ -2597,7 +2725,6 @@ fun getInitialRouteBearing(routePoints: List<LatLong>, currentLocation: LatLong?
     var targetPoint = routePoints[1]
     var accumulatedDist = 0.0
 
-    // Buscamos un punto a ~25-35 metros para evitar micro-curvas de inicio
     for (i in 0 until routePoints.size - 1) {
         val d = calculateDistanceBetweenPoints(routePoints[i], routePoints[i + 1])
         accumulatedDist += d
@@ -2619,4 +2746,71 @@ private fun calculateDistanceBetweenPoints(p1: LatLong, p2: LatLong): Double {
     val dLon = Math.toRadians(p2.longitude - p1.longitude)
     val a = sin(dLat / 2).pow(2) + cos(Math.toRadians(p1.latitude)) * cos(Math.toRadians(p2.latitude)) * sin(dLon / 2).pow(2)
     return r * 2 * atan2(sqrt(a), sqrt(1 - a))
+}
+
+// ==========================================
+// COMPONENTE DE DIÁLOGO DE GUARDADO
+// ==========================================
+@Composable
+fun SaveLocationDialog(
+    targetLocation: LatLong,
+    onDismiss: () -> Unit,
+    onSaved: (SavedFavorite) -> Unit
+) {
+    var placeName by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("Personalizado") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Guardar Ubicación", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Asigna un nombre o selecciona acceso directo:", color = Color.Gray, fontSize = 12.sp)
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = selectedCategory == "Casa",
+                        onClick = { selectedCategory = "Casa"; placeName = "Casa" },
+                        label = { Text("🏠 Casa") }
+                    )
+                    FilterChip(
+                        selected = selectedCategory == "Trabajo",
+                        onClick = { selectedCategory = "Trabajo"; placeName = "Trabajo" },
+                        label = { Text("🏢 Trabajo") }
+                    )
+                }
+
+                OutlinedTextField(
+                    value = placeName,
+                    onValueChange = { placeName = it },
+                    label = { Text("Nombre del lugar") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF03DAC5)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (placeName.isNotBlank()) {
+                        val isFixed = placeName.equals("Casa", true) || placeName.equals("Trabajo", true)
+                        val id = if (placeName.equals("Casa", true)) "home" else if (placeName.equals("Trabajo", true)) "work" else java.util.UUID.randomUUID().toString()
+                        onSaved(SavedFavorite(id = id, name = placeName, lat = targetLocation.latitude, lon = targetLocation.longitude, isFixed = isFixed))
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF03DAC5), contentColor = Color.Black)
+            ) {
+                Text("Guardar", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar", color = Color.Gray) }
+        },
+        containerColor = Color(0xFF1E1E1E)
+    )
 }
