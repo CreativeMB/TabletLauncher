@@ -150,29 +150,35 @@ data class NavigationStatus(
     val remainingPoints: List<LatLong> = emptyList()
 )
 
-// ==========================================
-// DETECTOR DE NAVEGACIÓN EN VIVO (CORREGIDO)
-// ==========================================
+// =========================================================================
+// DETECTOR DE NAVEGACIÓN EN VIVO (DETECTOR EXACTO DE GIROS POR INTERSECCIÓN)
+// =========================================================================
 class LiveNavigationTracker(private var route: RouteOption) {
+
+    private var lastClosestIndex = 0
 
     fun updateRoute(newRoute: RouteOption) {
         this.route = newRoute
+        this.lastClosestIndex = 0
     }
 
     fun updateProgress(currentLoc: LatLong): NavigationStatus {
         val points = route.points
         if (points.size < 2) return NavigationStatus()
 
-        // 1. Encontrar el segmento más cercano a la posición actual
-        var closestSegmentIdx = 0
+        // 1. Encontrar el segmento más cercano al auto (Búsqueda inteligente hacia adelante)
+        var closestSegmentIdx = lastClosestIndex
         var minDistance = Double.MAX_VALUE
-        var projectedPoint = points.first()
+        var projectedPoint = points[closestSegmentIdx.coerceIn(0, points.size - 1)]
 
-        for (i in 0 until points.size - 1) {
+        // Buscamos en una ventana cercana para evitar que salte al final de la ruta por error
+        val searchStart = (lastClosestIndex - 2).coerceAtLeast(0)
+        val searchEnd = (lastClosestIndex + 25).coerceAtMost(points.size - 1)
+
+        for (i in searchStart until searchEnd) {
             val p1 = points[i]
             val p2 = points[i + 1]
 
-            // Proyección escalar perpendicular
             val dLat = p2.latitude - p1.latitude
             val dLon = p2.longitude - p1.longitude
             val l2 = dLat * dLat + dLon * dLon
@@ -190,9 +196,10 @@ class LiveNavigationTracker(private var route: RouteOption) {
                 projectedPoint = proj
             }
         }
+        lastClosestIndex = closestSegmentIdx
 
-        // 2. Detección de salida de ruta (> 65 metros del trazado)
-        if (minDistance > 65.0 && closestSegmentIdx < points.size - 2) {
+        // 2. Detección de fuera de ruta (> 75m del trazado)
+        if (minDistance > 75.0 && closestSegmentIdx < points.size - 3) {
             return NavigationStatus(
                 isOffRoute = true,
                 maneuverInstruction = "Recalculando ruta...",
@@ -211,50 +218,48 @@ class LiveNavigationTracker(private var route: RouteOption) {
             )
         }
 
-        // 4. Polilínea restante para dibujar en el mapa
+        // 4. Polilínea restante para el mapa
         val remainingPts = ArrayList<LatLong>(points.size - closestSegmentIdx + 1)
         remainingPts.add(currentLoc)
         for (i in (closestSegmentIdx + 1) until points.size) {
             remainingPts.add(points[i])
         }
 
-        // 5. Distancia restante total al destino
-        var remainingDist = calculateDistance(currentLoc, points[(closestSegmentIdx + 1).coerceAtMost(points.size - 1)])
-        for (i in (closestSegmentIdx + 1) until points.size - 1) {
+        // 5. Distancia restante total al destino final
+        val nextPointIdx = (closestSegmentIdx + 1).coerceAtMost(points.size - 1)
+        var remainingDist = calculateDistance(currentLoc, points[nextPointIdx])
+        for (i in nextPointIdx until points.size - 1) {
             remainingDist += calculateDistance(points[i], points[i + 1])
         }
 
-        // 6. DETECTOR REAL DE INTERSECCIONES Y GIROS (Vértice a Vértice)
+        // 6. DETECTOR REAL DE INTERSECCIONES Y ESQUINAS (Vértice a Vértice con Ventana Vectorial)
         var detectedManeuver = ManeuverType.STRAIGHT
         var distToTurn = remainingDist
         var turnFound = false
-        var accumulatedDist = calculateDistance(currentLoc, points[(closestSegmentIdx + 1).coerceAtMost(points.size - 1)])
+        var accumulatedDist = calculateDistance(currentLoc, points[nextPointIdx])
 
-        // Analizamos cada esquina / vértice delante del vehículo
-        for (i in (closestSegmentIdx + 1) until (points.size - 1)) {
-            val pPrev = points[i - 1]
-            val pCur = points[i]
-            val pNext = points[i + 1]
+        for (i in nextPointIdx until (points.size - 1)) {
+            // Rumbo con el que se entra a este vértice (mirando 15m atrás o segmento anterior)
+            val inBearing = getIncomingBearing(points, i, 18.0)
+            // Rumbo con el que se sale de este vértice (mirando 18m adelante)
+            val outBearing = getOutgoingBearing(points, i, 18.0)
 
-            val inBearing = calculateBearing(pPrev, pCur)
-            val outBearing = calculateBearing(pCur, pNext)
+            var deltaAngle = (outBearing - inBearing) % 360.0
+            if (deltaAngle > 180.0) deltaAngle -= 360.0
+            if (deltaAngle < -180.0) deltaAngle += 360.0
 
-            var angleDelta = (outBearing - inBearing) % 360.0
-            if (angleDelta > 180.0) angleDelta -= 360.0
-            if (angleDelta < -180.0) angleDelta += 360.0
-
-            // Si hay un cambio de dirección de al menos 28 grados en esta esquina
-            if (abs(angleDelta) >= 28.0) {
+            // Si en esta esquina la vía cambia más de 23 grados de dirección
+            if (abs(deltaAngle) >= 23.0) {
                 distToTurn = accumulatedDist
                 turnFound = true
 
                 detectedManeuver = when {
-                    angleDelta in 28.0..55.0 -> ManeuverType.SLIGHT_RIGHT
-                    angleDelta in 55.1..125.0 -> ManeuverType.TURN_RIGHT
-                    angleDelta in 125.1..165.0 -> ManeuverType.SHARP_RIGHT
-                    angleDelta in -55.0..-28.0 -> ManeuverType.SLIGHT_LEFT
-                    angleDelta in -125.0..-55.1 -> ManeuverType.TURN_LEFT
-                    angleDelta in -165.0..-125.1 -> ManeuverType.SHARP_LEFT
+                    deltaAngle in 23.0..55.0 -> ManeuverType.SLIGHT_RIGHT
+                    deltaAngle in 55.1..125.0 -> ManeuverType.TURN_RIGHT
+                    deltaAngle in 125.1..165.0 -> ManeuverType.SHARP_RIGHT
+                    deltaAngle in -55.0..-23.0 -> ManeuverType.SLIGHT_LEFT
+                    deltaAngle in -125.0..-55.1 -> ManeuverType.TURN_LEFT
+                    deltaAngle in -165.0..-125.1 -> ManeuverType.SHARP_LEFT
                     else -> ManeuverType.UTURN
                 }
                 break
@@ -264,7 +269,7 @@ class LiveNavigationTracker(private var route: RouteOption) {
             if (accumulatedDist > 4000.0) break // Máxima anticipación: 4 km
         }
 
-        // 7. Formateo de instrucciones visuales
+        // 7. TEXTO DE LA INSTRUCCIÓN VISUAL
         val maneuverInstructionText = if (turnFound) {
             val actionName = when (detectedManeuver) {
                 ManeuverType.SLIGHT_RIGHT -> "Gire levemente a la derecha"
@@ -279,13 +284,23 @@ class LiveNavigationTracker(private var route: RouteOption) {
 
             when {
                 distToTurn <= 30.0 -> "$actionName ahora"
-                distToTurn < 100.0 -> "En ${(distToTurn / 10.0).roundToInt() * 10} m $actionName"
-                distToTurn < 1000.0 -> "En ${(distToTurn / 50.0).roundToInt() * 50} m $actionName"
-                else -> String.format(Locale.US, "En %.1f km %s", distToTurn / 1000.0, actionName)
+                distToTurn < 100.0 -> {
+                    val tens = ((distToTurn / 10.0).roundToInt() * 10).coerceAtLeast(10)
+                    "En $tens m $actionName"
+                }
+                distToTurn < 1000.0 -> {
+                    val fifties = ((distToTurn / 50.0).roundToInt() * 50)
+                    "En $fifties m $actionName"
+                }
+                else -> {
+                    val km = String.format(Locale.US, "%.1f km", distToTurn / 1000.0)
+                    "En $km $actionName"
+                }
             }
         } else {
             if (remainingDist >= 1000.0) {
-                String.format(Locale.US, "Continúe recto por %.1f km", remainingDist / 1000.0)
+                val km = String.format(Locale.US, "%.1f km", remainingDist / 1000.0)
+                "Continúe recto por $km"
             } else {
                 val m = ((remainingDist / 50.0).roundToInt() * 50).coerceAtLeast(50)
                 "Continúe recto por $m m"
@@ -310,6 +325,34 @@ class LiveNavigationTracker(private var route: RouteOption) {
         )
     }
 
+    /**
+     * Calcula el rumbo de entrada hacia un vértice acumulando metros hacia atrás
+     */
+    private fun getIncomingBearing(points: List<LatLong>, vertexIdx: Int, lookBackMeters: Double): Double {
+        var acc = 0.0
+        var sourceIdx = (vertexIdx - 1).coerceAtLeast(0)
+        for (i in vertexIdx downTo 1) {
+            acc += calculateDistance(points[i - 1], points[i])
+            sourceIdx = i - 1
+            if (acc >= lookBackMeters) break
+        }
+        return calculateBearing(points[sourceIdx], points[vertexIdx])
+    }
+
+    /**
+     * Calcula el rumbo de salida desde un vértice acumulando metros hacia adelante
+     */
+    private fun getOutgoingBearing(points: List<LatLong>, vertexIdx: Int, lookAheadMeters: Double): Double {
+        var acc = 0.0
+        var targetIdx = (vertexIdx + 1).coerceAtMost(points.size - 1)
+        for (i in vertexIdx until points.size - 1) {
+            acc += calculateDistance(points[i], points[i + 1])
+            targetIdx = i + 1
+            if (acc >= lookAheadMeters) break
+        }
+        return calculateBearing(points[vertexIdx], points[targetIdx])
+    }
+
     private fun calculateDistance(p1: LatLong, p2: LatLong): Double {
         val r = 6371000.0
         val dLat = Math.toRadians(p2.latitude - p1.latitude)
@@ -323,7 +366,8 @@ class LiveNavigationTracker(private var route: RouteOption) {
         val lat2 = Math.toRadians(p2.latitude)
         val dLon = Math.toRadians(p2.longitude - p1.longitude)
         val y = sin(dLon) * cos(lat2)
-        val x = cos(lat1) * sin(lat2) - sin(lat1) * cos(dLon)
+        // 🔧 CORREGIDO: Se agregó "* cos(lat2)" que faltaba en la fórmula de Haversine
+        val x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
         return (Math.toDegrees(atan2(y, x)) + 360.0) % 360.0
     }
 }
@@ -1792,23 +1836,33 @@ fun MapContainerWidget(
                                 val activeRoute = NavigationStateHolder.calculatedRoutes.find { it.id == NavigationStateHolder.selectedRouteId }
                                     ?: NavigationStateHolder.calculatedRoutes.first()
 
-                                NavigationStateHolder.liveTracker = LiveNavigationTracker(activeRoute)
+                                val tracker = LiveNavigationTracker(activeRoute)
+                                NavigationStateHolder.liveTracker = tracker
                                 NavigationStateHolder.isNavigatingActive = true
                                 isAutoCenterEnabled = true
                                 prefs.edit().putBoolean("auto_center", true).apply()
 
-                                // 🧭 ALINEACIÓN FRONTAL INMEDIATA
-                                val initialBearing = getInitialRouteBearing(activeRoute.points, lastKnownLocation)
+                                // ⚡ UBICACIÓN VÁLIDA GARANTIZADA: Si una es null, usa la otra o el punto inicial de la ruta
+                                val currentLocation = lastKnownLocation
+                                    ?: NavigationStateHolder.lastKnownLocation
+                                    ?: activeRoute.points.first()
+
+                                // 🚀 FORZAR EVALUACIÓN INSTANTÁNEA DEL PRIMER GIRO
+                                val initialStatus = tracker.updateProgress(currentLocation)
+                                NavigationStateHolder.navStatus = initialStatus
+
+                                // 🧭 ALINEACIÓN FRONTAL INMEDIATA DEL MAPA AL FRENTE
+                                val initialBearing = getInitialRouteBearing(activeRoute.points, currentLocation)
                                 NavigationStateHolder.lastKnownBearing = initialBearing
 
                                 mapRefs.mapView?.let { mv ->
                                     mv.model.mapViewPosition.zoomLevel = 18.toByte()
-                                    lastKnownLocation?.let { mv.model.mapViewPosition.center = it }
+                                    mv.model.mapViewPosition.center = currentLocation
                                     if (mv.width > 0 && mv.height > 0) {
                                         mv.pivotX = mv.width / 2f
                                         mv.pivotY = mv.height / 2f
                                     }
-                                    mv.rotation = -initialBearing // 🚀 Pone la calle al frente al instante
+                                    mv.rotation = -initialBearing
                                     mv.repaint()
                                 }
                             },
