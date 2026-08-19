@@ -1224,7 +1224,16 @@ fun MapsforgeWidget(
                         }
 
                         val targetZoom = if (NavigationStateHolder.isNavigatingActive) 18.toByte() else 17.toByte()
-                        val initialPos = NavigationStateHolder.lastKnownLocation ?: LatLong(4.7110, -74.0721)
+                        val initialPos = NavigationStateHolder.lastKnownLocation
+                            ?: (ctx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager)
+                                ?.let { lm ->
+                                    try {
+                                        (lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                                            ?: lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER))
+                                            ?.let { LatLong(it.latitude, it.longitude) }
+                                    } catch (e: Exception) { null }
+                                }
+                            ?: LatLong(0.0, 0.0)
 
                         val mapView = MapView(ctx).apply {
                             keepScreenOn = true
@@ -2021,8 +2030,100 @@ fun MapContainerWidget(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text(
+                                text = "📍 Mis Lugares Guardados",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF262626)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    savedFavorites.forEach { fav ->
+                                        val hasCoords = fav.lat != 0.0 && fav.lon != 0.0
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(
+                                                    if (hasCoords) Color(0x1AFFFFFF) else Color(
+                                                        0x0AFFFFFF
+                                                    )
+                                                )
+                                                .clickable(enabled = hasCoords) {
+                                                    showMenu = false
+                                                    onRequestRouteTo(LatLong(fav.lat, fav.lon))
+                                                }
+                                                .padding(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Text(
+                                                    text = if (fav.name.equals(
+                                                            "Casa",
+                                                            true
+                                                        )
+                                                    ) "🏠" else if (fav.name.equals(
+                                                            "Trabajo",
+                                                            true
+                                                        )
+                                                    ) "🏢" else "📍",
+                                                    fontSize = 8.sp
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Column {
+                                                    Text(
+                                                        fav.name,
+                                                        color = Color.White,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = if (hasCoords) "Toca para trazar ruta" else "Sin configurar (fija en mapa)",
+                                                        color = if (hasCoords) theme.accentCyan else Color.Gray,
+                                                        fontSize = 9.sp
+                                                    )
+                                                }
+                                            }
+
+                                            if (!fav.isFixed) {
+                                                IconButton(
+                                                    onClick = {
+                                                        FavoritesRepository.deleteFavorite(
+                                                            context,
+                                                            fav.id
+                                                        )
+                                                        savedFavorites =
+                                                            FavoritesRepository.getFavorites(context)
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Close,
+                                                        contentDescription = "Eliminar",
+                                                        tint = Color.Gray,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text(
                                 text = "Navegación y Rutas Offline",
-                                fontSize = 14.sp,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                             )
@@ -2041,20 +2142,20 @@ fun MapContainerWidget(
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Icon(Icons.Default.Route, contentDescription = null, tint = theme.accentCyan, modifier = Modifier.size(22.dp))
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Motor BRouter", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text("Motor BRouter", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 8.sp)
                                         }
 
                                         if (isBRouterInstalled) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp))
                                                 Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Listo", color = Color(0xFF4CAF50), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                Text("Listo", color = Color(0xFF4CAF50), fontSize = 8.sp, fontWeight = FontWeight.Bold)
                                             }
                                         } else {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(16.dp))
                                                 Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Falta instalar", color = Color(0xFFFF9800), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                Text("Falta instalar", color = Color(0xFFFF9800), fontSize = 8.sp, fontWeight = FontWeight.Bold)
                                             }
                                         }
                                     }
@@ -2078,7 +2179,7 @@ fun MapContainerWidget(
                                         ) {
                                             Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Instalar BRouter (Play Store)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            Text("Instalar BRouter (Play Store)", fontSize = 8.sp, fontWeight = FontWeight.Bold)
                                         }
                                     } else {
                                         Button(
@@ -2089,7 +2190,7 @@ fun MapContainerWidget(
                                         ) {
                                             Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Abrir BRouter (Bajar Mapas)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            Text("Abrir BRouter (Bajar Mapas)", fontSize = 8.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }
@@ -2107,7 +2208,7 @@ fun MapContainerWidget(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Audio de Radares", color = Color.White, fontSize = 12.sp)
+                                    Text("Audio de Radares", color = Color.White, fontSize = 10.sp)
                                     Switch(
                                         checked = isCameraAudioEnabled,
                                         onCheckedChange = {
@@ -2185,68 +2286,10 @@ fun MapContainerWidget(
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF03DAC5), contentColor = Color.Black),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(text = "🔄 Actualizar Radares (${cameraCountDisplay})", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text(text = "🔄 Actualizar Radares (${cameraCountDisplay})", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
 
-                                Text(
-                                    text = "📍 Mis Lugares Guardados",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
 
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF262626)),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        savedFavorites.forEach { fav ->
-                                            val hasCoords = fav.lat != 0.0 && fav.lon != 0.0
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(if (hasCoords) Color(0x1AFFFFFF) else Color(0x0AFFFFFF))
-                                                    .clickable(enabled = hasCoords) {
-                                                        showMenu = false
-                                                        onRequestRouteTo(LatLong(fav.lat, fav.lon))
-                                                    }
-                                                    .padding(8.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
-                                            ) {
-                                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        text = if (fav.name.equals("Casa", true)) "🏠" else if (fav.name.equals("Trabajo", true)) "🏢" else "📍",
-                                                        fontSize = 14.sp
-                                                    )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Column {
-                                                        Text(fav.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                                        Text(
-                                                            text = if (hasCoords) "Toca para trazar ruta" else "Sin configurar (fija en mapa)",
-                                                            color = if (hasCoords) theme.accentCyan else Color.Gray,
-                                                            fontSize = 9.sp
-                                                        )
-                                                    }
-                                                }
-
-                                                if (!fav.isFixed) {
-                                                    IconButton(
-                                                        onClick = {
-                                                            FavoritesRepository.deleteFavorite(context, fav.id)
-                                                            savedFavorites = FavoritesRepository.getFavorites(context)
-                                                        },
-                                                        modifier = Modifier.size(24.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.Close, contentDescription = "Eliminar", tint = Color.Gray, modifier = Modifier.size(14.dp))
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
 
                                 Button(
                                     onClick = {
@@ -2256,7 +2299,7 @@ fun MapContainerWidget(
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0x1A03DAC5), contentColor = theme.accentCyan),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text("📁 Mapa (.map)", fontSize = 12.sp)
+                                    Text("📁 Mapa (.map)", fontSize = 8.sp)
                                 }
 
                                 Button(
@@ -2270,7 +2313,7 @@ fun MapContainerWidget(
                                     ),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(text = if (isPoiAvailable) "📁 Puntos (.poi)" else "➕ Cargar Puntos (.poi)", fontSize = 12.sp)
+                                    Text(text = if (isPoiAvailable) "📁 Puntos (.poi)" else "➕ Cargar Puntos (.poi)", fontSize = 8.sp)
                                 }
                             }
 
