@@ -837,70 +837,87 @@ fun createVehicleLocationBitmap(
         return android.graphics.Color.argb(a, r, g, b)
     }
 
+    // 1. Sombra base concéntrica (centrada exactamente)
     val shadowPaint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
-        color = android.graphics.Color.argb(110, 0, 0, 0)
+        color = android.graphics.Color.argb(80, 0, 0, 0)
     }
-    canvas.drawCircle(center, center + (4f * scale), 28f * scale, shadowPaint)
+    canvas.drawCircle(center, center, 32f * scale, shadowPaint)
 
+    // 2. Aura exterior difuminada
     val auraPaint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
-        color = android.graphics.Color.argb(60, android.graphics.Color.red(accentCyanInt), android.graphics.Color.green(accentCyanInt), android.graphics.Color.blue(accentCyanInt))
+        color = android.graphics.Color.argb(
+            60,
+            android.graphics.Color.red(accentCyanInt),
+            android.graphics.Color.green(accentCyanInt),
+            android.graphics.Color.blue(accentCyanInt)
+        )
     }
-    canvas.drawCircle(center, center, 32f * scale, auraPaint)
+    canvas.drawCircle(center, center, 30f * scale, auraPaint)
 
+    // 3. Borde del Aura
     val auraStroke = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.STROKE
         strokeWidth = (2.5f * scale).coerceAtLeast(1f)
-        color = android.graphics.Color.argb(160, android.graphics.Color.red(accentCyanInt), android.graphics.Color.green(accentCyanInt), android.graphics.Color.blue(accentCyanInt))
+        color = android.graphics.Color.argb(
+            180,
+            android.graphics.Color.red(accentCyanInt),
+            android.graphics.Color.green(accentCyanInt),
+            android.graphics.Color.blue(accentCyanInt)
+        )
     }
-    canvas.drawCircle(center, center, 32f * scale, auraStroke)
+    canvas.drawCircle(center, center, 30f * scale, auraStroke)
 
+    // 4. Capa Exterior (Naranja / Acento 1) - Concéntrica
     val tier1Paint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
         shader = android.graphics.RadialGradient(
             center, center, (24f * scale).coerceAtLeast(1f),
             intArrayOf(accentOrangeInt, darken(accentOrangeInt, 0.4f)),
-            floatArrayOf(0.2f, 1.0f),
+            floatArrayOf(0.3f, 1.0f),
             android.graphics.Shader.TileMode.CLAMP
         )
     }
     canvas.drawCircle(center, center, 24f * scale, tier1Paint)
 
+    // 5. Capa Intermedia (Morado / Acento 2) - Concéntrica
     val tier2Paint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
         shader = android.graphics.RadialGradient(
-            center, center - (2f * scale), (17f * scale).coerceAtLeast(1f),
+            center, center, (17f * scale).coerceAtLeast(1f),
             intArrayOf(accentPurpleInt, darken(accentPurpleInt, 0.4f)),
-            floatArrayOf(0.2f, 1.0f),
+            floatArrayOf(0.3f, 1.0f),
             android.graphics.Shader.TileMode.CLAMP
         )
     }
-    canvas.drawCircle(center, center - (2f * scale), 17f * scale, tier2Paint)
+    canvas.drawCircle(center, center, 17f * scale, tier2Paint)
 
+    // 6. Núcleo Brillante (Cyan / Blanco) - Concéntrico
     val tier3Paint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
         shader = android.graphics.RadialGradient(
-            center, center - (4f * scale), (11f * scale).coerceAtLeast(1f),
-            intArrayOf(android.graphics.Color.WHITE, accentCyanInt, darken(accentCyanInt, 0.5f)),
-            floatArrayOf(0.0f, 0.4f, 1.0f),
+            center, center, (11f * scale).coerceAtLeast(1f),
+            intArrayOf(android.graphics.Color.WHITE, accentCyanInt, darken(accentCyanInt, 0.6f)),
+            floatArrayOf(0.0f, 0.5f, 1.0f),
             android.graphics.Shader.TileMode.CLAMP
         )
     }
-    canvas.drawCircle(center, center - (4f * scale), 11f * scale, tier3Paint)
+    canvas.drawCircle(center, center, 11f * scale, tier3Paint)
 
+    // 7. Punto de brillo central
     val glintPaint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
         color = android.graphics.Color.WHITE
     }
-    canvas.drawCircle(center - (1.5f * scale), center - (5.5f * scale), (2.5f * scale).coerceAtLeast(0.5f), glintPaint)
+    canvas.drawCircle(center, center, (2.5f * scale).coerceAtLeast(0.8f), glintPaint)
 
     return bitmap
 }
