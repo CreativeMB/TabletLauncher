@@ -69,6 +69,7 @@ enum class DashboardFont(
     val fontStyle: FontStyle = FontStyle.Normal,
     val letterSpacing: TextUnit = 0.sp
 ) {
+    // 1️⃣ Estilo Tesla / Porsche Taycan (Letras anchas, geométricas y ultra-modernas)
     HYPERCAR_NEO_TECH(
         id = 0,
         displayName = "⚡ HYPERCAR NEO-TECH",
@@ -79,8 +80,31 @@ enum class DashboardFont(
         letterSpacing = 2.8.sp
     ),
 
-    AMG_SPORT_ITALIC(
+    // 2️⃣ Letra Ultra Gorda Masiva (Máximo grosor y visibilidad al conducir bajo el sol)
+    TITAN_ULTRA_FAT(
         id = 1,
+        displayName = "🦍 TITÁN GORDA BLACK",
+        subtitle = "Máximo grosor (Weight 900) para lectura instantánea",
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Black,
+        fontStyle = FontStyle.Normal,
+        letterSpacing = 0.sp
+    ),
+
+    // 3️⃣ Matriz Digital de Puntos LED (Estilo clúster de instrumentos digital)
+    DOT_MATRIX_DIGITAL(
+        id = 2,
+        displayName = "🧱 MATRIZ LED DIGITAL",
+        subtitle = "Estilo reloj y tablero digital de puntos",
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.ExtraBold,
+        fontStyle = FontStyle.Normal,
+        letterSpacing = 1.2.sp
+    ),
+
+    // 4️⃣ Estilo BMW M-Performance / AMG GT (Inclinación aerodinámica de alta velocidad)
+    AMG_SPORT_ITALIC(
+        id = 3,
         displayName = "🏁 AMG RACING ITALIC",
         subtitle = "Inclinada deportiva estilo BMW M / AMG",
         fontFamily = FontFamily.SansSerif,
@@ -89,38 +113,86 @@ enum class DashboardFont(
         letterSpacing = 1.0.sp
     ),
 
+    // 5️⃣ Telemetría F1 / Clúster HUD (Monospace de alta precisión para velocímetro)
     TELEMETRY_DIGITAL_HUD(
-        id = 2,
-        displayName = "📟 TELEMETRÍA HUD DIGITAL",
-        subtitle = "Estilo F1 / Pantallas de datos y velocímetro",
+        id = 4,
+        displayName = "📟 TELEMETRÍA F1 HUD",
+        subtitle = "Estilo F1 / Pantallas de datos y tacómetro",
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.ExtraBold,
         fontStyle = FontStyle.Normal,
         letterSpacing = 0.5.sp
     ),
 
+    // 6️⃣ Estilo Sci-Fi / Cyberpunk Futurista (Letras extendidas con apertura lateral)
+    CYBERPUNK_WIDE_TECH(
+        id = 5,
+        displayName = "🚀 CYBERPUNK 2077 WIDE",
+        subtitle = "Apertura ancha futurista para temas Neón",
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.ExtraBold,
+        fontStyle = FontStyle.Normal,
+        letterSpacing = 3.5.sp
+    ),
+
+    // 7️⃣ Estilo Ford Raptor 4x4 / Bloque Pesado (Letras macizas condensadas)
     RAPTOR_HEAVY_BLOCK(
-        id = 3,
-        displayName = "🦍 RAPTOR HEAVY BLOCK",
-        subtitle = "Letras ultra-gruesas de máxima legibilidad",
+        id = 6,
+        displayName = "🛡️ RAPTOR 4X4 BLOCK",
+        subtitle = "Letras macizas compactas estilo camioneta blindada",
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Black,
         fontStyle = FontStyle.Normal,
-        letterSpacing = (-0.5).sp
+        letterSpacing = (-0.6).sp
     ),
 
+    // 8️⃣ Estilo Tokyo Drift / Synthwave Neón (Cursiva deportiva de calle)
     NEO_TOKYO_DRIFT(
-        id = 4,
+        id = 7,
         displayName = "🖋️ TOKYO DRIFT SYNTH",
-        subtitle = "Cursiva callejera para temas Cyberpunk y Neón",
+        subtitle = "Cursiva deportiva para temas nocturnos",
         fontFamily = FontFamily.Cursive,
         fontWeight = FontWeight.Bold,
         fontStyle = FontStyle.Italic,
         letterSpacing = 1.5.sp
     ),
 
+    // 9️⃣ Estilo GT3 Cup / Compacta de Competición
+    RACING_COMPACT_GT(
+        id = 8,
+        displayName = "🏎️ GT3 CUP COMPACT",
+        subtitle = "Letras condensadas de autos de turismo y rally",
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Bold,
+        fontStyle = FontStyle.Normal,
+        letterSpacing = (-0.3).sp
+    ),
+
+    // 🔟 Estilo Avión Caza / Militar Táctico
+    STEALTH_MILITARY_HUD(
+        id = 9,
+        displayName = "🎯 STEALTH TÁCTICO HUD",
+        subtitle = "Monospace militar de cabina de avión caza",
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Black,
+        fontStyle = FontStyle.Normal,
+        letterSpacing = 0.2.sp
+    ),
+
+    // 1️⃣1️⃣ Estilo Retro Synthwave Años 80 (Cursiva digital itálica)
+    RETRO_SYNTH_80S(
+        id = 10,
+        displayName = "🕹️ RETRO WAVE 80s",
+        subtitle = "Estilo OutRun clásico digital itálico",
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Bold,
+        fontStyle = FontStyle.Italic,
+        letterSpacing = 0.8.sp
+    ),
+
+    // 1️⃣2️⃣ Estilo Maybach / Bentley Luxury (Elegancia clásica ejecutiva)
     EXECUTIVE_LUXURY(
-        id = 5,
+        id = 11,
         displayName = "🏛️ LUXURY EXECUTIVE",
         subtitle = "Estilo clásico formal para tableros elegantes",
         fontFamily = FontFamily.Serif,
@@ -142,7 +214,6 @@ val LocalIsBoldText = compositionLocalOf { true }
 val LocalButtonScale = compositionLocalOf { 1.0f }
 val LocalEqualizerStyle = compositionLocalOf { EqualizerStyle.CLASSIC_BARS }
 val LocalDashboardFont = compositionLocalOf { DashboardFont.HYPERCAR_NEO_TECH }
-
 // =========================================================================
 // 🚀 GESTOR PARA SELECCIÓN DE LAUNCHER PREDETERMINADO
 // =========================================================================
@@ -313,6 +384,7 @@ object ThemeManager {
             .edit().putFloat("button_scale_factor", scale).apply()
     }
 
+    // --- ECUALIZADOR Y AUTO-CAMBIO ---
     fun getSavedEqualizerStyle(context: Context): EqualizerStyle {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val styleName = prefs.getString("equalizer_style", EqualizerStyle.CLASSIC_BARS.name)
@@ -381,7 +453,6 @@ fun InteractiveHsvColorPicker(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 1️⃣ CUADRO 2D DE ESPECTRO
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -435,7 +506,6 @@ fun InteractiveHsvColorPicker(
             }
         }
 
-        // 2️⃣ MUESTRA DE COLOR ACTUAL
         val currentColor = Color(AndroidColor.HSVToColor(floatArrayOf(hue, saturation, brightness)))
         Box(
             modifier = Modifier
@@ -446,7 +516,6 @@ fun InteractiveHsvColorPicker(
                 .border(1.5.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
         )
 
-        // 3️⃣ BARRA DE BRILLO
         Box(
             modifier = Modifier
                 .width(22.dp)
@@ -513,6 +582,10 @@ fun ThemeSelectorModal(
     var localFont by remember { mutableStateOf(currentFont) }
     var localEqStyle by remember { mutableStateOf(currentEqualizerStyle) }
 
+    // 🔀 ESTADOS DE AUTO-CAMBIO
+    var isAutoRotateEq by remember { mutableStateOf(ThemeManager.getSavedAutoRotateEqEnabled(context)) }
+    var autoRotateEqInterval by remember { mutableIntStateOf(ThemeManager.getSavedAutoRotateEqInterval(context)) }
+
     var allThemesList by remember { mutableStateOf(ThemeManager.getAllThemes(context)) }
     var showLauncherListModal by remember { mutableStateOf(false) }
     var showCreateThemeDialog by remember { mutableStateOf(false) }
@@ -525,6 +598,8 @@ fun ThemeSelectorModal(
         ThemeManager.saveIsBold(context, localIsBold)
         ThemeManager.saveFont(context, localFont)
         ThemeManager.saveEqualizerStyle(context, localEqStyle)
+        ThemeManager.saveAutoRotateEqEnabled(context, isAutoRotateEq)
+        ThemeManager.saveAutoRotateEqInterval(context, autoRotateEqInterval)
 
         onThemeSelected(localTheme)
         onTextScaleChanged(localTextScale)
@@ -601,7 +676,7 @@ fun ThemeSelectorModal(
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // 👈 COLUMNA IZQUIERDA
+                    // 👈 COLUMNA IZQUIERDA: TIPOGRAFÍAS, ESCALAS Y BRILLO
                     Surface(
                         color = localTheme.cardBackground,
                         shape = RoundedCornerShape(16.dp),
@@ -611,7 +686,7 @@ fun ThemeSelectorModal(
                             modifier = Modifier.fillMaxSize().verticalScroll(leftScrollState).padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // VISTA PREVIA
+                            // VISTA PREVIA DINÁMICA
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -665,11 +740,7 @@ fun ThemeSelectorModal(
                                                 fontSize = 11.sp,
                                                 color = if (isSelected) localTheme.accentCyan else Color.White
                                             )
-                                            Text(
-                                                text = font.subtitle,
-                                                fontSize = 8.sp,
-                                                color = if (isSelected) Color.LightGray else Color.Gray
-                                            )
+                                            Text(font.subtitle, fontSize = 8.sp, color = if (isSelected) Color.LightGray else Color.Gray)
                                         }
                                     }
                                 }
@@ -748,7 +819,7 @@ fun ThemeSelectorModal(
                         }
                     }
 
-                    // 👉 COLUMNA DERECHA
+                    // 👉 COLUMNA DERECHA: TEMAS, ECUALIZADORES Y AUTO-CAMBIO
                     Surface(
                         color = localTheme.cardBackground,
                         shape = RoundedCornerShape(16.dp),
@@ -825,10 +896,11 @@ fun ThemeSelectorModal(
 
                             HorizontalDivider(color = localTheme.cardBorder.copy(alpha = 0.5f))
 
+                            // 🎛️ SECCIÓN: COLECCIÓN DE ESTILOS DE ECUALIZADOR
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.GraphicEq, contentDescription = null, tint = localTheme.accentCyan, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Estilo de Ecualizador Visual", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("Estilo de Ecualizador (${EqualizerStyle.values().size})", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
 
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -843,10 +915,91 @@ fun ThemeSelectorModal(
                                                     .background(if (isSelected) localTheme.accentCyan.copy(alpha = 0.25f) else Color(0xFF1E1E28))
                                                     .border(if (isSelected) 1.5.dp else 0.dp, if (isSelected) localTheme.accentCyan else Color.Transparent, RoundedCornerShape(6.dp))
                                                     .clickable { localEqStyle = style }
-                                                    .padding(vertical = 6.dp),
+                                                    .padding(vertical = 6.dp, horizontal = 4.dp),
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                Text(style.displayName, color = if (isSelected) localTheme.accentCyan else Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                                Text(style.displayName, color = if (isSelected) localTheme.accentCyan else Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 🔀 TARJETA RESTAURADA: ECUALIZADOR ALEATORIO CON TIEMPOS
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF161622)),
+                                border = BorderStroke(1.dp, if (isAutoRotateEq) localTheme.accentCyan else localTheme.cardBorder),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.Shuffle,
+                                                contentDescription = null,
+                                                tint = if (isAutoRotateEq) localTheme.accentCyan else Color.Gray,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "Ecualizador Aleatorio (Auto)",
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        Switch(
+                                            checked = isAutoRotateEq,
+                                            onCheckedChange = { isAutoRotateEq = it },
+                                            colors = SwitchDefaults.colors(checkedThumbColor = localTheme.accentCyan)
+                                        )
+                                    }
+
+                                    if (isAutoRotateEq) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "Intervalo de cambio de ecualizador:",
+                                            color = Color.LightGray,
+                                            fontSize = 9.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        val intervals = listOf(
+                                            10 to "10s",
+                                            30 to "30s",
+                                            60 to "1 Min",
+                                            300 to "5 Min",
+                                            600 to "10 Min"
+                                        )
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            intervals.forEach { (sec, label) ->
+                                                val isSelected = autoRotateEqInterval == sec
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(if (isSelected) localTheme.accentCyan else Color(0xFF262638))
+                                                        .clickable { autoRotateEqInterval = sec }
+                                                        .padding(vertical = 5.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = label,
+                                                        color = if (isSelected) Color.Black else Color.White,
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.ExtraBold
+                                                    )
+                                                }
                                             }
                                         }
                                     }
