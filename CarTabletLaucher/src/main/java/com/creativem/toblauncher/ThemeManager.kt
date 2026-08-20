@@ -3,65 +3,48 @@ package com.creativem.toblauncher
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.drawable.Drawable
+import android.graphics.Color as AndroidColor
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FormatSize
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import org.json.JSONArray
+import org.json.JSONObject
 
-
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.drawscope.Stroke
-
-
+// =========================================================================
+// 🎨 MODELOS DE TEMA Y TIPOGRAFÍAS DE ALTO CONTRASTE
+// =========================================================================
 data class DashboardTheme(
     val id: Int,
     val name: String,
@@ -69,36 +52,106 @@ data class DashboardTheme(
     val cardBackground: Color,
     val cardBorder: Color,
     val accentCyan: Color,     // 1er Color (Primario)
-    val accentPurple: Color,   // 2do Color (Secundario/Gradiente)
-    val accentOrange: Color    // 3er Color (Destaque/Alta velocidad)
+    val accentPurple: Color,   // 2do Color (Secundario)
+    val accentOrange: Color,   // 3er Color (Destaque / Alta velocidad)
+    val isCustom: Boolean = false
 )
 
-data class LauncherAppInfo(
-    val label: String,
-    val packageName: String,
-    val icon: Drawable,
-    val isCurrentDefault: Boolean,
-    val isSelf: Boolean
-)
+// =========================================================================
+// 🏎️ TIPOGRAFÍAS AUTOMOTRICES Y FUTURISTAS DE ALTO IMPACTO PARA TABLET
+// =========================================================================
+enum class DashboardFont(
+    val id: Int,
+    val displayName: String,
+    val subtitle: String,
+    val fontFamily: FontFamily,
+    val fontWeight: FontWeight,
+    val fontStyle: FontStyle = FontStyle.Normal,
+    val letterSpacing: TextUnit = 0.sp
+) {
+    HYPERCAR_NEO_TECH(
+        id = 0,
+        displayName = "⚡ HYPERCAR NEO-TECH",
+        subtitle = "Estilo Tesla / Porsche Eléctrico (Letras Espaciadas)",
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.ExtraBold,
+        fontStyle = FontStyle.Normal,
+        letterSpacing = 2.8.sp
+    ),
 
+    AMG_SPORT_ITALIC(
+        id = 1,
+        displayName = "🏁 AMG RACING ITALIC",
+        subtitle = "Inclinada deportiva estilo BMW M / AMG",
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Black,
+        fontStyle = FontStyle.Italic,
+        letterSpacing = 1.0.sp
+    ),
+
+    TELEMETRY_DIGITAL_HUD(
+        id = 2,
+        displayName = "📟 TELEMETRÍA HUD DIGITAL",
+        subtitle = "Estilo F1 / Pantallas de datos y velocímetro",
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.ExtraBold,
+        fontStyle = FontStyle.Normal,
+        letterSpacing = 0.5.sp
+    ),
+
+    RAPTOR_HEAVY_BLOCK(
+        id = 3,
+        displayName = "🦍 RAPTOR HEAVY BLOCK",
+        subtitle = "Letras ultra-gruesas de máxima legibilidad",
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Black,
+        fontStyle = FontStyle.Normal,
+        letterSpacing = (-0.5).sp
+    ),
+
+    NEO_TOKYO_DRIFT(
+        id = 4,
+        displayName = "🖋️ TOKYO DRIFT SYNTH",
+        subtitle = "Cursiva callejera para temas Cyberpunk y Neón",
+        fontFamily = FontFamily.Cursive,
+        fontWeight = FontWeight.Bold,
+        fontStyle = FontStyle.Italic,
+        letterSpacing = 1.5.sp
+    ),
+
+    EXECUTIVE_LUXURY(
+        id = 5,
+        displayName = "🏛️ LUXURY EXECUTIVE",
+        subtitle = "Estilo clásico formal para tableros elegantes",
+        fontFamily = FontFamily.Serif,
+        fontWeight = FontWeight.Bold,
+        fontStyle = FontStyle.Normal,
+        letterSpacing = 1.2.sp
+    );
+
+    companion object {
+        fun fromId(id: Int): DashboardFont {
+            return values().find { it.id == id } ?: HYPERCAR_NEO_TECH
+        }
+    }
+}
+
+// 🌐 PROVEEDORES GLOBALES (COMPOSITION LOCALS)
 val LocalDashboardTheme = compositionLocalOf { ThemeManager.themes[0] }
 val LocalIsBoldText = compositionLocalOf { true }
 val LocalButtonScale = compositionLocalOf { 1.0f }
 val LocalEqualizerStyle = compositionLocalOf { EqualizerStyle.CLASSIC_BARS }
+val LocalDashboardFont = compositionLocalOf { DashboardFont.HYPERCAR_NEO_TECH }
 
 // =========================================================================
 // 🚀 GESTOR PARA SELECCIÓN DE LAUNCHER PREDETERMINADO
 // =========================================================================
 object LauncherManager {
-
     fun isDefaultLauncher(context: Context): Boolean {
         return try {
-            val intent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-            }
+            val intent = Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) }
             val resolveInfo = context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
-            val currentPackage = resolveInfo?.activityInfo?.packageName
-            currentPackage == context.packageName
+            resolveInfo?.activityInfo?.packageName == context.packageName
         } catch (e: Exception) {
             false
         }
@@ -108,9 +161,7 @@ object LauncherManager {
         try {
             @Suppress("DEPRECATION")
             context.packageManager.clearPackagePreferredActivities(context.packageName)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (e: Exception) { e.printStackTrace() }
 
         try {
             val homeIntent = Intent(Intent.ACTION_MAIN).apply {
@@ -121,13 +172,17 @@ object LauncherManager {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(chooser)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (e: Exception) { e.printStackTrace() }
     }
 }
 
+// =========================================================================
+// 🎛️ GESTOR PRINCIPAL DE TEMAS, COLORES Y PERSISTENCIA (ARGB CORREGIDO)
+// =========================================================================
 object ThemeManager {
+    private const val PREFS_NAME = "dashboard_theme_prefs"
+    private const val CUSTOM_THEMES_KEY = "custom_saved_themes_json"
+
     val themes = listOf(
         DashboardTheme(0, "Negro OLED (Predeterminado)", Color(0xFF000000), Color(0xFF0C0E14), Color(0xFF1E2230), Color(0xFF00E5FF), Color(0xFF9D00FF), Color(0xFFFF9100)),
         DashboardTheme(1, "Cian Eléctrico", Color(0xFF070D14), Color(0xFF0F1926), Color(0xFF00838F), Color(0xFF00F2FE), Color(0xFF4FACFE), Color(0xFFFF5252)),
@@ -143,105 +198,295 @@ object ThemeManager {
         DashboardTheme(11, "Lavanda Nocturna", Color(0xFF0F0C1B), Color(0xFF1C1830), Color(0xFF453A68), Color(0xFFCE93D8), Color(0xFF9FA8DA), Color(0xFFFFCC80)),
         DashboardTheme(12, "Turquesa Brisa Marina", Color(0xFF06141B), Color(0xFF11252D), Color(0xFF254B5A), Color(0xFF80DEEA), Color(0xFF80CBC4), Color(0xFFFF8A80)),
         DashboardTheme(13, "Rosa Pastel & Cyan", Color(0xFF140A10), Color(0xFF261420), Color(0xFF5E2B4E), Color(0xFFF48FB1), Color(0xFF80DEEA), Color(0xFFFFE082)),
-        DashboardTheme(14, "Crema & Albaricoque", Color(0xFF140E0A), Color(0xFF261D16), Color(0xFF594130), Color(0xFFFFCC80), Color(0xFFBCAAA4), Color(0xFF80CBC4)),
-        DashboardTheme(15, "Oro Imperial Luxury", Color(0xFF000000), Color(0xFF0F0D05), Color(0xFF5E4E0A), Color(0xFFFFD700), Color(0xFFFFF59D), Color(0xFFFF3D00)),
-        DashboardTheme(16, "Platino Titanio", Color(0xFF0D1015), Color(0xFF1E242E), Color(0xFF607D8B), Color(0xFFFFFFFF), Color(0xFF80D8FF), Color(0xFFFFD600)),
-        DashboardTheme(17, "Cobre Ejecutivo", Color(0xFF0E0B08), Color(0xFF211812), Color(0xFF5C3A21), Color(0xFFFF8A65), Color(0xFFD7CCC8), Color(0xFFFFD54F)),
-        DashboardTheme(18, "Calamar Carbón & Plata", Color(0xFF08090A), Color(0xFF14171A), Color(0xFF363B42), Color(0xFFE0E0E0), Color(0xFF90A4AE), Color(0xFFFF5252)),
-        DashboardTheme(19, "Noche Zafiro & Oro", Color(0xFF04060F), Color(0xFF0D1326), Color(0xFF1D2D59), Color(0xFF448AFF), Color(0xFFFFD700), Color(0xFFFF5252)),
-        DashboardTheme(20, "Gulf Racing Classic", Color(0xFF081018), Color(0xFF112030), Color(0xFF214468), Color(0xFF81D4FA), Color(0xFFFF8A65), Color(0xFFFFFFFF)),
-        DashboardTheme(21, "Scuderia Monza", Color(0xFF0A0202), Color(0xFF1F0808), Color(0xFF6B0F0F), Color(0xFFFF1744), Color(0xFFFFEA00), Color(0xFFFFFFFF)),
-        DashboardTheme(22, "Carbono M Performance", Color(0xFF000000), Color(0xFF0F1218), Color(0xFF1F2838), Color(0xFF2979FF), Color(0xFFFF1744), Color(0xFF00E5FF)),
-        DashboardTheme(23, "Amarillo Speed GT", Color(0xFF0A0A02), Color(0xFF1A1A05), Color(0xFF52520B), Color(0xFFFFEA00), Color(0xFF00E5FF), Color(0xFFFF3D00)),
-        DashboardTheme(24, "Verde Británico Racing", Color(0xFF020A05), Color(0xFF081C0F), Color(0xFF114223), Color(0xFF00C853), Color(0xFFFFD700), Color(0xFF00E5FF)),
-        DashboardTheme(25, "Aurora Boreal", Color(0xFF030D12), Color(0xFF091E26), Color(0xFF144552), Color(0xFF00E676), Color(0xFF00B0FF), Color(0xFFD500F9)),
-        DashboardTheme(26, "Puesta de Sol Acapulco", Color(0xFF0F050C), Color(0xFF240D1D), Color(0xFF5E1A48), Color(0xFFFF4081), Color(0xFFFF6D00), Color(0xFFFFD600)),
-        DashboardTheme(27, "Océano Profundo", Color(0xFF020B14), Color(0xFF06182B), Color(0xFF0E3860), Color(0xFF00B8D4), Color(0xFF004D40), Color(0xFFFFAB00)),
-        DashboardTheme(28, "Cielo Estrellado", Color(0xFF050510), Color(0xFF0E0E24), Color(0xFF232354), Color(0xFF7C4DFF), Color(0xFF536DFE), Color(0xFFFFD54F)),
-        DashboardTheme(29, "Coral & Turquesa", Color(0xFF041014), Color(0xFF0B222A), Color(0xFF1A4D5C), Color(0xFF1DE9B6), Color(0xFFFF5252), Color(0xFFFFD600))
+        DashboardTheme(14, "Oro Imperial Luxury", Color(0xFF000000), Color(0xFF0F0D05), Color(0xFF5E4E0A), Color(0xFFFFD700), Color(0xFFFFF59D), Color(0xFFFF3D00)),
+        DashboardTheme(15, "Carbono M Performance", Color(0xFF000000), Color(0xFF0F1218), Color(0xFF1F2838), Color(0xFF2979FF), Color(0xFFFF1744), Color(0xFF00E5FF)),
+        DashboardTheme(16, "Amarillo Speed GT", Color(0xFF0A0A02), Color(0xFF1A1A05), Color(0xFF52520B), Color(0xFFFFEA00), Color(0xFF00E5FF), Color(0xFFFF3D00))
     )
 
+    fun getAllThemes(context: Context): List<DashboardTheme> {
+        return themes + getCustomThemes(context)
+    }
+
+    fun getCustomThemes(context: Context): List<DashboardTheme> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val json = prefs.getString(CUSTOM_THEMES_KEY, null) ?: return emptyList()
+        val list = mutableListOf<DashboardTheme>()
+        try {
+            val array = JSONArray(json)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(
+                    DashboardTheme(
+                        id = obj.getInt("id"),
+                        name = obj.getString("name"),
+                        dashBackground = Color(obj.getInt("dashBackground")),
+                        cardBackground = Color(obj.getInt("cardBackground")),
+                        cardBorder = Color(obj.getInt("cardBorder")),
+                        accentCyan = Color(obj.getInt("accentCyan")),
+                        accentPurple = Color(obj.getInt("accentPurple")),
+                        accentOrange = Color(obj.getInt("accentOrange")),
+                        isCustom = true
+                    )
+                )
+            }
+        } catch (e: Exception) { e.printStackTrace() }
+        return list
+    }
+
+    fun saveCustomTheme(context: Context, newTheme: DashboardTheme) {
+        val current = getCustomThemes(context).toMutableList()
+        current.removeAll { it.id == newTheme.id }
+        current.add(newTheme)
+        persistCustomThemes(context, current)
+    }
+
+    fun deleteCustomTheme(context: Context, themeId: Int) {
+        val current = getCustomThemes(context).filter { it.id != themeId }
+        persistCustomThemes(context, current)
+    }
+
+    private fun persistCustomThemes(context: Context, list: List<DashboardTheme>) {
+        val array = JSONArray()
+        for (t in list) {
+            val obj = JSONObject().apply {
+                put("id", t.id)
+                put("name", t.name)
+                put("dashBackground", t.dashBackground.toArgb())
+                put("cardBackground", t.cardBackground.toArgb())
+                put("cardBorder", t.cardBorder.toArgb())
+                put("accentCyan", t.accentCyan.toArgb())
+                put("accentPurple", t.accentPurple.toArgb())
+                put("accentOrange", t.accentOrange.toArgb())
+            }
+            array.put(obj)
+        }
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(CUSTOM_THEMES_KEY, array.toString()).apply()
+    }
+
     fun getSavedTheme(context: Context): DashboardTheme {
-        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val savedId = prefs.getInt("theme_id", 0)
-        return themes.find { it.id == savedId } ?: themes[0]
+        return getAllThemes(context).find { it.id == savedId } ?: themes[0]
     }
 
     fun saveTheme(context: Context, themeId: Int) {
-        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        prefs.edit().putInt("theme_id", themeId).apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putInt("theme_id", themeId).apply()
+    }
+
+    fun getSavedFont(context: Context): DashboardFont {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val fontId = prefs.getInt("dashboard_font_id", DashboardFont.HYPERCAR_NEO_TECH.id)
+        return DashboardFont.values().find { it.id == fontId } ?: DashboardFont.HYPERCAR_NEO_TECH
+    }
+
+    fun saveFont(context: Context, font: DashboardFont) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putInt("dashboard_font_id", font.id).apply()
     }
 
     fun getSavedTextScale(context: Context): Float {
-        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        return prefs.getFloat("text_scale_factor", 1.35f)
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getFloat("text_scale_factor", 1.35f)
     }
 
     fun saveTextScale(context: Context, scale: Float) {
-        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        prefs.edit().putFloat("text_scale_factor", scale).apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putFloat("text_scale_factor", scale).apply()
     }
 
     fun getSavedIsBold(context: Context): Boolean {
-        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        return prefs.getBoolean("text_is_bold", true)
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean("text_is_bold", true)
     }
 
     fun saveIsBold(context: Context, isBold: Boolean) {
-        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        prefs.edit().putBoolean("text_is_bold", isBold).apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean("text_is_bold", isBold).apply()
     }
 
     fun getSavedButtonScale(context: Context): Float {
-        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        return prefs.getFloat("button_scale_factor", 1.0f)
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getFloat("button_scale_factor", 1.0f)
     }
 
     fun saveButtonScale(context: Context, scale: Float) {
-        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        prefs.edit().putFloat("button_scale_factor", scale).apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putFloat("button_scale_factor", scale).apply()
     }
 
     fun getSavedEqualizerStyle(context: Context): EqualizerStyle {
-        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val styleName = prefs.getString("equalizer_style", EqualizerStyle.CLASSIC_BARS.name)
-        return try {
-            EqualizerStyle.valueOf(styleName ?: EqualizerStyle.CLASSIC_BARS.name)
-        } catch (e: Exception) {
-            EqualizerStyle.CLASSIC_BARS
-        }
+        return try { EqualizerStyle.valueOf(styleName ?: EqualizerStyle.CLASSIC_BARS.name) } catch (e: Exception) { EqualizerStyle.CLASSIC_BARS }
     }
 
     fun saveEqualizerStyle(context: Context, style: EqualizerStyle) {
-        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        prefs.edit().putString("equalizer_style", style.name).apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString("equalizer_style", style.name).apply()
     }
 
-    // 🎛️ 🌟 ECUALIZADORES ALEATORIOS (CAMBIO AUTOMÁTICO DE ESTILO DE ECUALIZADOR)
     fun getSavedAutoRotateEqEnabled(context: Context): Boolean {
-        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        return prefs.getBoolean("auto_rotate_eq_enabled", false)
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean("auto_rotate_eq_enabled", false)
     }
 
     fun saveAutoRotateEqEnabled(context: Context, enabled: Boolean) {
-        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        prefs.edit().putBoolean("auto_rotate_eq_enabled", enabled).apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean("auto_rotate_eq_enabled", enabled).apply()
     }
 
     fun getSavedAutoRotateEqInterval(context: Context): Int {
-        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        return prefs.getInt("auto_rotate_eq_interval", 30) // Predeterminado: 30 segundos
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getInt("auto_rotate_eq_interval", 30)
     }
 
     fun saveAutoRotateEqInterval(context: Context, seconds: Int) {
-        val prefs = context.getSharedPreferences("dashboard_theme_prefs", Context.MODE_PRIVATE)
-        prefs.edit().putInt("auto_rotate_eq_interval", seconds).apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putInt("auto_rotate_eq_interval", seconds).apply()
     }
 }
 
-// ==========================================
-// MODAL DE PERSONALIZACIÓN Y BRILLO DÍA/NOCHE
-// ==========================================
+// =========================================================================
+// 🎨 SELECTOR DE COLOR 2D (DEGRADADO + BARRA DE BRILLO)
+// =========================================================================
+@Composable
+fun InteractiveHsvColorPicker(
+    initialColor: Color,
+    onColorChanged: (Color) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val initialHsv = remember(initialColor) {
+        val hsv = FloatArray(3)
+        AndroidColor.colorToHSV(
+            AndroidColor.rgb(
+                (initialColor.red * 255).toInt(),
+                (initialColor.green * 255).toInt(),
+                (initialColor.blue * 255).toInt()
+            ),
+            hsv
+        )
+        hsv
+    }
+
+    var hue by remember { mutableFloatStateOf(initialHsv[0]) }
+    var saturation by remember { mutableFloatStateOf(initialHsv[1]) }
+    var brightness by remember { mutableFloatStateOf(initialHsv[2]) }
+
+    fun updateColor() {
+        val colorInt = AndroidColor.HSVToColor(floatArrayOf(hue, saturation, brightness))
+        onColorChanged(Color(colorInt))
+    }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(180.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 1️⃣ CUADRO 2D DE ESPECTRO
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(8.dp))
+                .border(1.dp, Color(0xFF333344), RoundedCornerShape(8.dp))
+        ) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures { offset ->
+                            hue = (offset.x / size.width).coerceIn(0f, 1f) * 360f
+                            saturation = (1f - (offset.y / size.height)).coerceIn(0f, 1f)
+                            updateColor()
+                        }
+                    }
+                    .pointerInput(Unit) {
+                        detectDragGestures { change, _ ->
+                            change.consume()
+                            hue = (change.position.x / size.width).coerceIn(0f, 1f) * 360f
+                            saturation = (1f - (change.position.y / size.height)).coerceIn(0f, 1f)
+                            updateColor()
+                        }
+                    }
+            ) {
+                val w = size.width
+                val h = size.height
+
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFFFF0000), Color(0xFFFF8800), Color(0xFFFFFF00),
+                            Color(0xFF00FF00), Color(0xFF00FFFF), Color(0xFF0000FF),
+                            Color(0xFFFF00FF), Color(0xFFFF0000)
+                        )
+                    )
+                )
+
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color.White)
+                    )
+                )
+
+                val posX = (hue / 360f) * w
+                val posY = (1f - saturation) * h
+
+                drawCircle(color = Color.Black, radius = 8.dp.toPx(), center = Offset(posX, posY), style = Stroke(width = 3.dp.toPx()))
+                drawCircle(color = Color.White, radius = 6.dp.toPx(), center = Offset(posX, posY), style = Stroke(width = 2.dp.toPx()))
+            }
+        }
+
+        // 2️⃣ MUESTRA DE COLOR ACTUAL
+        val currentColor = Color(AndroidColor.HSVToColor(floatArrayOf(hue, saturation, brightness)))
+        Box(
+            modifier = Modifier
+                .width(36.dp)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(8.dp))
+                .background(currentColor)
+                .border(1.5.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+        )
+
+        // 3️⃣ BARRA DE BRILLO
+        Box(
+            modifier = Modifier
+                .width(22.dp)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(12.dp))
+                .border(1.dp, Color(0xFF333344), RoundedCornerShape(12.dp))
+        ) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures { offset ->
+                            brightness = (1f - (offset.y / size.height)).coerceIn(0f, 1f)
+                            updateColor()
+                        }
+                    }
+                    .pointerInput(Unit) {
+                        detectDragGestures { change, _ ->
+                            change.consume()
+                            brightness = (1f - (change.position.y / size.height)).coerceIn(0f, 1f)
+                            updateColor()
+                        }
+                    }
+            ) {
+                val h = size.height
+                val w = size.width
+
+                drawRect(brush = Brush.verticalGradient(listOf(Color.White, Color.Black)))
+
+                val handleY = (1f - brightness) * h
+                drawCircle(color = Color.Black, radius = 8.dp.toPx(), center = Offset(w / 2f, handleY))
+                drawCircle(color = Color.White, radius = 6.5.dp.toPx(), center = Offset(w / 2f, handleY))
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 🎛️ MODAL PRINCIPAL DE AJUSTES
+// =========================================================================
 @Composable
 fun ThemeSelectorModal(
     currentTheme: DashboardTheme,
@@ -249,21 +494,49 @@ fun ThemeSelectorModal(
     currentIsBold: Boolean,
     currentButtonScale: Float = 1.0f,
     currentEqualizerStyle: EqualizerStyle = EqualizerStyle.CLASSIC_BARS,
+    currentFont: DashboardFont = DashboardFont.HYPERCAR_NEO_TECH,
     onDismiss: () -> Unit,
     onThemeSelected: (DashboardTheme) -> Unit,
     onTextScaleChanged: (Float) -> Unit,
     onIsBoldChanged: (Boolean) -> Unit,
     onButtonScaleChanged: (Float) -> Unit = {},
-    onEqualizerStyleChanged: (EqualizerStyle) -> Unit = {}
+    onEqualizerStyleChanged: (EqualizerStyle) -> Unit = {},
+    onFontChanged: (DashboardFont) -> Unit = {}
 ) {
-    BackHandler {
-        onDismiss()
-    }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    var isDefaultLauncher by remember { mutableStateOf(LauncherManager.isDefaultLauncher(context)) }
+    var localTheme by remember { mutableStateOf(currentTheme) }
+    var localTextScale by remember { mutableFloatStateOf(currentTextScale) }
+    var localButtonScale by remember { mutableFloatStateOf(currentButtonScale) }
+    var localIsBold by remember { mutableStateOf(currentIsBold) }
+    var localFont by remember { mutableStateOf(currentFont) }
+    var localEqStyle by remember { mutableStateOf(currentEqualizerStyle) }
+
+    var allThemesList by remember { mutableStateOf(ThemeManager.getAllThemes(context)) }
     var showLauncherListModal by remember { mutableStateOf(false) }
+    var showCreateThemeDialog by remember { mutableStateOf(false) }
+    var isDefaultLauncher by remember { mutableStateOf(LauncherManager.isDefaultLauncher(context)) }
+
+    fun applyAllChangesAndClose() {
+        ThemeManager.saveTheme(context, localTheme.id)
+        ThemeManager.saveTextScale(context, localTextScale)
+        ThemeManager.saveButtonScale(context, localButtonScale)
+        ThemeManager.saveIsBold(context, localIsBold)
+        ThemeManager.saveFont(context, localFont)
+        ThemeManager.saveEqualizerStyle(context, localEqStyle)
+
+        onThemeSelected(localTheme)
+        onTextScaleChanged(localTextScale)
+        onButtonScaleChanged(localButtonScale)
+        onIsBoldChanged(localIsBold)
+        onFontChanged(localFont)
+        onEqualizerStyleChanged(localEqStyle)
+
+        onDismiss()
+    }
+
+    BackHandler { applyAllChangesAndClose() }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -272,225 +545,167 @@ fun ThemeSelectorModal(
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(Unit) {
-        BrightnessManager.init(context)
-    }
-
-    var sliderValue by remember { mutableFloatStateOf(currentTextScale) }
-    var buttonScaleValue by remember { mutableFloatStateOf(currentButtonScale) }
-    var isBoldState by remember { mutableStateOf(currentIsBold) }
-    var selectedEqualizerStyle by remember { mutableStateOf(currentEqualizerStyle) }
-
-    // 🎛️ ESTADOS PARA ECUALIZADORES ALEATORIOS
-    var isAutoRotateEq by remember { mutableStateOf(ThemeManager.getSavedAutoRotateEqEnabled(context)) }
-    var autoRotateEqInterval by remember { mutableIntStateOf(ThemeManager.getSavedAutoRotateEqInterval(context)) }
+    LaunchedEffect(Unit) { BrightnessManager.init(context) }
 
     var isAutoBrightness by remember { mutableStateOf(BrightnessManager.isAutoBrightnessEnabled) }
     var dayBrightness by remember { mutableFloatStateOf(BrightnessManager.dayBrightnessValue) }
     var nightBrightness by remember { mutableFloatStateOf(BrightnessManager.nightBrightnessValue) }
-    var hasSettingsPermission by remember { mutableStateOf(BrightnessManager.hasWriteSettingsPermission(context)) }
 
-    val previewWeight = if (isBoldState) FontWeight.ExtraBold else FontWeight.Normal
     val leftScrollState = rememberScrollState()
     val rightScrollState = rememberScrollState()
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { applyAllChangesAndClose() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Interactive3DBackground(
-            theme = currentTheme,
-            modifier = Modifier.padding(20.dp)
+            theme = localTheme,
+            modifier = Modifier.padding(14.dp)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // ENCABEZADO
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Palette,
-                            contentDescription = null,
-                            tint = currentTheme.accentCyan,
-                            modifier = Modifier.size(26.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Icon(Icons.Default.Palette, contentDescription = null, tint = localTheme.accentCyan, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "PERSONALIZACIÓN Y ESTILO DEL TABLERO",
-                            fontSize = 17.sp,
+                            text = "ESTUDIO DE PERSONALIZACIÓN DEL TABLERO",
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
+                            fontFamily = localFont.fontFamily,
                             color = Color.White,
                             letterSpacing = 1.sp
                         )
                     }
 
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .background(currentTheme.cardBackground, RoundedCornerShape(12.dp))
-                            .border(1.dp, currentTheme.cardBorder, RoundedCornerShape(12.dp))
+                    Button(
+                        onClick = { applyAllChangesAndClose() },
+                        colors = ButtonDefaults.buttonColors(containerColor = localTheme.accentCyan, contentColor = Color.Black),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
+                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("LISTO / APLICAR", fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
                     }
                 }
 
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // -------------------------------------------------------------
-                    // 👈 COLUMNA IZQUIERDA: CONFIGURACIONES DEL SISTEMA Y BRILLO
-                    // -------------------------------------------------------------
+                    // 👈 COLUMNA IZQUIERDA
                     Surface(
-                        color = currentTheme.cardBackground,
-                        shape = RoundedCornerShape(18.dp),
-                        modifier = Modifier
-                            .weight(1.0f)
-                            .fillMaxHeight()
-                            .border(1.dp, currentTheme.cardBorder, RoundedCornerShape(18.dp))
+                        color = localTheme.cardBackground,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.weight(1.0f).fillMaxHeight().border(1.dp, localTheme.cardBorder, RoundedCornerShape(16.dp))
                     ) {
                         Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(leftScrollState)
-                                .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            modifier = Modifier.fillMaxSize().verticalScroll(leftScrollState).padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (isDefaultLauncher) Color(0xFF0E2218) else Color(0xFF2A190B)
-                                ),
-                                border = BorderStroke(1.dp, if (isDefaultLauncher) Color(0xFF00E676) else Color(0xFFFF9100)),
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Home,
-                                            contentDescription = null,
-                                            tint = if (isDefaultLauncher) Color(0xFF00E676) else Color(0xFFFF9100),
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Column {
-                                            Text(
-                                                text = if (isDefaultLauncher) "Launcher Predeterminado Activo" else "No es el Launcher Principal",
-                                                color = Color.White,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = if (isDefaultLauncher) "El botón Home de tu estéreo abrirá siempre esta pantalla." else "Toca asignar para establecer como inicio por defecto.",
-                                                color = Color.LightGray,
-                                                fontSize = 10.sp
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.width(8.dp))
-
-                                    Button(
-                                        onClick = { showLauncherListModal = true },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isDefaultLauncher) Color(0xFF00E676) else Color(0xFFFF9100)
-                                        ),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                        modifier = Modifier.height(32.dp),
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Text(
-                                            text = if (isDefaultLauncher) "Ver Lista" else "Asignar",
-                                            color = Color.Black,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.ExtraBold
-                                        )
-                                    }
-                                }
-                            }
-
-                            if (!hasSettingsPermission) {
-                                Card(
-                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF3B1200)),
-                                    border = BorderStroke(1.dp, Color(0xFFFF9100)),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text("⚠️ Permiso de Brillo Tablet", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                            Text("Toca para activar el control de pantalla en tu estéreo.", color = Color.LightGray, fontSize = 9.sp)
-                                        }
-                                        Button(
-                                            onClick = {
-                                                BrightnessManager.requestWriteSettingsPermission(context)
-                                                hasSettingsPermission = BrightnessManager.hasWriteSettingsPermission(context)
-                                            },
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9100)),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                                            modifier = Modifier.height(30.dp)
-                                        ) {
-                                            Text("Activar", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
-                                        }
-                                    }
-                                }
-                            }
-
+                            // VISTA PREVIA
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(60.dp)
+                                    .height(68.dp)
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(currentTheme.dashBackground),
+                                    .background(localTheme.dashBackground)
+                                    .border(1.5.dp, localTheme.accentCyan, RoundedCornerShape(12.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(
-                                        text = "${(sliderValue * 100).toInt()}% - 120 KM/H",
+                                        text = "${(localTextScale * 100).toInt()}% - 120 KM/H",
                                         color = Color.White,
-                                        fontSize = 15.sp,
-                                        fontWeight = previewWeight
+                                        fontSize = 16.sp,
+                                        fontFamily = localFont.fontFamily,
+                                        fontWeight = localFont.fontWeight,
+                                        fontStyle = localFont.fontStyle,
+                                        letterSpacing = localFont.letterSpacing
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "Botones: ${(buttonScaleValue * 100).toInt()}% | Modo: ${if (BrightnessManager.isNightTime()) "🌙 Noche" else "☀️ Día"}",
-                                        color = currentTheme.accentCyan,
-                                        fontSize = 11.sp,
-                                        fontWeight = previewWeight
+                                        text = "Botones: ${(localButtonScale * 100).toInt()}% | ${localFont.displayName}",
+                                        color = localTheme.accentCyan,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
 
+                            // TIPOGRAFÍAS AUTOMOTRICES
+                            Text("🔤 Selecciona Tipo de Letra:", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                DashboardFont.values().forEach { font ->
+                                    val isSelected = font == localFont
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isSelected) localTheme.accentCyan.copy(alpha = 0.25f) else Color(0x14FFFFFF))
+                                            .border(if (isSelected) 1.5.dp else 0.dp, if (isSelected) localTheme.accentCyan else Color.Transparent, RoundedCornerShape(8.dp))
+                                            .clickable { localFont = font }
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = font.displayName,
+                                                fontFamily = font.fontFamily,
+                                                fontWeight = font.fontWeight,
+                                                fontStyle = font.fontStyle,
+                                                letterSpacing = font.letterSpacing,
+                                                fontSize = 11.sp,
+                                                color = if (isSelected) localTheme.accentCyan else Color.White
+                                            )
+                                            Text(
+                                                text = font.subtitle,
+                                                fontSize = 8.sp,
+                                                color = if (isSelected) Color.LightGray else Color.Gray
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ESCALA DE LETRAS (SIN PANTALLAZO)
+                            Column {
+                                Text("Tamaño de Letras: ${(localTextScale * 100).toInt()}%", color = Color.LightGray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Slider(
+                                    value = localTextScale,
+                                    onValueChange = { localTextScale = it },
+                                    valueRange = 1.0f..2.8f,
+                                    colors = SliderDefaults.colors(thumbColor = localTheme.accentCyan, activeTrackColor = localTheme.accentCyan)
+                                )
+                            }
+
+                            // BOTONES MULTIMEDIA
+                            Column {
+                                Text("Tamaño Botones Multimedia: ${(localButtonScale * 100).toInt()}%", color = localTheme.accentCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Slider(
+                                    value = localButtonScale,
+                                    onValueChange = { localButtonScale = it },
+                                    valueRange = 0.8f..2.5f,
+                                    colors = SliderDefaults.colors(thumbColor = localTheme.accentCyan, activeTrackColor = localTheme.accentCyan)
+                                )
+                            }
+
+                            HorizontalDivider(color = localTheme.cardBorder.copy(alpha = 0.5f))
+
+                            // BRILLO
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Brillo Automático Día/Noche", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("Brillo Automático Día/Noche", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 Switch(
                                     checked = isAutoBrightness,
                                     onCheckedChange = {
@@ -498,347 +713,140 @@ fun ThemeSelectorModal(
                                         BrightnessManager.setAutoEnabled(context, it)
                                         BrightnessManager.applyBrightnessToActivity(context)
                                     },
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = currentTheme.accentCyan,
-                                        checkedTrackColor = currentTheme.cardBorder
-                                    )
+                                    colors = SwitchDefaults.colors(checkedThumbColor = localTheme.accentCyan)
                                 )
                             }
 
                             Column {
-                                Text("☀️ Brillo de Día: ${(dayBrightness * 100).toInt()}%", color = currentTheme.accentOrange, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("☀️ Brillo Día: ${(dayBrightness * 100).toInt()}%", color = localTheme.accentOrange, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 Slider(
                                     value = dayBrightness,
                                     onValueChange = {
                                         dayBrightness = it
-                                        BrightnessManager.setDayBrightness(context, it)
+                                        BrightnessManager.setDayBrightness(context, dayBrightness)
                                         if (!BrightnessManager.isNightTime() && isAutoBrightness) {
-                                            BrightnessManager.applyHardwareBrightness(context, it)
+                                            BrightnessManager.applyHardwareBrightness(context, dayBrightness)
                                         }
                                     },
                                     valueRange = 0.1f..1.0f,
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = currentTheme.accentOrange,
-                                        activeTrackColor = currentTheme.accentOrange,
-                                        inactiveTrackColor = currentTheme.cardBorder
-                                    )
+                                    colors = SliderDefaults.colors(thumbColor = localTheme.accentOrange, activeTrackColor = localTheme.accentOrange)
                                 )
                             }
 
                             Column {
-                                val overlayPercent = (BrightnessManager.nightOverlayAlpha * 100).toInt()
-                                Text(
-                                    text = "🌙 Brillo de Noche: ${(nightBrightness * 100).toInt()}% ${if (overlayPercent > 0) "(Filtro +$overlayPercent%)" else ""}",
-                                    color = currentTheme.accentPurple,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Text("🌙 Brillo Noche: ${(nightBrightness * 100).toInt()}%", color = localTheme.accentPurple, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 Slider(
                                     value = nightBrightness,
                                     onValueChange = {
                                         nightBrightness = it
-                                        BrightnessManager.setNightBrightness(context, it)
+                                        BrightnessManager.setNightBrightness(context, nightBrightness)
                                     },
                                     valueRange = 0.0f..1.0f,
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = currentTheme.accentPurple,
-                                        activeTrackColor = currentTheme.accentPurple,
-                                        inactiveTrackColor = currentTheme.cardBorder
-                                    )
-                                )
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("Texto en Negrita", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                Switch(
-                                    checked = isBoldState,
-                                    onCheckedChange = {
-                                        isBoldState = it
-                                        onIsBoldChanged(it)
-                                        ThemeManager.saveIsBold(context, it)
-                                    },
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = currentTheme.accentCyan,
-                                        checkedTrackColor = currentTheme.cardBorder
-                                    )
-                                )
-                            }
-
-                            Column {
-                                Text("Escala Letras: ${(sliderValue * 100).toInt()}%", color = Color.LightGray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                Slider(
-                                    value = sliderValue,
-                                    onValueChange = {
-                                        sliderValue = it
-                                        onTextScaleChanged(it)
-                                        ThemeManager.saveTextScale(context, it)
-                                    },
-                                    valueRange = 1.0f..2.8f,
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = currentTheme.accentCyan,
-                                        activeTrackColor = currentTheme.accentCyan,
-                                        inactiveTrackColor = currentTheme.cardBorder
-                                    )
-                                )
-                            }
-
-                            Column {
-                                Text("Tamaño Botones Reproductor: ${(buttonScaleValue * 100).toInt()}%", color = currentTheme.accentCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                Slider(
-                                    value = buttonScaleValue,
-                                    onValueChange = {
-                                        buttonScaleValue = it
-                                        onButtonScaleChanged(it)
-                                        ThemeManager.saveButtonScale(context, it)
-                                    },
-                                    valueRange = 0.8f..2.5f,
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = currentTheme.accentCyan,
-                                        activeTrackColor = currentTheme.accentCyan,
-                                        inactiveTrackColor = currentTheme.cardBorder
-                                    )
+                                    colors = SliderDefaults.colors(thumbColor = localTheme.accentPurple, activeTrackColor = localTheme.accentPurple)
                                 )
                             }
                         }
                     }
 
-                    // -------------------------------------------------------------
-                    // 👉 COLUMNA DERECHA: APARIENCIA (ECUALIZADORES Y TEMAS)
-                    // -------------------------------------------------------------
+                    // 👉 COLUMNA DERECHA
                     Surface(
-                        color = currentTheme.cardBackground,
-                        shape = RoundedCornerShape(18.dp),
-                        modifier = Modifier
-                            .weight(1.1f)
-                            .fillMaxHeight()
-                            .border(1.dp, currentTheme.cardBorder, RoundedCornerShape(18.dp))
+                        color = localTheme.cardBackground,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.weight(1.1f).fillMaxHeight().border(1.dp, localTheme.cardBorder, RoundedCornerShape(16.dp))
                     ) {
                         Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rightScrollState)
-                                .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                            modifier = Modifier.fillMaxSize().verticalScroll(rightScrollState).padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            // 🎛️ 1. SECCIÓN: ESTILO DE ECUALIZADOR VISUAL
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.GraphicEq,
-                                    contentDescription = null,
-                                    tint = currentTheme.accentCyan,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Estilo de Ecualizador Visual",
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                            Button(
+                                onClick = { showCreateThemeDialog = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = localTheme.accentCyan, contentColor = Color.Black),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth().height(42.dp)
+                            ) {
+                                Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("🎨 MEZCLAR COLOR Y CREAR TEMA", fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
                             }
+
+                            Text("🎨 Colección de Temas (${allThemesList.size})", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
 
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                EqualizerStyle.values().toList().chunked(2).forEach { rowStyles ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        rowStyles.forEach { style ->
-                                            val isSelected = style == selectedEqualizerStyle
-                                            Box(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(if (isSelected) currentTheme.accentCyan.copy(alpha = 0.25f) else Color(0xFF1E1E28))
-                                                    .border(
-                                                        width = if (isSelected) 1.5.dp else 0.dp,
-                                                        color = if (isSelected) currentTheme.accentCyan else Color.Transparent,
-                                                        shape = RoundedCornerShape(8.dp)
-                                                    )
-                                                    .clickable {
-                                                        selectedEqualizerStyle = style
-                                                        ThemeManager.saveEqualizerStyle(context, style)
-                                                        onEqualizerStyleChanged(style)
-                                                    }
-                                                    .padding(vertical = 8.dp, horizontal = 6.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = style.displayName,
-                                                    color = if (isSelected) currentTheme.accentCyan else Color.White,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                    textAlign = TextAlign.Center,
-                                                    maxLines = 1
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 🔀 2. TARJETA NUEVA: ECUALIZADORES ALEATORIOS (CAMBIO AUTOMÁTICO)
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A26)),
-                                border = BorderStroke(1.dp, if (isAutoRotateEq) currentTheme.accentCyan else currentTheme.cardBorder),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(10.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                imageVector = Icons.Default.Shuffle,
-                                                contentDescription = null,
-                                                tint = if (isAutoRotateEq) currentTheme.accentCyan else Color.Gray,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = "Ecualizador Aleatorio (Auto-Cambio)",
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-
-                                        Switch(
-                                            checked = isAutoRotateEq,
-                                            onCheckedChange = {
-                                                isAutoRotateEq = it
-                                                ThemeManager.saveAutoRotateEqEnabled(context, it)
-                                            },
-                                            colors = SwitchDefaults.colors(
-                                                checkedThumbColor = currentTheme.accentCyan,
-                                                checkedTrackColor = currentTheme.cardBorder
-                                            )
-                                        )
-                                    }
-
-                                    if (isAutoRotateEq) {
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = "Intervalo de cambio de ecualizador:",
-                                            color = Color.Gray,
-                                            fontSize = 9.sp
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-
-                                        val intervals = listOf(
-                                            10 to "10s",
-                                            30 to "30s",
-                                            60 to "1 Min",
-                                            300 to "5 Min",
-                                            600 to "10 Min"
-                                        )
-
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            intervals.forEach { (sec, label) ->
-                                                val isSelected = autoRotateEqInterval == sec
-                                                Box(
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .background(if (isSelected) currentTheme.accentCyan else Color(0xFF282836))
-                                                        .clickable {
-                                                            autoRotateEqInterval = sec
-                                                            ThemeManager.saveAutoRotateEqInterval(context, sec)
-                                                        }
-                                                        .padding(vertical = 5.dp),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Text(
-                                                        text = label,
-                                                        color = if (isSelected) Color.Black else Color.White,
-                                                        fontSize = 9.sp,
-                                                        fontWeight = FontWeight.ExtraBold
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            HorizontalDivider(color = currentTheme.cardBorder.copy(alpha = 0.5f), thickness = 1.dp)
-
-                            // 🎨 3. SECCIÓN: PALETA DE TEMAS DE COLOR
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Palette,
-                                    contentDescription = null,
-                                    tint = currentTheme.accentCyan,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Colección de Temas (${ThemeManager.themes.size})",
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                ThemeManager.themes.chunked(2).forEach { rowThemes ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
+                                allThemesList.chunked(2).forEach { rowThemes ->
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                         rowThemes.forEach { theme ->
-                                            val isSelected = theme.id == currentTheme.id
-
+                                            val isSelected = theme.id == localTheme.id
                                             Surface(
                                                 color = theme.dashBackground,
-                                                shape = RoundedCornerShape(12.dp),
+                                                shape = RoundedCornerShape(10.dp),
                                                 modifier = Modifier
                                                     .weight(1f)
-                                                    .height(58.dp)
+                                                    .height(54.dp)
                                                     .border(
                                                         width = if (isSelected) 2.5.dp else 1.dp,
-                                                        color = if (isSelected) theme.accentCyan else theme.cardBorder,
-                                                        shape = RoundedCornerShape(12.dp)
+                                                        color = if (isSelected) localTheme.accentCyan else theme.cardBorder,
+                                                        shape = RoundedCornerShape(10.dp)
                                                     )
-                                                    .clickable {
-                                                        ThemeManager.saveTheme(context, theme.id)
-                                                        onThemeSelected(theme)
-                                                    }
+                                                    .clickable { localTheme = theme }
                                             ) {
                                                 Row(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .padding(horizontal = 8.dp),
+                                                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.SpaceBetween
                                                 ) {
-                                                    Text(
-                                                        text = theme.name,
-                                                        color = Color.White,
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.weight(1f),
-                                                        maxLines = 2
-                                                    )
-
-                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(theme.name, color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                                        if (theme.isCustom) Text("Personalizado", color = localTheme.accentCyan, fontSize = 7.sp)
+                                                    }
 
                                                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                        Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(theme.accentCyan))
-                                                        Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(theme.accentPurple))
-                                                        Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(theme.accentOrange))
+                                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(theme.accentCyan))
+                                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(theme.accentPurple))
+                                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(theme.accentOrange))
+                                                    }
+
+                                                    if (theme.isCustom) {
+                                                        IconButton(
+                                                            onClick = {
+                                                                ThemeManager.deleteCustomTheme(context, theme.id)
+                                                                allThemesList = ThemeManager.getAllThemes(context)
+                                                            },
+                                                            modifier = Modifier.size(20.dp)
+                                                        ) {
+                                                            Icon(Icons.Default.Close, contentDescription = "Borrar", tint = Color.Gray, modifier = Modifier.size(12.dp))
+                                                        }
                                                     }
                                                 }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            HorizontalDivider(color = localTheme.cardBorder.copy(alpha = 0.5f))
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.GraphicEq, contentDescription = null, tint = localTheme.accentCyan, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Estilo de Ecualizador Visual", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                EqualizerStyle.values().toList().chunked(2).forEach { rowStyles ->
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        rowStyles.forEach { style ->
+                                            val isSelected = style == localEqStyle
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(if (isSelected) localTheme.accentCyan.copy(alpha = 0.25f) else Color(0xFF1E1E28))
+                                                    .border(if (isSelected) 1.5.dp else 0.dp, if (isSelected) localTheme.accentCyan else Color.Transparent, RoundedCornerShape(6.dp))
+                                                    .clickable { localEqStyle = style }
+                                                    .padding(vertical = 6.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(style.displayName, color = if (isSelected) localTheme.accentCyan else Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                                             }
                                         }
                                     }
@@ -851,16 +859,156 @@ fun ThemeSelectorModal(
         }
     }
 
-    if (showLauncherListModal) {
-        LauncherPickerModal(
-            theme = currentTheme,
-            onDismiss = { showLauncherListModal = false }
+    if (showCreateThemeDialog) {
+        CustomColorMixerDialog(
+            currentTheme = localTheme,
+            onDismiss = { showCreateThemeDialog = false },
+            onSave = { newCustomTheme ->
+                ThemeManager.saveCustomTheme(context, newCustomTheme)
+                allThemesList = ThemeManager.getAllThemes(context)
+                localTheme = newCustomTheme
+                showCreateThemeDialog = false
+            }
         )
+    }
+
+    if (showLauncherListModal) {
+        LauncherPickerModal(theme = localTheme, onDismiss = { showLauncherListModal = false })
     }
 }
 
 // =========================================================================
-// 📱 MODAL SIMPLIFICADO PARA ASIGNACIÓN DIRECTA
+// 🎨 MODAL CON MEZCLADOR 2D REAL (PERSISTENCIA ARGB CORREGIDA)
+// =========================================================================
+@Composable
+fun CustomColorMixerDialog(
+    currentTheme: DashboardTheme,
+    onDismiss: () -> Unit,
+    onSave: (DashboardTheme) -> Unit
+) {
+    var themeName by remember { mutableStateOf("Mi Estilo Personalizado") }
+    var selectedColorIndex by remember { mutableIntStateOf(1) }
+
+    var colorPrimario by remember { mutableStateOf(Color(0xFF00E5FF)) }
+    var colorSecundario by remember { mutableStateOf(Color(0xFFD500F9)) }
+    var colorDestaque by remember { mutableStateOf(Color(0xFFFF9100)) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF14141E),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Palette, contentDescription = null, tint = colorPrimario)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Editar Colores del Tablero", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = themeName,
+                    onValueChange = { themeName = it },
+                    label = { Text("Nombre del Tema") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = colorPrimario
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(
+                        Triple(1, "1️⃣ Primario", colorPrimario),
+                        Triple(2, "2️⃣ Secundario", colorSecundario),
+                        Triple(3, "3️⃣ Destaque", colorDestaque)
+                    ).forEach { (idx, label, colorVal) ->
+                        val isSelected = selectedColorIndex == idx
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) colorVal.copy(alpha = 0.25f) else Color(0xFF222232))
+                                .border(if (isSelected) 2.dp else 0.dp, colorVal, RoundedCornerShape(8.dp))
+                                .clickable { selectedColorIndex = idx }
+                                .padding(vertical = 6.dp, horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(colorVal))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(label, color = if (isSelected) colorVal else Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                InteractiveHsvColorPicker(
+                    initialColor = when (selectedColorIndex) {
+                        1 -> colorPrimario
+                        2 -> colorSecundario
+                        else -> colorDestaque
+                    },
+                    onColorChanged = { newColor ->
+                        when (selectedColorIndex) {
+                            1 -> colorPrimario = newColor
+                            2 -> colorSecundario = newColor
+                            3 -> colorDestaque = newColor
+                        }
+                    }
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF07090E))
+                        .border(1.dp, colorPrimario.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Combinación Activa:", color = Color.LightGray, fontSize = 10.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(modifier = Modifier.size(14.dp).clip(CircleShape).background(colorPrimario))
+                            Box(modifier = Modifier.size(14.dp).clip(CircleShape).background(colorSecundario))
+                            Box(modifier = Modifier.size(14.dp).clip(CircleShape).background(colorDestaque))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val newId = 100 + (System.currentTimeMillis() % 10000).toInt()
+                    val created = DashboardTheme(
+                        id = newId,
+                        name = themeName.ifBlank { "Personalizado #$newId" },
+                        dashBackground = Color(0xFF05070C),
+                        cardBackground = Color(0xFF0E121B),
+                        cardBorder = colorPrimario.copy(alpha = 0.40f),
+                        accentCyan = colorPrimario,
+                        accentPurple = colorSecundario,
+                        accentOrange = colorDestaque,
+                        isCustom = true
+                    )
+                    onSave(created)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = colorPrimario, contentColor = Color.Black)
+            ) {
+                Text("Guardar Tema", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar", color = Color.Gray) }
+        }
+    )
+}
+
+// =========================================================================
+// 📱 MODAL ASIGNACIÓN DIRECTA LAUNCHER
 // =========================================================================
 @Composable
 fun LauncherPickerModal(
@@ -876,21 +1024,19 @@ fun LauncherPickerModal(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Home, contentDescription = null, tint = theme.accentCyan)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Asignar Launcher Predeterminado", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Asignar Launcher Predeterminado", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
         },
         text = {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
                     text = "Selecciona Car Tablet Launcher como predeterminado para disfrutar del contenido y la mejor experiencia en tu vehículo.",
                     color = Color.LightGray,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     textAlign = TextAlign.Center
                 )
 
@@ -899,36 +1045,25 @@ fun LauncherPickerModal(
                         LauncherManager.forceAndroidChooser(context)
                         onDismiss()
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Star,
-                        contentDescription = null,
-                        tint = Color.Black,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Icon(Icons.Default.Star, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "⭐ ESTABLECER CAR TABLET LAUNCHER COMO PREDETERMINADO",
-                        color = Color.Black,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        textAlign = TextAlign.Center
-                    )
+                    Text("⭐ ESTABLECER COMO PREDETERMINADO", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancelar", color = Color.White)
-            }
+            TextButton(onClick = onDismiss) { Text("Cancelar", color = Color.White) }
         }
     )
 }
+
+// =========================================================================
+// 🌌 FONDO 3D INTERACTIVO CON AMBIENT NEÓN
+// =========================================================================
 @Composable
 fun Interactive3DBackground(
     theme: DashboardTheme,
@@ -936,51 +1071,31 @@ fun Interactive3DBackground(
     content: @Composable BoxScope.() -> Unit
 ) {
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(theme.dashBackground) // Fondo oscuro base del tema
+        modifier = modifier.fillMaxSize().background(theme.dashBackground)
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val width = size.width
             val height = size.height
 
-            // -------------------------------------------------------------
-            // 1. RESPLANDORES NEÓN SUAVES (DEGRADADOS DIFUMINADOS)
-            // -------------------------------------------------------------
-            // Luz Superior Izquierda (Cian Suave)
             drawRect(
                 brush = Brush.radialGradient(
-                    colors = listOf(
-                        theme.accentCyan.copy(alpha = 0.40f),
-                        theme.accentCyan.copy(alpha = 0.12f),
-                        Color.Transparent
-                    ),
+                    colors = listOf(theme.accentCyan.copy(alpha = 0.35f), theme.accentCyan.copy(alpha = 0.10f), Color.Transparent),
                     center = Offset(0f, 0f),
                     radius = width * 0.55f
                 )
             )
 
-            // Luz Inferior Derecha (Naranja Suave)
             drawRect(
                 brush = Brush.radialGradient(
-                    colors = listOf(
-                        theme.accentOrange.copy(alpha = 0.35f),
-                        theme.accentOrange.copy(alpha = 0.10f),
-                        Color.Transparent
-                    ),
+                    colors = listOf(theme.accentOrange.copy(alpha = 0.30f), theme.accentOrange.copy(alpha = 0.08f), Color.Transparent),
                     center = Offset(width, height),
                     radius = width * 0.55f
                 )
             )
 
-            // Luz Central de Cruce entre Gadgets (Púrpura Suave)
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(
-                        theme.accentPurple.copy(alpha = 0.30f),
-                        theme.accentPurple.copy(alpha = 0.08f),
-                        Color.Transparent
-                    ),
+                    colors = listOf(theme.accentPurple.copy(alpha = 0.25f), theme.accentPurple.copy(alpha = 0.06f), Color.Transparent),
                     center = Offset(width * 0.50f, height * 0.50f),
                     radius = width * 0.45f
                 ),
@@ -988,11 +1103,8 @@ fun Interactive3DBackground(
                 radius = width * 0.45f
             )
 
-            // -------------------------------------------------------------
-            // 2. TEXTURA DEPORTIVA GT EN HUECOS (LÍNEAS TENUES)
-            // -------------------------------------------------------------
             val stripeSpacing = 36f
-            val stripeColor = theme.accentCyan.copy(alpha = 0.06f)
+            val stripeColor = theme.accentCyan.copy(alpha = 0.05f)
 
             var x = -height
             while (x < width + height) {
@@ -1005,22 +1117,14 @@ fun Interactive3DBackground(
                 x += stripeSpacing
             }
 
-            // -------------------------------------------------------------
-            // 3. DESVANECIDO SUAVE HACIA LOS BORDES (VIÑETA ELEGANTE)
-            // -------------------------------------------------------------
             drawRect(
                 brush = Brush.radialGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        theme.dashBackground.copy(alpha = 0.85f)
-                    ),
+                    colors = listOf(Color.Transparent, theme.dashBackground.copy(alpha = 0.85f)),
                     center = Offset(width / 2f, height / 2f),
                     radius = width * 0.65f
                 )
             )
         }
-
-        // 🖼️ CONTENIDO DE TU TABLERO (GADGETS/CARDS)
         content()
     }
 }

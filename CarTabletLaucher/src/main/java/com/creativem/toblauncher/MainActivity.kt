@@ -55,9 +55,7 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 android.util.Log.d("PRUEBA_CLICK", "✅ LA APLICACIÓN ARRANCÓ CORRECTAMENTE Y LOS LOGS FUNCIONAN")
-                // Evitamos que la tableta minimice el Launcher
             }
-
         })
 
         // ✅ FONDO NEGRO ABSOLUTO DESDE EL PRIMER MILISEGUNDO DE ARRANQUE
@@ -88,6 +86,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
     override fun onPictureInPictureModeChanged(
         isInPictureInPictureMode: Boolean,
         newConfig: android.content.res.Configuration
@@ -95,7 +94,6 @@ class MainActivity : ComponentActivity() {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         val videoPlayer = SmartVideoPlayer.getInstance(this)
         if (!isInPictureInPictureMode) {
-            // Al salir de PiP y regresar al launcher, desactiva la pantalla completa forzada
             videoPlayer.isFullscreenActive = false
             videoPlayer.showControls = true
         }
@@ -122,31 +120,24 @@ class MainActivity : ComponentActivity() {
         val radioPlayer = SmartRadioManager.getInstance(this)
         val iptvPlayer = SmartIptvPlayer.getInstance(this)
 
-        // 🎵 1. El flotante de MEDIOS solo arranca si hay audio/video reproduciéndose:
         if (videoPlayer.isPlaying || musicPlayer.isPlaying || radioPlayer.isPlaying || iptvPlayer.isPlaying) {
             FloatingMediaService.start(this)
         }
 
-        // ⏱️ 2. El VELOCÍMETRO arranca SIEMPRE (va fuera del if):
         FloatingSpeedometerService.start(this)
     }
+
     override fun onResume() {
         super.onResume()
-        // 1. Detener la ventana flotante
         FloatingMediaService.stop(this)
         FloatingSpeedometerService.stop(this)
 
-        // 2. Restablecer la pantalla y reconectar el video en el Launcher
         val videoPlayer = SmartVideoPlayer.getInstance(this)
         videoPlayer.isFullscreenActive = false
         videoPlayer.forceRebind()
 
         try {
-            // Esto garantiza que los gestos se desbloqueen al regresar al Launcher
-            // ya sea por el botón Home, deslizando, o porque se cerró la ventana flotante.
             SmartMusicPlayer.getInstance(this).deactivateMediaSession()
-
-            // También forzamos el refresco del video por si acaso
             SmartVideoPlayer.getInstance(this).forceRebind()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -161,7 +152,6 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
     }
-
 
     private fun isCurrentlyDefaultLauncher(context: Context): Boolean {
         val intent = Intent(Intent.ACTION_MAIN).apply {
@@ -198,6 +188,7 @@ fun isIgnoringBatteryOptimizations(context: Context): Boolean {
         true
     }
 }
+
 fun hasOverlayPermission(context: Context): Boolean {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
         Settings.canDrawOverlays(context)
@@ -205,6 +196,7 @@ fun hasOverlayPermission(context: Context): Boolean {
         true
     }
 }
+
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
@@ -216,6 +208,9 @@ fun MainScreen() {
     var currentIsBold by remember { mutableStateOf(ThemeManager.getSavedIsBold(context)) }
     var currentButtonScale by remember { mutableFloatStateOf(ThemeManager.getSavedButtonScale(context)) }
 
+    // 🔤 ESTADO DE TIPOGRAFÍA SELECCIONADA
+    var currentFont by remember { mutableStateOf(ThemeManager.getSavedFont(context)) }
+
     val currentDensity = LocalDensity.current
     val customDensity = remember(currentDensity, currentTextScale) {
         Density(
@@ -224,18 +219,22 @@ fun MainScreen() {
         )
     }
 
+    // 🔤 ESTILO DE TEXTO GLOBAL QUE APLICA LA FUENTE, PESO, CURSIVA Y ESPACIADO
     val defaultTextStyle = LocalTextStyle.current
-    val customTextStyle = remember(defaultTextStyle, currentIsBold) {
+    val customTextStyle = remember(defaultTextStyle, currentIsBold, currentFont) {
         defaultTextStyle.copy(
-            fontWeight = if (currentIsBold) FontWeight.ExtraBold else FontWeight.Normal
+            fontFamily = currentFont.fontFamily,
+            fontWeight = if (currentIsBold) currentFont.fontWeight else FontWeight.Normal,
+            fontStyle = currentFont.fontStyle,
+            letterSpacing = currentFont.letterSpacing
         )
     }
+
     // 🎛️ BUCLE DE ECUALIZADORES ALEATORIOS AUTOMÁTICO
     LaunchedEffect(Unit) {
         while (isActive) {
             val intervalSec = ThemeManager.getSavedAutoRotateEqInterval(context)
-
-            delay(intervalSec * 1000L) // Espera el tiempo configurado
+            delay(intervalSec * 1000L)
 
             if (ThemeManager.getSavedAutoRotateEqEnabled(context)) {
                 val otherStyles = EqualizerStyle.values().filter { it != currentEqStyle }
@@ -297,7 +296,8 @@ fun MainScreen() {
         LocalIsBoldText provides currentIsBold,
         LocalButtonScale provides currentButtonScale,
         LocalTextStyle provides customTextStyle,
-        LocalEqualizerStyle provides currentEqStyle // 👈 PROVEEDOR DEL ECUALIZADOR INDEPENDIENTE
+        LocalEqualizerStyle provides currentEqStyle,
+        LocalDashboardFont provides currentFont // 👈 PROVEEDOR GLOBAL DE LA TIPOGRAFÍA
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -408,12 +408,14 @@ fun MainScreen() {
                     currentTextScale = currentTextScale,
                     currentIsBold = currentIsBold,
                     currentButtonScale = currentButtonScale,
-                    currentEqualizerStyle = currentEqStyle, // 👈 1. PASADO A CARDASHBOARD
+                    currentEqualizerStyle = currentEqStyle,
+                    currentFont = currentFont, // 👈 PASA LA FUENTE AL TABLERO
                     onThemeChanged = { newTheme -> currentTheme = newTheme },
                     onTextScaleChanged = { newScale -> currentTextScale = newScale },
                     onIsBoldChanged = { newIsBold -> currentIsBold = newIsBold },
                     onButtonScaleChanged = { newButtonScale -> currentButtonScale = newButtonScale },
-                    onEqualizerStyleChanged = { newStyle -> currentEqStyle = newStyle } // 👈 2. CALLBACK DE CAMBIO
+                    onEqualizerStyleChanged = { newStyle -> currentEqStyle = newStyle },
+                    onFontChanged = { newFont -> currentFont = newFont } // 👈 CALLBACK AL CAMBIAR FUENTE
                 )
             }
         }
@@ -476,11 +478,13 @@ fun CarDashboard(
     currentIsBold: Boolean,
     currentButtonScale: Float,
     currentEqualizerStyle: EqualizerStyle,
+    currentFont: DashboardFont, // 👈 RECIBIDO
     onThemeChanged: (DashboardTheme) -> Unit,
     onTextScaleChanged: (Float) -> Unit,
     onIsBoldChanged: (Boolean) -> Unit,
     onButtonScaleChanged: (Float) -> Unit,
-    onEqualizerStyleChanged: (EqualizerStyle) -> Unit
+    onEqualizerStyleChanged: (EqualizerStyle) -> Unit,
+    onFontChanged: (DashboardFont) -> Unit // 👈 CALLBACK
 ) {
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
@@ -558,7 +562,6 @@ fun CarDashboard(
                 }
             }
         } else {
-            // 🌌 🚀 AQUÍ ESTÁ EL CAMBIO: REEMPLAZAMOS EL BOX PLANO POR EL FONDO 3D
             Interactive3DBackground(
                 theme = theme,
                 modifier = Modifier.fillMaxSize()
@@ -614,7 +617,6 @@ fun CarDashboard(
                                 .fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            // 1. APLICACIONES Y RELOJ (LADO IZQUIERDO)
                             Row(
                                 modifier = Modifier.weight(1f),
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -650,7 +652,6 @@ fun CarDashboard(
                                 }
                             }
 
-                            // 2. VELOCÍMETRO + BOTÓN DE TEMAS INTEGRADO (LADO DERECHO)
                             ModernDashboardCard(
                                 modifier = Modifier.weight(1f),
                                 title = null
@@ -664,7 +665,6 @@ fun CarDashboard(
                                         }
                                     )
 
-                                    // 🎨 BOTÓN DE TEMAS INSCRITO DENTRO DEL MISMO GADGET DE VELOCIDAD
                                     FloatingActionButton(
                                         onClick = { showThemeModal = true },
                                         containerColor = theme.cardBackground,
@@ -756,14 +756,15 @@ fun CarDashboard(
                 currentIsBold = currentIsBold,
                 currentButtonScale = currentButtonScale,
                 currentEqualizerStyle = currentEqualizerStyle,
+                currentFont = currentFont, // 👈 PASADO AL MODAL
                 onDismiss = { showThemeModal = false },
                 onThemeSelected = { newTheme: DashboardTheme -> onThemeChanged(newTheme) },
                 onTextScaleChanged = { newScale: Float -> onTextScaleChanged(newScale) },
                 onIsBoldChanged = { newIsBold: Boolean -> onIsBoldChanged(newIsBold) },
                 onButtonScaleChanged = { newButtonScale: Float -> onButtonScaleChanged(newButtonScale) },
-                onEqualizerStyleChanged = { newStyle: EqualizerStyle -> onEqualizerStyleChanged(newStyle) }
+                onEqualizerStyleChanged = { newStyle: EqualizerStyle -> onEqualizerStyleChanged(newStyle) },
+                onFontChanged = { newFont: DashboardFont -> onFontChanged(newFont) } // 👈 ACTUALIZADO
             )
         }
     }
-
 }
