@@ -1,9 +1,13 @@
 package com.creativem.toblauncher
 
+import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
@@ -69,7 +73,6 @@ enum class DashboardFont(
     val fontStyle: FontStyle = FontStyle.Normal,
     val letterSpacing: TextUnit = 0.sp
 ) {
-    // 1️⃣ Estilo Tesla / Porsche Taycan (Letras anchas, geométricas y ultra-modernas)
     HYPERCAR_NEO_TECH(
         id = 0,
         displayName = "⚡ HYPERCAR NEO-TECH",
@@ -79,8 +82,6 @@ enum class DashboardFont(
         fontStyle = FontStyle.Normal,
         letterSpacing = 2.8.sp
     ),
-
-    // 2️⃣ Letra Ultra Gorda Masiva (Máximo grosor y visibilidad al conducir bajo el sol)
     TITAN_ULTRA_FAT(
         id = 1,
         displayName = "🦍 TITÁN GORDA BLACK",
@@ -90,8 +91,6 @@ enum class DashboardFont(
         fontStyle = FontStyle.Normal,
         letterSpacing = 0.sp
     ),
-
-    // 3️⃣ Matriz Digital de Puntos LED (Estilo clúster de instrumentos digital)
     DOT_MATRIX_DIGITAL(
         id = 2,
         displayName = "🧱 MATRIZ LED DIGITAL",
@@ -101,8 +100,6 @@ enum class DashboardFont(
         fontStyle = FontStyle.Normal,
         letterSpacing = 1.2.sp
     ),
-
-    // 4️⃣ Estilo BMW M-Performance / AMG GT (Inclinación aerodinámica de alta velocidad)
     AMG_SPORT_ITALIC(
         id = 3,
         displayName = "🏁 AMG RACING ITALIC",
@@ -112,8 +109,6 @@ enum class DashboardFont(
         fontStyle = FontStyle.Italic,
         letterSpacing = 1.0.sp
     ),
-
-    // 5️⃣ Telemetría F1 / Clúster HUD (Monospace de alta precisión para velocímetro)
     TELEMETRY_DIGITAL_HUD(
         id = 4,
         displayName = "📟 TELEMETRÍA F1 HUD",
@@ -123,8 +118,6 @@ enum class DashboardFont(
         fontStyle = FontStyle.Normal,
         letterSpacing = 0.5.sp
     ),
-
-    // 6️⃣ Estilo Sci-Fi / Cyberpunk Futurista (Letras extendidas con apertura lateral)
     CYBERPUNK_WIDE_TECH(
         id = 5,
         displayName = "🚀 CYBERPUNK 2077 WIDE",
@@ -134,8 +127,6 @@ enum class DashboardFont(
         fontStyle = FontStyle.Normal,
         letterSpacing = 3.5.sp
     ),
-
-    // 7️⃣ Estilo Ford Raptor 4x4 / Bloque Pesado (Letras macizas condensadas)
     RAPTOR_HEAVY_BLOCK(
         id = 6,
         displayName = "🛡️ RAPTOR 4X4 BLOCK",
@@ -145,8 +136,6 @@ enum class DashboardFont(
         fontStyle = FontStyle.Normal,
         letterSpacing = (-0.6).sp
     ),
-
-    // 8️⃣ Estilo Tokyo Drift / Synthwave Neón (Cursiva deportiva de calle)
     NEO_TOKYO_DRIFT(
         id = 7,
         displayName = "🖋️ TOKYO DRIFT SYNTH",
@@ -156,8 +145,6 @@ enum class DashboardFont(
         fontStyle = FontStyle.Italic,
         letterSpacing = 1.5.sp
     ),
-
-    // 9️⃣ Estilo GT3 Cup / Compacta de Competición
     RACING_COMPACT_GT(
         id = 8,
         displayName = "🏎️ GT3 CUP COMPACT",
@@ -167,8 +154,6 @@ enum class DashboardFont(
         fontStyle = FontStyle.Normal,
         letterSpacing = (-0.3).sp
     ),
-
-    // 🔟 Estilo Avión Caza / Militar Táctico
     STEALTH_MILITARY_HUD(
         id = 9,
         displayName = "🎯 STEALTH TÁCTICO HUD",
@@ -178,8 +163,6 @@ enum class DashboardFont(
         fontStyle = FontStyle.Normal,
         letterSpacing = 0.2.sp
     ),
-
-    // 1️⃣1️⃣ Estilo Retro Synthwave Años 80 (Cursiva digital itálica)
     RETRO_SYNTH_80S(
         id = 10,
         displayName = "🕹️ RETRO WAVE 80s",
@@ -189,8 +172,6 @@ enum class DashboardFont(
         fontStyle = FontStyle.Italic,
         letterSpacing = 0.8.sp
     ),
-
-    // 1️⃣2️⃣ Estilo Maybach / Bentley Luxury (Elegancia clásica ejecutiva)
     EXECUTIVE_LUXURY(
         id = 11,
         displayName = "🏛️ LUXURY EXECUTIVE",
@@ -214,26 +195,67 @@ val LocalIsBoldText = compositionLocalOf { true }
 val LocalButtonScale = compositionLocalOf { 1.0f }
 val LocalEqualizerStyle = compositionLocalOf { EqualizerStyle.CLASSIC_BARS }
 val LocalDashboardFont = compositionLocalOf { DashboardFont.HYPERCAR_NEO_TECH }
+
 // =========================================================================
-// 🚀 GESTOR PARA SELECCIÓN DE LAUNCHER PREDETERMINADO
+// 🚀 GESTOR PARA SELECCIÓN DE LAUNCHER PREDETERMINADO (CORREGIDO AL 100%)
 // =========================================================================
 object LauncherManager {
+
+    /**
+     * Detección precisa de launcher por RoleManager (Android 10+) y ResolveActivity
+     */
     fun isDefaultLauncher(context: Context): Boolean {
         return try {
-            val intent = Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
+                if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)) {
+                    return roleManager.isRoleHeld(RoleManager.ROLE_HOME)
+                }
+            }
+
+            val intent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+            }
             val resolveInfo = context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
-            resolveInfo?.activityInfo?.packageName == context.packageName
+            val currentPackage = resolveInfo?.activityInfo?.packageName
+
+            // Si es null o es el selector interno de android, NO es predeterminado
+            currentPackage != null && currentPackage == context.packageName
         } catch (e: Exception) {
             false
         }
     }
 
+    /**
+     * Abre directamente el diálogo de sistema para asignar Launcher SIN borrar la preferencia
+     */
     fun forceAndroidChooser(context: Context) {
+        // 1️⃣ Vía Oficial Android 10+ (Abre el diálogo nativo directo de sistema)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
+            if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)) {
+                if (!roleManager.isRoleHeld(RoleManager.ROLE_HOME)) {
+                    val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    try {
+                        context.startActivity(intent)
+                        return
+                    } catch (e: Exception) { e.printStackTrace() }
+                }
+            }
+        }
+
+        // 2️⃣ Vía Ajustes de Aplicaciones de Inicio (Abre Ajustes > App de Inicio)
         try {
-            @Suppress("DEPRECATION")
-            context.packageManager.clearPackagePreferredActivities(context.packageName)
+            val homeSettingsIntent = Intent(Settings.ACTION_HOME_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(homeSettingsIntent)
+            return
         } catch (e: Exception) { e.printStackTrace() }
 
+        // 3️⃣ Vía Fallback Chooser estándar
         try {
             val homeIntent = Intent(Intent.ACTION_MAIN).apply {
                 addCategory(Intent.CATEGORY_HOME)
@@ -243,12 +265,19 @@ object LauncherManager {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(chooser)
-        } catch (e: Exception) { e.printStackTrace() }
+        } catch (e: Exception) {
+            // Último recurso: Pantalla de información de la app
+            val appIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", context.packageName, null)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(appIntent)
+        }
     }
 }
 
 // =========================================================================
-// 🎛️ GESTOR PRINCIPAL DE TEMAS, COLORES Y PERSISTENCIA (ARGB CORREGIDO)
+// 🎛️ GESTOR PRINCIPAL DE TEMAS, COLORES Y PERSISTENCIA
 // =========================================================================
 object ThemeManager {
     private const val PREFS_NAME = "dashboard_theme_prefs"
@@ -384,7 +413,6 @@ object ThemeManager {
             .edit().putFloat("button_scale_factor", scale).apply()
     }
 
-    // --- ECUALIZADOR Y AUTO-CAMBIO ---
     fun getSavedEqualizerStyle(context: Context): EqualizerStyle {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val styleName = prefs.getString("equalizer_style", EqualizerStyle.CLASSIC_BARS.name)
@@ -416,7 +444,7 @@ object ThemeManager {
 }
 
 // =========================================================================
-// 🎨 SELECTOR DE COLOR 2D (DEGRADADO + BARRA DE BRILLO)
+// 🎨 SELECTOR DE COLOR 2D
 // =========================================================================
 @Composable
 fun InteractiveHsvColorPicker(
@@ -589,6 +617,8 @@ fun ThemeSelectorModal(
     var allThemesList by remember { mutableStateOf(ThemeManager.getAllThemes(context)) }
     var showLauncherListModal by remember { mutableStateOf(false) }
     var showCreateThemeDialog by remember { mutableStateOf(false) }
+
+    // Estado reactivo del Launcher
     var isDefaultLauncher by remember { mutableStateOf(LauncherManager.isDefaultLauncher(context)) }
 
     fun applyAllChangesAndClose() {
@@ -613,6 +643,7 @@ fun ThemeSelectorModal(
 
     BackHandler { applyAllChangesAndClose() }
 
+    // 🔄 Auto-actualizar estado cuando el usuario regresa de la pantalla de ajustes de Android
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -746,7 +777,7 @@ fun ThemeSelectorModal(
                                 }
                             }
 
-                            // ESCALA DE LETRAS (SIN PANTALLAZO)
+                            // ESCALA DE LETRAS
                             Column {
                                 Text("Tamaño de Letras: ${(localTextScale * 100).toInt()}%", color = Color.LightGray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 Slider(
@@ -819,7 +850,7 @@ fun ThemeSelectorModal(
                         }
                     }
 
-                    // 👉 COLUMNA DERECHA: TEMAS, ECUALIZADORES Y AUTO-CAMBIO
+                    // 👉 COLUMNA DERECHA: LAUNCHER, TEMAS, ECUALIZADORES Y AUTO-CAMBIO
                     Surface(
                         color = localTheme.cardBackground,
                         shape = RoundedCornerShape(16.dp),
@@ -829,6 +860,80 @@ fun ThemeSelectorModal(
                             modifier = Modifier.fillMaxSize().verticalScroll(rightScrollState).padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
+                            // 🚀 SECCIÓN: DETECTOR Y CAMBIO DIRECTO DE LAUNCHER
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF161622)),
+                                border = BorderStroke(1.dp, if (isDefaultLauncher) Color(0xFF00E676) else localTheme.accentCyan),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.Home,
+                                                contentDescription = null,
+                                                tint = if (isDefaultLauncher) Color(0xFF00E676) else localTheme.accentCyan,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "Launcher Predeterminado",
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        Surface(
+                                            color = if (isDefaultLauncher) Color(0xFF00E676).copy(alpha = 0.2f) else Color(0xFFFF5252).copy(alpha = 0.2f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = if (isDefaultLauncher) "ACTIVO" else "NO ACTIVO",
+                                                color = if (isDefaultLauncher) Color(0xFF00E676) else Color(0xFFFF5252),
+                                                fontSize = 8.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            if (!isDefaultLauncher) {
+                                                LauncherManager.forceAndroidChooser(context)
+                                            } else {
+                                                showLauncherListModal = true
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isDefaultLauncher) Color(0xFF262638) else Color(0xFF00E676),
+                                            contentColor = if (isDefaultLauncher) Color.White else Color.Black
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth().height(36.dp),
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Icon(
+                                            if (isDefaultLauncher) Icons.Default.Check else Icons.Default.Star,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (isDefaultLauncher) "CONFIGURACIÓN LAUNCHER" else "⭐ ACTIVAR COMO PREDETERMINADO",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
+                                }
+                            }
+
                             Button(
                                 onClick = { showCreateThemeDialog = true },
                                 colors = ButtonDefaults.buttonColors(containerColor = localTheme.accentCyan, contentColor = Color.Black),
@@ -925,7 +1030,7 @@ fun ThemeSelectorModal(
                                 }
                             }
 
-                            // 🔀 TARJETA RESTAURADA: ECUALIZADOR ALEATORIO CON TIEMPOS
+                            // 🔀 TARJETA: ECUALIZADOR ALEATORIO CON TIEMPOS
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF161622)),
                                 border = BorderStroke(1.dp, if (isAutoRotateEq) localTheme.accentCyan else localTheme.cardBorder),
@@ -1031,7 +1136,7 @@ fun ThemeSelectorModal(
 }
 
 // =========================================================================
-// 🎨 MODAL CON MEZCLADOR 2D REAL (PERSISTENCIA ARGB CORREGIDA)
+// 🎨 MODAL CON MEZCLADOR 2D REAL
 // =========================================================================
 @Composable
 fun CustomColorMixerDialog(
