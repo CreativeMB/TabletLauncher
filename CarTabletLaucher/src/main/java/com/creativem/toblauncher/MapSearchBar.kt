@@ -144,7 +144,7 @@ fun MapSearchBar(
                     Box(modifier = Modifier.weight(1f)) {
                         if (searchQuery.isEmpty()) {
                             Text(
-                                text = "Buscar dirección, cruce o lugar...",
+                                text = "Buscar lugar...",
                                 color = Color.Gray,
                                 fontSize = 13.sp
                             )
