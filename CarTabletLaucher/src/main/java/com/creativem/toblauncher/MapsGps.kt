@@ -311,25 +311,33 @@ class LiveNavigationTracker(private var route: RouteOption) {
         var turnFound = false
         var accumulatedDist = calculateDistance(currentLoc, points[nextPointIdx])
 
+        // 🔄 DETECCIÓN PRECISA DE GIROS SUMANDO LA TRAYECTORIA DE LA INTERSECCIÓN
         for (i in nextPointIdx until (points.size - 1)) {
-            val inBearing = getIncomingBearing(points, i, 18.0)
-            val outBearing = getOutgoingBearing(points, i, 18.0)
+            // Medimos 25m hacia atrás y 35m hacia adelante para abarcar la esquina completa
+            val inBearing = getIncomingBearing(points, i, 25.0)
+            val outBearing = getOutgoingBearing(points, i, 35.0)
 
             var deltaAngle = (outBearing - inBearing) % 360.0
             if (deltaAngle > 180.0) deltaAngle -= 360.0
             if (deltaAngle < -180.0) deltaAngle += 360.0
 
-            if (abs(deltaAngle) >= 23.0) {
+            // Si el ángulo total de la maniobra supera los 20 grados
+            if (abs(deltaAngle) >= 20.0) {
                 distToTurn = accumulatedDist
                 turnFound = true
 
                 detectedManeuver = when {
-                    deltaAngle in 23.0..55.0 -> ManeuverType.SLIGHT_RIGHT
-                    deltaAngle in 55.1..125.0 -> ManeuverType.TURN_RIGHT
-                    deltaAngle in 125.1..165.0 -> ManeuverType.SHARP_RIGHT
-                    deltaAngle in -55.0..-23.0 -> ManeuverType.SLIGHT_LEFT
-                    deltaAngle in -125.0..-55.1 -> ManeuverType.TURN_LEFT
-                    deltaAngle in -165.0..-125.1 -> ManeuverType.SHARP_LEFT
+                    // 20° a 45° -> Giro leve
+                    deltaAngle in 20.0..45.0 -> ManeuverType.SLIGHT_RIGHT
+                    // 45.1° a 125° -> Giro normal (Aquí entra la esquina de 90°)
+                    deltaAngle in 45.1..125.0 -> ManeuverType.TURN_RIGHT
+                    // 125.1° a 160° -> Giro cerrado
+                    deltaAngle in 125.1..160.0 -> ManeuverType.SHARP_RIGHT
+                    // Negativos = Izquierda
+                    deltaAngle in -45.0..-20.0 -> ManeuverType.SLIGHT_LEFT
+                    deltaAngle in -125.0..-45.1 -> ManeuverType.TURN_LEFT
+                    deltaAngle in -160.0..-125.1 -> ManeuverType.SHARP_LEFT
+                    // Mayor a 160° -> Retorno / Giro en U
                     else -> ManeuverType.UTURN
                 }
                 break
@@ -1546,7 +1554,12 @@ fun MapContainerWidget(
         }
     }
 
+    // Variable para controlar los 10 segundos de llegada
+    var arrivalJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
     fun stopNavigation() {
+        arrivalJob?.cancel()
+        arrivalJob = null
         NavigationStateHolder.clear()
         mapRefs.routeLayerManager?.clearRoutes()
         mapRefs.mapView?.let { mv ->
@@ -1707,8 +1720,13 @@ fun MapContainerWidget(
                             NavigationStateHolder.navStatus = status
 
                             if (status.hasArrived) {
-                                android.widget.Toast.makeText(context, "🎉 ¡Has llegado a tu destino!", android.widget.Toast.LENGTH_LONG).show()
-                                stopNavigation()
+                                // ⏱️ Espera 10 segundos mostrando la burbuja antes de quitar la bandera y la ruta
+                                if (arrivalJob == null) {
+                                    arrivalJob = coroutineScope.launch {
+                                        kotlinx.coroutines.delay(10000L) // 10 segundos
+                                        stopNavigation()
+                                    }
+                                }
                             } else if (status.isOffRoute) {
                                 triggerSilentRecalculation(loc)
                             } else {
@@ -1748,44 +1766,53 @@ fun MapContainerWidget(
                     }
                 }
 
+                // 🧭 BURBUJA DE INDICACIONES Y LLEGADA (AUTO-CIERRE EN 10 SEG)
                 if (NavigationStateHolder.isNavigatingActive) {
+                    val hasArrived = NavigationStateHolder.navStatus.hasArrived
+                    val bubbleBorderColor = if (hasArrived) Color(0xFF00E676) else theme.cardBorder
+                    val badgeColor = if (hasArrived) Color(0xFF00E676) else theme.accentCyan
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 8.dp),
+                            .padding(top = 8.dp, start = 12.dp, end = 12.dp),
                         contentAlignment = Alignment.TopCenter
                     ) {
                         Card(
-                            modifier = Modifier.wrapContentSize(),
-                            colors = CardDefaults.cardColors(containerColor = theme.cardBackground.copy(alpha = 0.95f)),
-                            border = BorderStroke(1.dp, theme.cardBorder),
-                            shape = RoundedCornerShape(18.dp),
-                            elevation = CardDefaults.cardElevation(5.dp)
+                            modifier = Modifier
+                                .wrapContentSize()
+                                .widthIn(min = 150.dp, max = 360.dp),
+                            colors = CardDefaults.cardColors(containerColor = theme.cardBackground.copy(alpha = 0.96f)),
+                            border = BorderStroke(1.5.dp, bubbleBorderColor),
+                            shape = RoundedCornerShape(16.dp),
+                            elevation = CardDefaults.cardElevation(6.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(24.dp)
-                                        .background(theme.accentCyan, CircleShape),
+                                        .size(26.dp)
+                                        .background(badgeColor, CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = getManeuverIcon(NavigationStateHolder.navStatus.nextManeuver),
+                                        imageVector = if (hasArrived) Icons.Default.CheckCircle else getManeuverIcon(NavigationStateHolder.navStatus.nextManeuver),
                                         contentDescription = null,
-                                        tint = theme.dashBackground,
-                                        modifier = Modifier.size(15.dp)
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(9.dp))
                                 Text(
-                                    text = NavigationStateHolder.navStatus.maneuverInstruction,
+                                    text = if (hasArrived) "🎉 ¡Has llegado a tu destino!" else NavigationStateHolder.navStatus.maneuverInstruction,
                                     color = Color.White,
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1
+                                    fontWeight = FontWeight.ExtraBold,
+                                    lineHeight = 14.sp,
+                                    maxLines = 2,
+                                    softWrap = true
                                 )
                             }
                         }
@@ -1951,13 +1978,18 @@ fun MapContainerWidget(
                                 val initialBearing = getInitialRouteBearing(activeRoute.points, currentLocation)
                                 NavigationStateHolder.lastKnownBearing = initialBearing
 
+                                // 🛑 1. Cancelar cualquier animación activa del GPS para que no resetee el ángulo
+                                mapRefs.currentAnimator?.cancel()
+                                mapRefs.currentAnimator = null
+
+                                // 🧭 2. Fijar inmediatamente centro, zoom 18 y orientación de la ruta
                                 mapRefs.mapView?.let { mv ->
-                                    mv.model.mapViewPosition.zoomLevel = 18.toByte()
-                                    mv.model.mapViewPosition.center = currentLocation
                                     if (mv.width > 0 && mv.height > 0) {
                                         mv.pivotX = mv.width / 2f
                                         mv.pivotY = mv.height / 2f
                                     }
+                                    mv.model.mapViewPosition.zoomLevel = 18.toByte()
+                                    mv.model.mapViewPosition.center = currentLocation
                                     mv.rotation = -initialBearing
                                     mv.repaint()
                                 }
@@ -2308,8 +2340,6 @@ fun MapContainerWidget(
                                 ) {
                                     Text(text = "🔄 Actualizar Radares (${cameraCountDisplay})", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
-
-
 
                                 Button(
                                     onClick = {
@@ -2680,7 +2710,12 @@ fun startSmoothLocationTracking(
             currentDisplayLat = targetLat
             currentDisplayLng = targetLng
 
-            val initialBearing = if (location.hasBearing() && location.bearing > 0.0f) location.bearing else currentDisplayBearing
+            val initialBearing = if (location.hasBearing() && location.bearing > 0.0f) {
+                location.bearing
+            } else {
+                NavigationStateHolder.lastKnownBearing
+            }
+
             currentDisplayBearing = initialBearing
             smoothedTargetBearing = initialBearing
 
@@ -2700,16 +2735,20 @@ fun startSmoothLocationTracking(
             return
         }
 
+        // 🚗 Solo cambiar rumbo si el vehículo realmente se está moviendo
         var newCalculatedBearing = -1f
         if (location.hasBearing() && location.bearing > 0.0f) {
             newCalculatedBearing = location.bearing
-        } else if (movedDistanceMeters >= 1.2f) {
+        } else if (movedDistanceMeters >= 1.5f) {
             newCalculatedBearing = calculateBearingBetween(lastFixLat, lastFixLng, targetLat, targetLng)
         }
 
         if (newCalculatedBearing >= 0f) {
             val delta = calculateShortestAngleDelta(smoothedTargetBearing, newCalculatedBearing)
             smoothedTargetBearing = (smoothedTargetBearing + delta * 0.75f + 360f) % 360f
+        } else {
+            // Mantener el rumbo actual (el de la ruta inicial) si está detenido
+            smoothedTargetBearing = NavigationStateHolder.lastKnownBearing
         }
 
         lastFixLat = targetLat
