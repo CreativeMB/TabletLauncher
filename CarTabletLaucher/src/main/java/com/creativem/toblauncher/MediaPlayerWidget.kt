@@ -218,15 +218,28 @@ fun ModernMediaPlayerWidget(
             .background(Color(0xFF141414)),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // BARRA LATERAL DINÁMICA CON SCROLL
+
+        // =========================================================================
+        // 🎛️ BARRA LATERAL: DEGRADADO HORIZONTAL (ORILLA IZQ -> CENTRO -> ORILLA DER)
+        // =========================================================================
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(120.dp)
-                .background(Color(0xFF1A1A1A))
+                .width(115.dp)
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            theme.accentCyan.copy(alpha = 0.22f),    // 💎 Orilla Izquierda (Color Principal)
+                            theme.accentPurple.copy(alpha = 0.16f),  // 🔮 Transición (Color Secundario)
+                            theme.accentOrange.copy(alpha = 0.26f),  // 🌟 CENTRO VERTICAL (Color Terciario)
+                            theme.accentPurple.copy(alpha = 0.16f),  // 🔮 Transición (Color Secundario)
+                            theme.accentCyan.copy(alpha = 0.22f)     // 💎 Orilla Derecha (Color Principal)
+                        )
+                    )
+                )
                 .verticalScroll(sidebarScrollState)
-                .padding(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
+                .padding(vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             tabOrder.forEach { mode ->
@@ -234,13 +247,13 @@ fun ModernMediaPlayerWidget(
                     MediaMode.MUSIC -> Icons.Default.MusicNote
                     MediaMode.VIDEO -> Icons.Default.PlayCircle
                     MediaMode.RADIO -> Icons.Default.Radio
-                    MediaMode.IPTV -> Icons.Default.Tv
+                    MediaMode.IPTV  -> Icons.Default.Tv
                 }
 
                 SquareMediaTabButton(
                     icon = icon,
                     isSelected = currentMode == mode,
-                    activeColor = theme.accentCyan,
+                    theme = theme,
                     onClick = { onModeChange(mode) },
                     onLongClick = { showReorderModal = true }
                 )
@@ -414,32 +427,65 @@ fun ReorderMediaTabsModal(
 }
 
 // =========================================================================
-// 🔲 BOTÓN CUADRADO QUE CRECE CON EL TEMA DE LA APLICACIÓN
+// 🔲 BOTÓN CUADRADO: DEGRADADO RADIAL (CENTRO A ORILLAS) CON ALTO CONTRASTE
 // =========================================================================
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SquareMediaTabButton(
     icon: ImageVector,
     isSelected: Boolean,
-    activeColor: Color,
+    theme: DashboardTheme,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
 ) {
-    val buttonScale = LocalButtonScale.current
+    val buttonScale = LocalButtonScale.current ?: 1.0f
+
+    // 🔘 FONDO: Radial del centro a las orillas
+    val containerBrush = if (isSelected) {
+        Brush.radialGradient(
+            colors = listOf(
+                theme.accentCyan,
+                theme.accentCyan.copy(alpha = 0.80f)
+            )
+        )
+    } else {
+        // Centro neutro iluminado -> Orilla oscura con destello sutil del tema
+        Brush.radialGradient(
+            colors = listOf(
+                Color(0xFF2C2D3E),                      // Centro neutro claro (da profundidad)
+                Color(0xFF1C1C28),                      // Cuerpo intermedio
+                theme.accentPurple.copy(alpha = 0.18f)  // Orilla exterior
+            )
+        )
+    }
+
+    // 🔲 BORDES NÍTIDOS: Recortan el botón sobre el fondo para que nunca se pierda
+    val borderModifier = if (isSelected) {
+        Modifier.border(
+            width = 2.dp,
+            color = Color.White.copy(alpha = 0.90f),
+            shape = RoundedCornerShape((14 * buttonScale).dp)
+        )
+    } else {
+        Modifier.border(
+            width = 1.dp,
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    theme.accentCyan.copy(alpha = 0.50f),
+                    theme.accentPurple.copy(alpha = 0.35f),
+                    theme.accentOrange.copy(alpha = 0.45f)
+                )
+            ),
+            shape = RoundedCornerShape((14 * buttonScale).dp)
+        )
+    }
 
     Box(
         modifier = Modifier
-            .size((48 * buttonScale).dp)
-            .clip(RoundedCornerShape((12 * buttonScale).dp))
-            .background(
-                if (isSelected) activeColor.copy(alpha = 0.2f)
-                else Color(0xFF252525)
-            )
-            .border(
-                width = if (isSelected) 2.dp else 0.dp,
-                color = if (isSelected) activeColor else Color.Transparent,
-                shape = RoundedCornerShape((12 * buttonScale).dp)
-            )
+            .size((50 * buttonScale).dp)
+            .clip(RoundedCornerShape((14 * buttonScale).dp))
+            .background(containerBrush)
+            .then(borderModifier)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -449,7 +495,8 @@ fun SquareMediaTabButton(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = if (isSelected) activeColor else Color.Gray,
+            // Seleccionado en negro brillante; No seleccionados en blanco puro nítido
+            tint = if (isSelected) Color.Black else Color(0xFFF1F5F9),
             modifier = Modifier.size((26 * buttonScale).dp)
         )
     }
