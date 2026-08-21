@@ -47,7 +47,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 // =========================================================================
-// 🎨 MODELOS DE TEMA Y TIPOGRAFÍAS DE ALTO CONTRASTE
+// 🎨 MODELO DE TEMA CON JERARQUÍA AUTOMOTRIZ DE 3 COLORES
 // =========================================================================
 data class DashboardTheme(
     val id: Int,
@@ -55,11 +55,16 @@ data class DashboardTheme(
     val dashBackground: Color,
     val cardBackground: Color,
     val cardBorder: Color,
-    val accentCyan: Color,     // 1er Color (Primario)
-    val accentPurple: Color,   // 2do Color (Secundario)
-    val accentOrange: Color,   // 3er Color (Destaque / Alta velocidad)
+    val accentCyan: Color,     // 🔵 1er Color: Bordes, Botones e Iconos Activos
+    val accentPurple: Color,   // 🟣 2do Color: Letras, Títulos y Etiquetas de Texto
+    val accentOrange: Color,   // 🟠 3er Color: Números, Velocímetro, Reloj y Métricas
     val isCustom: Boolean = false
-)
+) {
+    // 💡 Aliases semánticos para usar directamente en tus vistas:
+    val primaryColor: Color get() = accentCyan
+    val textColor: Color get() = accentPurple
+    val numberColor: Color get() = accentOrange
+}
 
 // =========================================================================
 // 🏎️ TIPOGRAFÍAS AUTOMOTRICES Y FUTURISTAS DE ALTO IMPACTO PARA TABLET
@@ -73,119 +78,21 @@ enum class DashboardFont(
     val fontStyle: FontStyle = FontStyle.Normal,
     val letterSpacing: TextUnit = 0.sp
 ) {
-    HYPERCAR_NEO_TECH(
-        id = 0,
-        displayName = "⚡ HYPERCAR NEO-TECH",
-        subtitle = "Estilo Tesla / Porsche Eléctrico (Letras Espaciadas)",
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.ExtraBold,
-        fontStyle = FontStyle.Normal,
-        letterSpacing = 2.8.sp
-    ),
-    TITAN_ULTRA_FAT(
-        id = 1,
-        displayName = "🦍 TITÁN GORDA BLACK",
-        subtitle = "Máximo grosor (Weight 900) para lectura instantánea",
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Black,
-        fontStyle = FontStyle.Normal,
-        letterSpacing = 0.sp
-    ),
-    DOT_MATRIX_DIGITAL(
-        id = 2,
-        displayName = "🧱 MATRIZ LED DIGITAL",
-        subtitle = "Estilo reloj y tablero digital de puntos",
-        fontFamily = FontFamily.Monospace,
-        fontWeight = FontWeight.ExtraBold,
-        fontStyle = FontStyle.Normal,
-        letterSpacing = 1.2.sp
-    ),
-    AMG_SPORT_ITALIC(
-        id = 3,
-        displayName = "🏁 AMG RACING ITALIC",
-        subtitle = "Inclinada deportiva estilo BMW M / AMG",
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Black,
-        fontStyle = FontStyle.Italic,
-        letterSpacing = 1.0.sp
-    ),
-    TELEMETRY_DIGITAL_HUD(
-        id = 4,
-        displayName = "📟 TELEMETRÍA F1 HUD",
-        subtitle = "Estilo F1 / Pantallas de datos y tacómetro",
-        fontFamily = FontFamily.Monospace,
-        fontWeight = FontWeight.ExtraBold,
-        fontStyle = FontStyle.Normal,
-        letterSpacing = 0.5.sp
-    ),
-    CYBERPUNK_WIDE_TECH(
-        id = 5,
-        displayName = "🚀 CYBERPUNK 2077 WIDE",
-        subtitle = "Apertura ancha futurista para temas Neón",
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.ExtraBold,
-        fontStyle = FontStyle.Normal,
-        letterSpacing = 3.5.sp
-    ),
-    RAPTOR_HEAVY_BLOCK(
-        id = 6,
-        displayName = "🛡️ RAPTOR 4X4 BLOCK",
-        subtitle = "Letras macizas compactas estilo camioneta blindada",
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Black,
-        fontStyle = FontStyle.Normal,
-        letterSpacing = (-0.6).sp
-    ),
-    NEO_TOKYO_DRIFT(
-        id = 7,
-        displayName = "🖋️ TOKYO DRIFT SYNTH",
-        subtitle = "Cursiva deportiva para temas nocturnos",
-        fontFamily = FontFamily.Cursive,
-        fontWeight = FontWeight.Bold,
-        fontStyle = FontStyle.Italic,
-        letterSpacing = 1.5.sp
-    ),
-    RACING_COMPACT_GT(
-        id = 8,
-        displayName = "🏎️ GT3 CUP COMPACT",
-        subtitle = "Letras condensadas de autos de turismo y rally",
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Bold,
-        fontStyle = FontStyle.Normal,
-        letterSpacing = (-0.3).sp
-    ),
-    STEALTH_MILITARY_HUD(
-        id = 9,
-        displayName = "🎯 STEALTH TÁCTICO HUD",
-        subtitle = "Monospace militar de cabina de avión caza",
-        fontFamily = FontFamily.Monospace,
-        fontWeight = FontWeight.Black,
-        fontStyle = FontStyle.Normal,
-        letterSpacing = 0.2.sp
-    ),
-    RETRO_SYNTH_80S(
-        id = 10,
-        displayName = "🕹️ RETRO WAVE 80s",
-        subtitle = "Estilo OutRun clásico digital itálico",
-        fontFamily = FontFamily.Monospace,
-        fontWeight = FontWeight.Bold,
-        fontStyle = FontStyle.Italic,
-        letterSpacing = 0.8.sp
-    ),
-    EXECUTIVE_LUXURY(
-        id = 11,
-        displayName = "🏛️ LUXURY EXECUTIVE",
-        subtitle = "Estilo clásico formal para tableros elegantes",
-        fontFamily = FontFamily.Serif,
-        fontWeight = FontWeight.Bold,
-        fontStyle = FontStyle.Normal,
-        letterSpacing = 1.2.sp
-    );
+    HYPERCAR_NEO_TECH(0, "⚡ HYPERCAR NEO-TECH", "Estilo Tesla / Porsche Eléctrico (Letras Espaciadas)", FontFamily.SansSerif, FontWeight.ExtraBold, FontStyle.Normal, 2.8.sp),
+    TITAN_ULTRA_FAT(1, "🦍 TITÁN GORDA BLACK", "Máximo grosor (Weight 900) para lectura instantánea", FontFamily.SansSerif, FontWeight.Black, FontStyle.Normal, 0.sp),
+    DOT_MATRIX_DIGITAL(2, "🧱 MATRIZ LED DIGITAL", "Estilo reloj y tablero digital de puntos", FontFamily.Monospace, FontWeight.ExtraBold, FontStyle.Normal, 1.2.sp),
+    AMG_SPORT_ITALIC(3, "🏁 AMG RACING ITALIC", "Inclinada deportiva estilo BMW M / AMG", FontFamily.SansSerif, FontWeight.Black, FontStyle.Italic, 1.0.sp),
+    TELEMETRY_DIGITAL_HUD(4, "📟 TELEMETRÍA F1 HUD", "Estilo F1 / Pantallas de datos y tacómetro", FontFamily.Monospace, FontWeight.ExtraBold, FontStyle.Normal, 0.5.sp),
+    CYBERPUNK_WIDE_TECH(5, "🚀 CYBERPUNK 2077 WIDE", "Apertura ancha futurista para temas Neón", FontFamily.SansSerif, FontWeight.ExtraBold, FontStyle.Normal, 3.5.sp),
+    RAPTOR_HEAVY_BLOCK(6, "🛡️ RAPTOR 4X4 BLOCK", "Letras macizas compactas estilo camioneta blindada", FontFamily.SansSerif, FontWeight.Black, FontStyle.Normal, (-0.6).sp),
+    NEO_TOKYO_DRIFT(7, "🖋️ TOKYO DRIFT SYNTH", "Cursiva deportiva para temas nocturnos", FontFamily.Cursive, FontWeight.Bold, FontStyle.Italic, 1.5.sp),
+    RACING_COMPACT_GT(8, "🏎️ GT3 CUP COMPACT", "Letras condensadas de autos de turismo y rally", FontFamily.SansSerif, FontWeight.Bold, FontStyle.Normal, (-0.3).sp),
+    STEALTH_MILITARY_HUD(9, "🎯 STEALTH TÁCTICO HUD", "Monospace militar de cabina de avión caza", FontFamily.Monospace, FontWeight.Black, FontStyle.Normal, 0.2.sp),
+    RETRO_SYNTH_80S(10, "🕹️ RETRO WAVE 80s", "Estilo OutRun clásico digital itálico", FontFamily.Monospace, FontWeight.Bold, FontStyle.Italic, 0.8.sp),
+    EXECUTIVE_LUXURY(11, "🏛️ LUXURY EXECUTIVE", "Estilo clásico formal para tableros elegantes", FontFamily.Serif, FontWeight.Bold, FontStyle.Normal, 1.2.sp);
 
     companion object {
-        fun fromId(id: Int): DashboardFont {
-            return values().find { it.id == id } ?: HYPERCAR_NEO_TECH
-        }
+        fun fromId(id: Int): DashboardFont = values().find { it.id == id } ?: HYPERCAR_NEO_TECH
     }
 }
 
@@ -197,13 +104,9 @@ val LocalEqualizerStyle = compositionLocalOf { EqualizerStyle.CLASSIC_BARS }
 val LocalDashboardFont = compositionLocalOf { DashboardFont.HYPERCAR_NEO_TECH }
 
 // =========================================================================
-// 🚀 GESTOR PARA SELECCIÓN DE LAUNCHER PREDETERMINADO (CORREGIDO AL 100%)
+// 🚀 GESTOR PARA SELECCIÓN DE LAUNCHER PREDETERMINADO
 // =========================================================================
 object LauncherManager {
-
-    /**
-     * Detección precisa de launcher por RoleManager (Android 10+) y ResolveActivity
-     */
     fun isDefaultLauncher(context: Context): Boolean {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -212,25 +115,16 @@ object LauncherManager {
                     return roleManager.isRoleHeld(RoleManager.ROLE_HOME)
                 }
             }
-
-            val intent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-            }
+            val intent = Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) }
             val resolveInfo = context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
             val currentPackage = resolveInfo?.activityInfo?.packageName
-
-            // Si es null o es el selector interno de android, NO es predeterminado
             currentPackage != null && currentPackage == context.packageName
         } catch (e: Exception) {
             false
         }
     }
 
-    /**
-     * Abre directamente el diálogo de sistema para asignar Launcher SIN borrar la preferencia
-     */
     fun forceAndroidChooser(context: Context) {
-        // 1️⃣ Vía Oficial Android 10+ (Abre el diálogo nativo directo de sistema)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
             if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)) {
@@ -246,7 +140,6 @@ object LauncherManager {
             }
         }
 
-        // 2️⃣ Vía Ajustes de Aplicaciones de Inicio (Abre Ajustes > App de Inicio)
         try {
             val homeSettingsIntent = Intent(Settings.ACTION_HOME_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -255,7 +148,6 @@ object LauncherManager {
             return
         } catch (e: Exception) { e.printStackTrace() }
 
-        // 3️⃣ Vía Fallback Chooser estándar
         try {
             val homeIntent = Intent(Intent.ACTION_MAIN).apply {
                 addCategory(Intent.CATEGORY_HOME)
@@ -266,7 +158,6 @@ object LauncherManager {
             }
             context.startActivity(chooser)
         } catch (e: Exception) {
-            // Último recurso: Pantalla de información de la app
             val appIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.fromParts("package", context.packageName, null)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -283,29 +174,62 @@ object ThemeManager {
     private const val PREFS_NAME = "dashboard_theme_prefs"
     private const val CUSTOM_THEMES_KEY = "custom_saved_themes_json"
 
+    // Colores ordenados: 1° Borde/Iconos | 2° Letras | 3° Números/Datos
+    // 🎨 ORDEN ESTRICTO: 1° Borde/Iconos | 2° Letras/Texto | 3° Números/Métricas
     val themes = listOf(
-        DashboardTheme(0, "Negro OLED (Predeterminado)", Color(0xFF000000), Color(0xFF0C0E14), Color(0xFF1E2230), Color(0xFF00E5FF), Color(0xFF9D00FF), Color(0xFFFF9100)),
-        DashboardTheme(1, "Cian Eléctrico", Color(0xFF070D14), Color(0xFF0F1926), Color(0xFF00838F), Color(0xFF00F2FE), Color(0xFF4FACFE), Color(0xFFFF5252)),
-        DashboardTheme(2, "Rojo Pasión Sport", Color(0xFF0A0405), Color(0xFF1C0B0E), Color(0xFF88111A), Color(0xFFFF1744), Color(0xFFFF6100), Color(0xFFFFD600)),
-        DashboardTheme(3, "Verde Esmeralda", Color(0xFF040B08), Color(0xFF0B1C14), Color(0xFF0D6136), Color(0xFF00E676), Color(0xFF00B0FF), Color(0xFFFFAB00)),
-        DashboardTheme(4, "Azul Zafiro", Color(0xFF050A14), Color(0xFF0C1628), Color(0xFF1446A0), Color(0xFF2979FF), Color(0xFF00E5FF), Color(0xFFFF6D00)),
-        DashboardTheme(5, "Cyberpunk Synthwave", Color(0xFF0A0414), Color(0xFF190C28), Color(0xFF6A1B9A), Color(0xFFF50057), Color(0xFF7C4DFF), Color(0xFF00E5FF)),
-        DashboardTheme(6, "Tokyo Drift Pink", Color(0xFF0D030A), Color(0xFF1F0818), Color(0xFF880E4F), Color(0xFFFF007F), Color(0xFF00F5FF), Color(0xFFCCFF00)),
-        DashboardTheme(7, "Naranja Fuego Volcánico", Color(0xFF0D0703), Color(0xFF211208), Color(0xFFA84200), Color(0xFFFF6D00), Color(0xFFFFD600), Color(0xFFFF1744)),
-        DashboardTheme(8, "Verde Neón Tóxico", Color(0xFF030D05), Color(0xFF0A240F), Color(0xFF1B5E20), Color(0xFF00FF66), Color(0xFFB2FF59), Color(0xFFFF3D00)),
-        DashboardTheme(9, "Hyper Violeta", Color(0xFF080312), Color(0xFF160A2D), Color(0xFF4A148C), Color(0xFFD500F9), Color(0xFF29B6F6), Color(0xFFFFEE58)),
-        DashboardTheme(10, "Menta Suave Pastel", Color(0xFF0A1210), Color(0xFF142420), Color(0xFF2E5A4C), Color(0xFF80CBC4), Color(0xFFA5D6A7), Color(0xFFFFAB91)),
-        DashboardTheme(11, "Lavanda Nocturna", Color(0xFF0F0C1B), Color(0xFF1C1830), Color(0xFF453A68), Color(0xFFCE93D8), Color(0xFF9FA8DA), Color(0xFFFFCC80)),
-        DashboardTheme(12, "Turquesa Brisa Marina", Color(0xFF06141B), Color(0xFF11252D), Color(0xFF254B5A), Color(0xFF80DEEA), Color(0xFF80CBC4), Color(0xFFFF8A80)),
-        DashboardTheme(13, "Rosa Pastel & Cyan", Color(0xFF140A10), Color(0xFF261420), Color(0xFF5E2B4E), Color(0xFFF48FB1), Color(0xFF80DEEA), Color(0xFFFFE082)),
+        // 0. OLED CLÁSICO: Cian Eléctrico + Magenta Suave + Naranja Ámbar
+        DashboardTheme(0, "Negro OLED (Predeterminado)", Color(0xFF000000), Color(0xFF0C0E14), Color(0xFF1E2230), Color(0xFF00E5FF), Color(0xFFE040FB), Color(0xFFFF9100)),
+
+        // 1. CIAN ELÉCTRICO: Cian Brillante + Azul Hielo + Coral Fuego
+        DashboardTheme(1, "Cian Eléctrico", Color(0xFF03090F), Color(0xFF0A131F), Color(0xFF00838F), Color(0xFF00F2FE), Color(0xFF70D6FF), Color(0xFFFF5252)),
+
+        // 2. ROJO PASIÓN SPORT: Rojo Ferrari + Carmesí Suave + Amarillo Speed
+        DashboardTheme(2, "Rojo Pasión Sport", Color(0xFF0A0204), Color(0xFF160609), Color(0xFF88111A), Color(0xFFFF1744), Color(0xFFFF8A9E), Color(0xFFFFD600)),
+
+        // 3. VERDE ESMERALDA: Esmeralda Eléctrico + Menta Lima + Ámbar Dorado
+        DashboardTheme(3, "Verde Esmeralda", Color(0xFF020A05), Color(0xFF08180E), Color(0xFF0D6136), Color(0xFF00E676), Color(0xFF69F0AE), Color(0xFFFFAB00)),
+
+        // 4. AZUL ZAFIRO: Azul Zafiro Hyper + Celeste Cristal + Naranja Ópalo
+        DashboardTheme(4, "Azul Zafiro", Color(0xFF030712), Color(0xFF0A1224), Color(0xFF1446A0), Color(0xFF2979FF), Color(0xFF82B1FF), Color(0xFFFF9100)),
+
+        // 5. CYBERPUNK SYNTHWAVE: Cian 2077 + Rosa Synthwave + Amarillo Láser
+        DashboardTheme(5, "Cyberpunk Synthwave", Color(0xFF080210), Color(0xFF140824), Color(0xFF6A1B9A), Color(0xFF00F5FF), Color(0xFFFF007F), Color(0xFFFFEE00)),
+
+        // 6. TOKYO DRIFT PINK: Rosa Magenta + Violeta Orquídea + Verde Tóxico
+        DashboardTheme(6, "Tokyo Drift Pink", Color(0xFF0A0208), Color(0xFF180514), Color(0xFF880E4F), Color(0xFFFF007F), Color(0xFFE040FB), Color(0xFFCCFF00)),
+
+        // 7. NARANJA FUEGO VOLCÁNICO: Naranja Lava + Melocotón Fuego + Amarillo Volcán
+        DashboardTheme(7, "Naranja Fuego Volcánico", Color(0xFF0A0401), Color(0xFF1A0A04), Color(0xFFA84200), Color(0xFFFF6D00), Color(0xFFFFAB91), Color(0xFFFFD600)),
+
+        // 8. VERDE NEÓN TÓXICO: Verde Radiactivo + Lima Neón + Naranja Fuego
+        DashboardTheme(8, "Verde Neón Tóxico", Color(0xFF020803), Color(0xFF07180A), Color(0xFF1B5E20), Color(0xFF00FF66), Color(0xFFB2FF59), Color(0xFFFF3D00)),
+
+        // 9. HYPER VIOLETA: Violeta Neón + Lavanda Eléctrica + Oro Solar
+        DashboardTheme(9, "Hyper Violeta", Color(0xFF06020E), Color(0xFF100620), Color(0xFF4A148C), Color(0xFFD500F9), Color(0xFFB388FF), Color(0xFFFFD600)),
+
+        // 10. MENTA SUAVE PASTEL: Turquesa Menta + Menta Pastel + Coral Durazno
+        DashboardTheme(10, "Menta Suave Pastel", Color(0xFF030A07), Color(0xFF0A1812), Color(0xFF2E5A4C), Color(0xFF48CAE4), Color(0xFF80CBC4), Color(0xFFFFAB91)),
+
+        // 11. LAVANDA NOCTURNA: Lavanda Neón + Malva Claro + Ámbar Cálido
+        DashboardTheme(11, "Lavanda Nocturna", Color(0xFF06040C), Color(0xFF120E1E), Color(0xFF453A68), Color(0xFFB388FF), Color(0xFFE1BEE7), Color(0xFFFFCC80)),
+
+        // 12. TURQUESA BRISA MARINA: Turquesa Oceánico + Aguamarina Suave + Naranja Coral
+        DashboardTheme(12, "Turquesa Brisa Marina", Color(0xFF020A0E), Color(0xFF081720), Color(0xFF254B5A), Color(0xFF00E5FF), Color(0xFF80DEEA), Color(0xFFFF8A80)),
+
+        // 13. ROSA PASTEL & CYAN: Cian Hielo + Rosa Chicle + Amarillo Sol
+        DashboardTheme(13, "Rosa Pastel & Cyan", Color(0xFF0A0307), Color(0xFF1A0A13), Color(0xFF5E2B4E), Color(0xFF00F5FF), Color(0xFFF48FB1), Color(0xFFFFE082)),
+
+        // 14. ORO IMPERIAL LUXURY: Oro Real Imperial + Platino Champán + Fuego Carmín
         DashboardTheme(14, "Oro Imperial Luxury", Color(0xFF000000), Color(0xFF0F0D05), Color(0xFF5E4E0A), Color(0xFFFFD700), Color(0xFFFFF59D), Color(0xFFFF3D00)),
-        DashboardTheme(15, "Carbono M Performance", Color(0xFF000000), Color(0xFF0F1218), Color(0xFF1F2838), Color(0xFF2979FF), Color(0xFFFF1744), Color(0xFF00E5FF)),
-        DashboardTheme(16, "Amarillo Speed GT", Color(0xFF0A0A02), Color(0xFF1A1A05), Color(0xFF52520B), Color(0xFFFFEA00), Color(0xFF00E5FF), Color(0xFFFF3D00))
+
+        // 15. CARBONO M PERFORMANCE: Azul BMW M + Azul Glaciar + Rojo M Power
+        DashboardTheme(15, "Carbono M Performance", Color(0xFF000000), Color(0xFF0A0D14), Color(0xFF1F2838), Color(0xFF2979FF), Color(0xFF90CAF9), Color(0xFFFF1744)),
+
+        // 16. AMARILLO SPEED GT: Amarillo Speed GT + Amarillo Limón + Cian Hipervelocidad
+        DashboardTheme(16, "Amarillo Speed GT", Color(0xFF080801), Color(0xFF141403), Color(0xFF52520B), Color(0xFFFFEA00), Color(0xFFFFF176), Color(0xFF00E5FF))
     )
 
-    fun getAllThemes(context: Context): List<DashboardTheme> {
-        return themes + getCustomThemes(context)
-    }
+    fun getAllThemes(context: Context): List<DashboardTheme> = themes + getCustomThemes(context)
 
     fun getCustomThemes(context: Context): List<DashboardTheme> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -386,27 +310,24 @@ object ThemeManager {
             .edit().putInt("dashboard_font_id", font.id).apply()
     }
 
-    fun getSavedTextScale(context: Context): Float {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getFloat("text_scale_factor", 1.35f)
-    }
+    fun getSavedTextScale(context: Context): Float =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getFloat("text_scale_factor", 1.35f)
 
     fun saveTextScale(context: Context, scale: Float) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putFloat("text_scale_factor", scale).apply()
     }
 
-    fun getSavedIsBold(context: Context): Boolean {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean("text_is_bold", true)
-    }
+    fun getSavedIsBold(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean("text_is_bold", true)
 
     fun saveIsBold(context: Context, isBold: Boolean) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putBoolean("text_is_bold", isBold).apply()
     }
 
-    fun getSavedButtonScale(context: Context): Float {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getFloat("button_scale_factor", 1.0f)
-    }
+    fun getSavedButtonScale(context: Context): Float =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getFloat("button_scale_factor", 1.0f)
 
     fun saveButtonScale(context: Context, scale: Float) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -424,18 +345,16 @@ object ThemeManager {
             .edit().putString("equalizer_style", style.name).apply()
     }
 
-    fun getSavedAutoRotateEqEnabled(context: Context): Boolean {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean("auto_rotate_eq_enabled", false)
-    }
+    fun getSavedAutoRotateEqEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean("auto_rotate_eq_enabled", false)
 
     fun saveAutoRotateEqEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putBoolean("auto_rotate_eq_enabled", enabled).apply()
     }
 
-    fun getSavedAutoRotateEqInterval(context: Context): Int {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getInt("auto_rotate_eq_interval", 30)
-    }
+    fun getSavedAutoRotateEqInterval(context: Context): Int =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getInt("auto_rotate_eq_interval", 30)
 
     fun saveAutoRotateEqInterval(context: Context, seconds: Int) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -475,9 +394,7 @@ fun InteractiveHsvColorPicker(
     }
 
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(180.dp),
+        modifier = modifier.fillMaxWidth().height(180.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -610,7 +527,6 @@ fun ThemeSelectorModal(
     var localFont by remember { mutableStateOf(currentFont) }
     var localEqStyle by remember { mutableStateOf(currentEqualizerStyle) }
 
-    // 🔀 ESTADOS DE AUTO-CAMBIO
     var isAutoRotateEq by remember { mutableStateOf(ThemeManager.getSavedAutoRotateEqEnabled(context)) }
     var autoRotateEqInterval by remember { mutableIntStateOf(ThemeManager.getSavedAutoRotateEqInterval(context)) }
 
@@ -618,7 +534,6 @@ fun ThemeSelectorModal(
     var showLauncherListModal by remember { mutableStateOf(false) }
     var showCreateThemeDialog by remember { mutableStateOf(false) }
 
-    // Estado reactivo del Launcher
     var isDefaultLauncher by remember { mutableStateOf(LauncherManager.isDefaultLauncher(context)) }
 
     fun applyAllChangesAndClose() {
@@ -643,7 +558,6 @@ fun ThemeSelectorModal(
 
     BackHandler { applyAllChangesAndClose() }
 
-    // 🔄 Auto-actualizar estado cuando el usuario regresa de la pantalla de ajustes de Android
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -707,7 +621,7 @@ fun ThemeSelectorModal(
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // 👈 COLUMNA IZQUIERDA: TIPOGRAFÍAS, ESCALAS Y BRILLO
+                    // 👈 COLUMNA IZQUIERDA
                     Surface(
                         color = localTheme.cardBackground,
                         shape = RoundedCornerShape(16.dp),
@@ -717,32 +631,40 @@ fun ThemeSelectorModal(
                             modifier = Modifier.fillMaxSize().verticalScroll(leftScrollState).padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // VISTA PREVIA DINÁMICA
+                            // VISTA PREVIA DINÁMICA CON JERARQUÍA VISUAL REAL
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(68.dp)
+                                    .height(76.dp)
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(localTheme.dashBackground)
                                     .border(1.5.dp, localTheme.accentCyan, RoundedCornerShape(12.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        text = "${(localTextScale * 100).toInt()}% - 120 KM/H",
-                                        color = Color.White,
-                                        fontSize = 16.sp,
-                                        fontFamily = localFont.fontFamily,
-                                        fontWeight = localFont.fontWeight,
-                                        fontStyle = localFont.fontStyle,
-                                        letterSpacing = localFont.letterSpacing
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "120",
+                                            color = localTheme.numberColor,
+                                            fontSize = 20.sp,
+                                            fontFamily = localFont.fontFamily,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "KM/H",
+                                            color = localTheme.textColor,
+                                            fontSize = 12.sp,
+                                            fontFamily = localFont.fontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "Botones: ${(localButtonScale * 100).toInt()}% | ${localFont.displayName}",
-                                        color = localTheme.accentCyan,
+                                        text = "Letras en ${localFont.displayName}",
+                                        color = localTheme.textColor,
                                         fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                 }
                             }
@@ -850,7 +772,7 @@ fun ThemeSelectorModal(
                         }
                     }
 
-                    // 👉 COLUMNA DERECHA: LAUNCHER, TEMAS, ECUALIZADORES Y AUTO-CAMBIO
+                    // 👉 COLUMNA DERECHA
                     Surface(
                         color = localTheme.cardBackground,
                         shape = RoundedCornerShape(16.dp),
@@ -860,7 +782,7 @@ fun ThemeSelectorModal(
                             modifier = Modifier.fillMaxSize().verticalScroll(rightScrollState).padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            // 🚀 SECCIÓN: DETECTOR Y CAMBIO DIRECTO DE LAUNCHER
+                            // GESTOR DE LAUNCHER
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF161622)),
                                 border = BorderStroke(1.dp, if (isDefaultLauncher) Color(0xFF00E676) else localTheme.accentCyan),
@@ -881,12 +803,7 @@ fun ThemeSelectorModal(
                                                 modifier = Modifier.size(18.dp)
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = "Launcher Predeterminado",
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                            Text("Launcher Predeterminado", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
 
                                         Surface(
@@ -947,6 +864,7 @@ fun ThemeSelectorModal(
 
                             Text("🎨 Colección de Temas (${allThemesList.size})", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
 
+                            // LISTA DE TEMAS
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 allThemesList.chunked(2).forEach { rowThemes ->
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -957,7 +875,7 @@ fun ThemeSelectorModal(
                                                 shape = RoundedCornerShape(10.dp),
                                                 modifier = Modifier
                                                     .weight(1f)
-                                                    .height(54.dp)
+                                                    .height(56.dp)
                                                     .border(
                                                         width = if (isSelected) 2.5.dp else 1.dp,
                                                         color = if (isSelected) localTheme.accentCyan else theme.cardBorder,
@@ -975,10 +893,11 @@ fun ThemeSelectorModal(
                                                         if (theme.isCustom) Text("Personalizado", color = localTheme.accentCyan, fontSize = 7.sp)
                                                     }
 
-                                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(theme.accentCyan))
-                                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(theme.accentPurple))
-                                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(theme.accentOrange))
+                                                    // 3 Puntos ordenados: [Bordes/Acción] [Letras] [Números]
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                                        Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(theme.primaryColor))
+                                                        Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(theme.textColor))
+                                                        Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(theme.numberColor))
                                                     }
 
                                                     if (theme.isCustom) {
@@ -1001,7 +920,7 @@ fun ThemeSelectorModal(
 
                             HorizontalDivider(color = localTheme.cardBorder.copy(alpha = 0.5f))
 
-                            // 🎛️ SECCIÓN: COLECCIÓN DE ESTILOS DE ECUALIZADOR
+                            // ESTILOS DE ECUALIZADOR
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.GraphicEq, contentDescription = null, tint = localTheme.accentCyan, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -1030,7 +949,7 @@ fun ThemeSelectorModal(
                                 }
                             }
 
-                            // 🔀 TARJETA: ECUALIZADOR ALEATORIO CON TIEMPOS
+                            // ECUALIZADOR AUTO-ROTACIÓN
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF161622)),
                                 border = BorderStroke(1.dp, if (isAutoRotateEq) localTheme.accentCyan else localTheme.cardBorder),
@@ -1051,12 +970,7 @@ fun ThemeSelectorModal(
                                                 modifier = Modifier.size(18.dp)
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = "Ecualizador Aleatorio (Auto)",
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                            Text("Ecualizador Aleatorio (Auto)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
 
                                         Switch(
@@ -1068,11 +982,7 @@ fun ThemeSelectorModal(
 
                                     if (isAutoRotateEq) {
                                         Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = "Intervalo de cambio de ecualizador:",
-                                            color = Color.LightGray,
-                                            fontSize = 9.sp
-                                        )
+                                        Text("Intervalo de cambio de ecualizador:", color = Color.LightGray, fontSize = 9.sp)
                                         Spacer(modifier = Modifier.height(4.dp))
 
                                         val intervals = listOf(
@@ -1083,10 +993,7 @@ fun ThemeSelectorModal(
                                             600 to "10 Min"
                                         )
 
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                             intervals.forEach { (sec, label) ->
                                                 val isSelected = autoRotateEqInterval == sec
                                                 Box(
@@ -1136,7 +1043,7 @@ fun ThemeSelectorModal(
 }
 
 // =========================================================================
-// 🎨 MODAL CON MEZCLADOR 2D REAL
+// 🎨 MODAL MEZCLADOR 2D CON CATEGORÍAS CLARAS
 // =========================================================================
 @Composable
 fun CustomColorMixerDialog(
@@ -1147,9 +1054,9 @@ fun CustomColorMixerDialog(
     var themeName by remember { mutableStateOf("Mi Estilo Personalizado") }
     var selectedColorIndex by remember { mutableIntStateOf(1) }
 
-    var colorPrimario by remember { mutableStateOf(Color(0xFF00E5FF)) }
-    var colorSecundario by remember { mutableStateOf(Color(0xFFD500F9)) }
-    var colorDestaque by remember { mutableStateOf(Color(0xFFFF9100)) }
+    var colorPrimario by remember { mutableStateOf(Color(0xFF00E5FF)) }   // Bordes y Botones
+    var colorLetras by remember { mutableStateOf(Color(0xFFD500F9)) }     // Letras y Títulos
+    var colorNumeros by remember { mutableStateOf(Color(0xFFFF9100)) }    // Números y Métricas
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1158,7 +1065,7 @@ fun CustomColorMixerDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Palette, contentDescription = null, tint = colorPrimario)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Editar Colores del Tablero", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text("Asignar Colores del Tablero", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
         },
         text = {
@@ -1176,11 +1083,12 @@ fun CustomColorMixerDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // 3 Pestañas con su función clara
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf(
-                        Triple(1, "1️⃣ Primario", colorPrimario),
-                        Triple(2, "2️⃣ Secundario", colorSecundario),
-                        Triple(3, "3️⃣ Destaque", colorDestaque)
+                        Triple(1, "1️⃣ Bordes/Iconos", colorPrimario),
+                        Triple(2, "2️⃣ Letras/Texto", colorLetras),
+                        Triple(3, "3️⃣ Números/Datos", colorNumeros)
                     ).forEach { (idx, label, colorVal) ->
                         val isSelected = selectedColorIndex == idx
                         Box(
@@ -1190,13 +1098,13 @@ fun CustomColorMixerDialog(
                                 .background(if (isSelected) colorVal.copy(alpha = 0.25f) else Color(0xFF222232))
                                 .border(if (isSelected) 2.dp else 0.dp, colorVal, RoundedCornerShape(8.dp))
                                 .clickable { selectedColorIndex = idx }
-                                .padding(vertical = 6.dp, horizontal = 4.dp),
+                                .padding(vertical = 6.dp, horizontal = 2.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(colorVal))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(label, color = if (isSelected) colorVal else Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(label, color = if (isSelected) colorVal else Color.White, fontSize = 8.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                             }
                         }
                     }
@@ -1205,34 +1113,37 @@ fun CustomColorMixerDialog(
                 InteractiveHsvColorPicker(
                     initialColor = when (selectedColorIndex) {
                         1 -> colorPrimario
-                        2 -> colorSecundario
-                        else -> colorDestaque
+                        2 -> colorLetras
+                        else -> colorNumeros
                     },
                     onColorChanged = { newColor ->
                         when (selectedColorIndex) {
                             1 -> colorPrimario = newColor
-                            2 -> colorSecundario = newColor
-                            3 -> colorDestaque = newColor
+                            2 -> colorLetras = newColor
+                            3 -> colorNumeros = newColor
                         }
                     }
                 )
 
+                // Previsualización directa
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(38.dp)
+                        .height(44.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color(0xFF07090E))
-                        .border(1.dp, colorPrimario.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
+                        .border(1.5.dp, colorPrimario, RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Combinación Activa:", color = Color.LightGray, fontSize = 10.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Box(modifier = Modifier.size(14.dp).clip(CircleShape).background(colorPrimario))
-                            Box(modifier = Modifier.size(14.dp).clip(CircleShape).background(colorSecundario))
-                            Box(modifier = Modifier.size(14.dp).clip(CircleShape).background(colorDestaque))
-                        }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("MÚSICA:", color = colorLetras, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("03:45", color = colorNumeros, fontSize = 13.sp, fontWeight = FontWeight.Black)
+                        Text("•", color = colorPrimario, fontSize = 12.sp)
+                        Text("VELOCIDAD:", color = colorLetras, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("80 KM/H", color = colorNumeros, fontSize = 13.sp, fontWeight = FontWeight.Black)
                     }
                 }
             }
@@ -1248,8 +1159,8 @@ fun CustomColorMixerDialog(
                         cardBackground = Color(0xFF0E121B),
                         cardBorder = colorPrimario.copy(alpha = 0.40f),
                         accentCyan = colorPrimario,
-                        accentPurple = colorSecundario,
-                        accentOrange = colorDestaque,
+                        accentPurple = colorLetras,
+                        accentOrange = colorNumeros,
                         isCustom = true
                     )
                     onSave(created)

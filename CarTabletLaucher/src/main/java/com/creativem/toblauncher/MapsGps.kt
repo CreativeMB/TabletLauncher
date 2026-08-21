@@ -1766,7 +1766,7 @@ fun MapContainerWidget(
                     }
                 }
 
-                // 🧭 BURBUJA DE INDICACIONES Y LLEGADA (AUTO-CIERRE EN 10 SEG)
+                // 🧭 BURBUJA DE INDICACIONES Y LLEGADA (RESPONSIVA Y MULTILÍNEA)
                 if (NavigationStateHolder.isNavigatingActive) {
                     val hasArrived = NavigationStateHolder.navStatus.hasArrived
                     val bubbleBorderColor = if (hasArrived) Color(0xFF00E676) else theme.cardBorder
@@ -1775,25 +1775,27 @@ fun MapContainerWidget(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 8.dp, start = 12.dp, end = 12.dp),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         contentAlignment = Alignment.TopCenter
                     ) {
                         Card(
                             modifier = Modifier
-                                .wrapContentSize()
-                                .widthIn(min = 150.dp, max = 360.dp),
+                                .fillMaxWidth()
+                                .wrapContentHeight(),
                             colors = CardDefaults.cardColors(containerColor = theme.cardBackground.copy(alpha = 0.96f)),
                             border = BorderStroke(1.5.dp, bubbleBorderColor),
                             shape = RoundedCornerShape(16.dp),
                             elevation = CardDefaults.cardElevation(6.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(26.dp)
+                                        .size(28.dp)
                                         .background(badgeColor, CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -1801,17 +1803,17 @@ fun MapContainerWidget(
                                         imageVector = if (hasArrived) Icons.Default.CheckCircle else getManeuverIcon(NavigationStateHolder.navStatus.nextManeuver),
                                         contentDescription = null,
                                         tint = Color.Black,
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(9.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Text(
                                     text = if (hasArrived) "🎉 ¡Has llegado a tu destino!" else NavigationStateHolder.navStatus.maneuverInstruction,
                                     color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    lineHeight = 14.sp,
-                                    maxLines = 2,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    lineHeight = 16.sp,
+                                    modifier = Modifier.weight(1f),
                                     softWrap = true
                                 )
                             }

@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -33,7 +34,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Interpola suavemente a través de la paleta del tema seleccionado por el usuario
+ * Interpola suavemente a través de la paleta del tema seleccionado
  */
 fun getSmoothProgressiveColor(palette: List<Color>, progress: Float): Color {
     val clamped = progress.coerceIn(0f, 1f)
@@ -55,7 +56,8 @@ fun ModernSpeedometerWidget(
     onRequestAppSelection: (slot: Int) -> Unit = {}
 ) {
     val theme = LocalDashboardTheme.current
-    val totalSpeed = 160f // <-- Ajustado a 160 km/h para simetría exacta
+    val dashboardFont = LocalDashboardFont.current
+    val totalSpeed = 160f // Escala exacta 0 a 160 km/h
 
     val animatedSpeed by animateFloatAsState(
         targetValue = speedKmH,
@@ -66,21 +68,57 @@ fun ModernSpeedometerWidget(
     val speedProgress = (animatedSpeed / totalSpeed).coerceIn(0f, 1f)
 
     // =========================================================================
-    // 🎨 PALETA CONTINUA BASADA 100% EN EL TEMA
+    // 🎨 MEZCLA DINÁMICA DE 3 COLORES BASADA 100% EN EL TEMA
     // =========================================================================
     val dynamicSpeedColor = remember(animatedSpeed, theme) {
         val themeSpectrum = listOf(
-            lerp(Color.White, theme.accentCyan, 0.40f), // 0 km/h: Tono claro/suave
-            theme.accentCyan,                          // Color primario
-            theme.accentPurple,                        // Color secundario
-            theme.accentOrange                         // Máxima velocidad (160 km/h)
+            theme.primaryColor,
+            theme.textColor,
+            theme.numberColor
         )
         getSmoothProgressiveColor(themeSpectrum, speedProgress)
     }
 
-    // Color del número digital continuo
-    val dynamicNumberColor = remember(animatedSpeed, theme, dynamicSpeedColor) {
-        lerp(Color.White, dynamicSpeedColor, speedProgress)
+    val dynamicNumberColor = remember(animatedSpeed, theme) {
+        lerp(theme.numberColor, Color.White, 0.20f)
+    }
+
+    // 🌌 1. FONDO EXTERIOR DINÁMICO (De adentro hacia afuera - Primario predominante)
+    val dynamicOuterBackground = remember(theme) {
+        Brush.radialGradient(
+            colors = listOf(
+                lerp(theme.cardBackground, theme.primaryColor, 0.35f), // Centro más iluminado con el Primario
+                lerp(theme.dashBackground, theme.textColor, 0.15f),    // Halo medio con el color de texto
+                lerp(theme.dashBackground, theme.numberColor, 0.08f),  // Destello exterior con el de números
+                theme.dashBackground                                  // Borde fundido al fondo general
+            ),
+            radius = 650f
+        )
+    }
+
+    // 🌌 2. FONDO INTERIOR DINÁMICO (Núcleo radiante del centro hacia afuera)
+    val dynamicInnerBackground = remember(theme) {
+        Brush.radialGradient(
+            colors = listOf(
+                lerp(theme.cardBackground, theme.primaryColor, 0.45f), // Máxima intensidad en el centro
+                lerp(theme.cardBackground, theme.primaryColor, 0.20f),
+                lerp(theme.dashBackground, theme.textColor, 0.12f),
+                theme.dashBackground
+            ),
+            radius = 450f
+        )
+    }
+
+    // 🖼️ 3. BORDE DINÁMICO CON LOS 3 COLORES
+    val dynamicBorderBrush = remember(theme, speedProgress) {
+        Brush.sweepGradient(
+            listOf(
+                theme.primaryColor.copy(alpha = 0.85f),
+                theme.textColor.copy(alpha = 0.50f),
+                theme.numberColor.copy(alpha = 0.40f),
+                theme.primaryColor.copy(alpha = 0.85f)
+            )
+        )
     }
 
     Row(
@@ -88,44 +126,26 @@ fun ModernSpeedometerWidget(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // ==========================================
+        // =========================================================================
         // 1. RELOJ ANÁLOGO (0 A 160 KM/H)
-        // ==========================================
+        // =========================================================================
         Box(
             modifier = Modifier
                 .weight(1.35f)
                 .fillMaxHeight()
-                .shadow(16.dp, RoundedCornerShape(26.dp), spotColor = dynamicSpeedColor.copy(alpha = 0.35f * speedProgress + 0.1f))
+                .shadow(16.dp, RoundedCornerShape(26.dp), spotColor = dynamicSpeedColor.copy(alpha = 0.35f * speedProgress + 0.15f))
                 .clip(RoundedCornerShape(26.dp))
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF222B3D), Color(0xFF111722), Color(0xFF07090E))
-                    )
-                )
-                .border(
-                    1.8.dp,
-                    Brush.linearGradient(
-                        listOf(
-                            dynamicSpeedColor.copy(alpha = 0.4f + (0.4f * speedProgress)),
-                            theme.accentPurple.copy(alpha = 0.3f),
-                            Color.Black
-                        )
-                    ),
-                    RoundedCornerShape(26.dp)
-                )
+                .background(dynamicOuterBackground)
+                .border(1.8.dp, dynamicBorderBrush, RoundedCornerShape(26.dp))
                 .padding(6.dp),
             contentAlignment = Alignment.Center
         ) {
+            // Fondo interior radiante
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(20.dp))
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(Color(0xFF1A2232), Color(0xFF0A0E16)),
-                            radius = 450f
-                        )
-                    )
+                    .background(dynamicInnerBackground)
             )
 
             Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
@@ -136,10 +156,10 @@ fun ModernSpeedometerWidget(
                 val arcRadius = maxRadius - (strokeWidthPx / 2f)
                 val innerArcEdge = arcRadius - (strokeWidthPx / 2f)
                 val ticksRadius = innerArcEdge - 2.dp.toPx()
-                val textRadius = ticksRadius - 36.dp.toPx()
+                val textRadius = ticksRadius - 34.dp.toPx()
                 val needleLength = innerArcEdge - 14.dp.toPx()
 
-                // RAYOS HUD
+                // 🔵 RAYOS HUD (Nacen desde el centro con los colores del tema)
                 val rayCount = 36
                 val rayStartRadius = arcRadius + (strokeWidthPx / 2f) + 2.dp.toPx()
                 val outerBoxExtent = size.maxDimension
@@ -161,13 +181,14 @@ fun ModernSpeedometerWidget(
                     val angleDiff = Math.abs(rayAngleDeg - currentSpeedAngle)
                     val isNearNeedle = angleDiff < 30f || (360f - angleDiff) < 30f
 
-                    val rayAlpha = if (isNearNeedle) (0.25f + 0.35f * speedProgress) else 0.08f
+                    val rayAlpha = if (isNearNeedle) (0.28f + 0.35f * speedProgress) else 0.10f
+                    val rayLineColor = if (isNearNeedle) dynamicSpeedColor else theme.primaryColor
 
                     drawLine(
                         brush = Brush.linearGradient(
                             colors = listOf(
-                                dynamicSpeedColor.copy(alpha = rayAlpha),
-                                theme.accentPurple.copy(alpha = rayAlpha * 0.4f),
+                                rayLineColor.copy(alpha = rayAlpha),
+                                theme.textColor.copy(alpha = rayAlpha * 0.4f),
                                 Color.Transparent
                             ),
                             start = rayStart,
@@ -180,15 +201,16 @@ fun ModernSpeedometerWidget(
                     )
                 }
 
-                // ANILLOS DECORATIVOS
+                // 🔵 ANILLOS DECORATIVOS CONCÉNTRICOS
                 for (rOffset in listOf(8.dp.toPx(), 18.dp.toPx(), 28.dp.toPx())) {
                     val ringRadius = arcRadius + (strokeWidthPx / 2f) + rOffset
                     drawCircle(
                         brush = Brush.sweepGradient(
                             listOf(
-                                dynamicSpeedColor.copy(alpha = 0.12f),
-                                theme.accentPurple.copy(alpha = 0.15f),
-                                dynamicSpeedColor.copy(alpha = 0.12f)
+                                theme.primaryColor.copy(alpha = 0.20f),
+                                theme.textColor.copy(alpha = 0.15f),
+                                theme.numberColor.copy(alpha = 0.10f),
+                                theme.primaryColor.copy(alpha = 0.20f)
                             )
                         ),
                         radius = ringRadius,
@@ -200,12 +222,13 @@ fun ModernSpeedometerWidget(
                     )
                 }
 
-                // 1. ARCO BASE
+                // 1. ARCO BASE DECORATIVO
                 drawArc(
                     brush = Brush.sweepGradient(
                         listOf(
-                            theme.accentPurple.copy(alpha = 0.2f),
-                            theme.accentCyan.copy(alpha = 0.2f)
+                            theme.textColor.copy(alpha = 0.25f),
+                            theme.primaryColor.copy(alpha = 0.30f),
+                            theme.numberColor.copy(alpha = 0.20f)
                         )
                     ),
                     startAngle = 135f,
@@ -216,14 +239,14 @@ fun ModernSpeedometerWidget(
                     topLeft = Offset(center.x - arcRadius, center.y - arcRadius)
                 )
 
-                // 2. BARRA DINÁMICA
+                // 2. BARRA DINÁMICA DE PROGRESO AL ACELERAR
                 if (speedProgress > 0f) {
                     drawArc(
                         color = dynamicSpeedColor.copy(alpha = 0.35f + (0.25f * speedProgress)),
                         startAngle = 135f,
                         sweepAngle = 270f * speedProgress,
                         useCenter = false,
-                        style = Stroke(width = strokeWidthPx * 1.6f, cap = StrokeCap.Round),
+                        style = Stroke(width = strokeWidthPx * 1.5f, cap = StrokeCap.Round),
                         size = Size(arcRadius * 2, arcRadius * 2),
                         topLeft = Offset(center.x - arcRadius, center.y - arcRadius)
                     )
@@ -239,24 +262,37 @@ fun ModernSpeedometerWidget(
                     )
                 }
 
-                // 3. TEXTOS DEL DIAL
+                // 🟣 3. TEXTO "KM / H" EN LA APERTURA INFERIOR (Color de Texto)
+                val dialLabelPaint = AndroidPaint().apply {
+                    color = theme.textColor.toArgb()
+                    textSize = 8.5.sp.toPx()
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    textAlign = AndroidPaint.Align.CENTER
+                    isAntiAlias = true
+                    letterSpacing = 0.20f
+                }
+                val labelPosY = center.y + (arcRadius * 0.78f)
+                drawContext.canvas.nativeCanvas.drawText("KM / H", center.x, labelPosY, dialLabelPaint)
+
+                // 🟠 4. PINTURAS PARA NÚMEROS DEL DIAL (Color de Números)
                 val textPaintDimmed = AndroidPaint().apply {
-                    color = android.graphics.Color.argb(160, 170, 185, 200)
-                    textSize = 14.sp.toPx()
+                    color = theme.numberColor.copy(alpha = 0.75f).toArgb()
+                    textSize = 11.sp.toPx()
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textAlign = AndroidPaint.Align.CENTER
                     isAntiAlias = true
                 }
 
                 val textPaintActive = AndroidPaint().apply {
-                    color = android.graphics.Color.WHITE
-                    textSize = 15.5.sp.toPx()
+                    color = Color.White.toArgb()
+                    textSize = 15.sp.toPx()
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textAlign = AndroidPaint.Align.CENTER
                     isAntiAlias = true
+                    setShadowLayer(8f, 0f, 0f, theme.numberColor.toArgb())
                 }
 
-                // 4. TICKS PROGRESIVOS (0 a 160 exactos de 20 en 20)
+                // 5. TICKS PROGRESIVOS (0 a 160)
                 for (s in 0..totalSpeed.toInt() step 5) {
                     val angleDeg = 135f + (s.toFloat() / totalSpeed) * 270f
                     val angleRad = Math.toRadians(angleDeg.toDouble())
@@ -282,8 +318,8 @@ fun ModernSpeedometerWidget(
 
                     val tickColor = when {
                         isPassed -> dynamicSpeedColor
-                        isMainTick -> Color.White
-                        else -> Color.Gray.copy(alpha = 0.45f)
+                        isMainTick -> theme.primaryColor.copy(alpha = 0.90f)
+                        else -> theme.primaryColor.copy(alpha = 0.40f)
                     }
 
                     drawLine(
@@ -296,7 +332,7 @@ fun ModernSpeedometerWidget(
 
                     if (isMainTick) {
                         val numX = center.x + textRadius * cos(angleRad).toFloat()
-                        val numY = center.y + textRadius * sin(angleRad).toFloat() + 3.5.dp.toPx()
+                        val numY = center.y + textRadius * sin(angleRad).toFloat() + 4.dp.toPx()
 
                         drawContext.canvas.nativeCanvas.drawText(
                             s.toString(),
@@ -307,7 +343,7 @@ fun ModernSpeedometerWidget(
                     }
                 }
 
-                // 5. AGUJA DINÁMICA
+                // 6. AGUJA DINÁMICA Y EJE CENTRAL
                 val needleAngleRad = Math.toRadians((135f + (270f * speedProgress)).toDouble())
                 val needleEnd = Offset(
                     x = center.x + (needleLength * cos(needleAngleRad)).toFloat(),
@@ -336,13 +372,11 @@ fun ModernSpeedometerWidget(
             }
         }
 
-        // ==========================================
-        // 2. VELOCIDAD DIGITAL CON FECHA SUPERIOR
-        // ==========================================
-
-        // Obtiene la fecha actual formateada en mayúsculas (Ej: "JUEVES, 20 AGOSTO 2025")
+        // =========================================================================
+        // 2. VELOCIDAD DIGITAL (DÍA COMPLETO + FECHA NUMÉRICA: Ej. "VIERNES, 21/08/2026")
+        // =========================================================================
         val currentDate = remember {
-            val sdf = java.text.SimpleDateFormat("EEEE, d MMMM yyyy", java.util.Locale.getDefault())
+            val sdf = java.text.SimpleDateFormat("EEEE, dd/MM/yyyy", java.util.Locale.getDefault())
             sdf.format(java.util.Date()).uppercase()
         }
 
@@ -350,47 +384,103 @@ fun ModernSpeedometerWidget(
             modifier = Modifier
                 .weight(1.0f)
                 .fillMaxHeight()
-                .shadow(
-                    elevation = 14.dp,
-                    shape = RoundedCornerShape(26.dp),
-                    spotColor = dynamicSpeedColor.copy(alpha = 0.2f + 0.35f * speedProgress)
-                )
+                .shadow(16.dp, RoundedCornerShape(26.dp), spotColor = dynamicSpeedColor.copy(alpha = 0.35f * speedProgress + 0.15f))
                 .clip(RoundedCornerShape(26.dp))
-                .background(Brush.verticalGradient(listOf(Color(0xFF222B3D), Color(0xFF07090E))))
-                .border(
-                    1.6.dp,
-                    Brush.linearGradient(
-                        listOf(
-                            dynamicSpeedColor.copy(alpha = 0.5f + (0.5f * speedProgress)),
-                            Color.Transparent,
-                            theme.accentPurple.copy(alpha = 0.4f)
-                        )
-                    ),
-                    RoundedCornerShape(26.dp)
-                )
+                .background(dynamicOuterBackground)
+                .border(1.8.dp, dynamicBorderBrush, RoundedCornerShape(26.dp))
+                .padding(6.dp),
+            contentAlignment = Alignment.Center
         ) {
-            // 📅 1. FECHA SUPERIOR (Toma el color dinámico del tema)
+            // Fondo interior radiante idéntico al análogo
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(dynamicInnerBackground)
+            )
+
+            // Canvas con Rayos HUD y Aros concéntricos generados del centro hacia afuera
+            Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
+                val center = Offset(size.width / 2f, size.height / 2f)
+                val outerBoxExtent = size.maxDimension
+
+                // Rayos HUD del centro hacia afuera
+                val rayCount = 28
+                val innerR = 18.dp.toPx()
+                for (i in 0 until rayCount) {
+                    val rayAngleDeg = i * (360f / rayCount)
+                    val rayAngleRad = Math.toRadians(rayAngleDeg.toDouble())
+
+                    val rayStart = Offset(
+                        x = center.x + innerR * cos(rayAngleRad).toFloat(),
+                        y = center.y + innerR * sin(rayAngleRad).toFloat()
+                    )
+                    val rayEnd = Offset(
+                        x = center.x + outerBoxExtent * cos(rayAngleRad).toFloat(),
+                        y = center.y + outerBoxExtent * sin(rayAngleRad).toFloat()
+                    )
+
+                    drawLine(
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                theme.primaryColor.copy(alpha = 0.18f),
+                                theme.textColor.copy(alpha = 0.08f),
+                                Color.Transparent
+                            ),
+                            start = rayStart,
+                            end = rayEnd
+                        ),
+                        start = rayStart,
+                        end = rayEnd,
+                        strokeWidth = 1.2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+
+                // Anillos concéntricos punteados
+                for (rOffset in listOf(35.dp.toPx(), 65.dp.toPx(), 95.dp.toPx())) {
+                    drawCircle(
+                        brush = Brush.sweepGradient(
+                            listOf(
+                                theme.primaryColor.copy(alpha = 0.18f),
+                                theme.textColor.copy(alpha = 0.14f),
+                                theme.numberColor.copy(alpha = 0.10f),
+                                theme.primaryColor.copy(alpha = 0.18f)
+                            )
+                        ),
+                        radius = rOffset,
+                        center = center,
+                        style = Stroke(
+                            width = 1.2.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 12f), 0f)
+                        )
+                    )
+                }
+            }
+
+            // 🟣 1. FECHA NUMÉRICA SIMPLIFICADA AL TOPE SUPERIOR
             Text(
                 text = currentDate,
-                fontSize =8.sp,
-                fontWeight = FontWeight.Bold,
-                color = dynamicSpeedColor,
-                letterSpacing = 0.6.sp,           // Espaciado ajustado para que quepa cualquier mes largo
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center, // Asegura el centrado exacto
+                fontSize = 7.sp, // 💡 Mucho más grande y visible
+                fontWeight = FontWeight.ExtraBold,
+                fontFamily = dashboardFont.fontFamily,
+                color = theme.textColor,
+                letterSpacing = 1.2.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 maxLines = 1,
                 softWrap = false,
                 modifier = Modifier
-                    .fillMaxWidth()              // Ocupa todo el ancho para centrar el texto correctamente
+                    .fillMaxWidth()
                     .align(Alignment.TopCenter)
-                    .padding(top = 12.dp, start = 4.dp, end = 4.dp)
+                    .padding(top = 2.dp, start = 4.dp, end = 4.dp) // 📍 Pegada al ras superior
             )
 
-            // ⚡ 2. NÚMERO GIGANTE Y GORDO (Centro)
+            // 🟠 2. NÚMERO DIGITAL GIGANTE (Centrado)
             Text(
                 text = "${animatedSpeed.toInt()}",
-                fontSize = 84.sp,
+                fontSize = 86.sp,
                 fontWeight = FontWeight.Black,
-                fontFamily = FontFamily.SansSerif,
+                fontFamily = dashboardFont.fontFamily,
                 letterSpacing = (-4.0).sp,
                 maxLines = 1,
                 softWrap = false,
@@ -405,16 +495,17 @@ fun ModernSpeedometerWidget(
                 modifier = Modifier.align(Alignment.Center)
             )
 
-            // 🏎️ 3. UNIDAD "KM / H" (Abajo en la orilla)
+            // 🟣 3. UNIDAD "KM / H" PEGADA BIEN ABAJO A LA ORILLA
             Text(
                 text = "KM / H",
-                fontSize = 14.sp,
+                fontSize = 13.5.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = dynamicSpeedColor,
+                fontFamily = dashboardFont.fontFamily,
+                color = theme.textColor,
                 letterSpacing = 2.5.sp,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 10.dp)
+                    .padding(bottom = 4.dp)
             )
         }
     }

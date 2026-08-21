@@ -17,8 +17,11 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -26,7 +29,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -51,19 +58,18 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 🛡️ BLOQUEAR EL BOTÓN ATRÁS EN LA PANTALLA PRINCIPAL DEL LAUNCHER
+        // 🛡️ BLOQUEAR BOTÓN ATRÁS EN PANTALLA PRINCIPAL
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 android.util.Log.d("PRUEBA_CLICK", "✅ LA APLICACIÓN ARRANCÓ CORRECTAMENTE Y LOS LOGS FUNCIONAN")
             }
         })
 
-        // ✅ FONDO NEGRO ABSOLUTO DESDE EL PRIMER MILISEGUNDO DE ARRANQUE
+        // FONDO NEGRO Y PANTALLA SIEMPRE ENCENDIDA
         window.decorView.setBackgroundColor(android.graphics.Color.BLACK)
-        // PANTALLA SIEMPRE ENCENDIDA
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // MODO INMERSIVO 100% PANTALLA COMPLETA
+        // MODO INMERSIVO PANTALLA COMPLETA
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         controller.hide(WindowInsetsCompat.Type.systemBars())
@@ -75,7 +81,6 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
 
-        // Solo solicitar launcher por defecto si NO es el launcher actual
         if (!isCurrentlyDefaultLauncher(this)) {
             promptDefaultLauncherSelection(this)
         }
@@ -207,8 +212,6 @@ fun MainScreen() {
     var currentTextScale by remember { mutableFloatStateOf(ThemeManager.getSavedTextScale(context)) }
     var currentIsBold by remember { mutableStateOf(ThemeManager.getSavedIsBold(context)) }
     var currentButtonScale by remember { mutableFloatStateOf(ThemeManager.getSavedButtonScale(context)) }
-
-    // 🔤 ESTADO DE TIPOGRAFÍA SELECCIONADA
     var currentFont by remember { mutableStateOf(ThemeManager.getSavedFont(context)) }
 
     val currentDensity = LocalDensity.current
@@ -219,7 +222,6 @@ fun MainScreen() {
         )
     }
 
-    // 🔤 ESTILO DE TEXTO GLOBAL QUE APLICA LA FUENTE, PESO, CURSIVA Y ESPACIADO
     val defaultTextStyle = LocalTextStyle.current
     val customTextStyle = remember(defaultTextStyle, currentIsBold, currentFont) {
         defaultTextStyle.copy(
@@ -230,7 +232,6 @@ fun MainScreen() {
         )
     }
 
-    // 🎛️ BUCLE DE ECUALIZADORES ALEATORIOS AUTOMÁTICO
     LaunchedEffect(Unit) {
         while (isActive) {
             val intervalSec = ThemeManager.getSavedAutoRotateEqInterval(context)
@@ -297,7 +298,7 @@ fun MainScreen() {
         LocalButtonScale provides currentButtonScale,
         LocalTextStyle provides customTextStyle,
         LocalEqualizerStyle provides currentEqStyle,
-        LocalDashboardFont provides currentFont // 👈 PROVEEDOR GLOBAL DE LA TIPOGRAFÍA
+        LocalDashboardFont provides currentFont
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -305,6 +306,8 @@ fun MainScreen() {
         ) {
             when (currentStep) {
                 1 -> PermissionStepScreen(
+                    stepNumber = 1,
+                    totalSteps = 6,
                     title = "Permiso de GPS",
                     description = "Necesitamos tu ubicación exacta para el mapa y velocímetro.",
                     icon = Icons.Default.LocationOn,
@@ -316,6 +319,8 @@ fun MainScreen() {
                     val isAndroid11OrAbove = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
                     PermissionStepScreen(
+                        stepNumber = 2,
+                        totalSteps = 6,
                         title = if (isAndroid11OrAbove) "Acceso Total a USB" else "Acceso a Multimedia",
                         description = if (isAndroid11OrAbove)
                             "Para leer videos y música desde memorias USB, Android requiere acceso a todos los archivos."
@@ -341,6 +346,8 @@ fun MainScreen() {
                 }
 
                 3 -> PermissionStepScreen(
+                    stepNumber = 3,
+                    totalSteps = 6,
                     title = "Permiso de Micrófono",
                     description = "Necesario para comandos de voz mientras conduces.",
                     icon = Icons.Default.Mic,
@@ -349,6 +356,8 @@ fun MainScreen() {
                 )
 
                 4 -> PermissionStepScreen(
+                    stepNumber = 4,
+                    totalSteps = 6,
                     title = "Control de Brillo para Tablet",
                     description = "Permite ajustar automáticamente la pantalla para que no encandile de Noche (6 PM) y sea visible de Día (6 AM).",
                     icon = Icons.Default.Brightness6,
@@ -360,6 +369,8 @@ fun MainScreen() {
                 )
 
                 5 -> PermissionStepScreen(
+                    stepNumber = 5,
+                    totalSteps = 6,
                     title = "Permiso de Ventana Flotante",
                     description = "Permite que el reproductor de video continúe flotando en una esquina mientras usas Waze, Google Maps u otras aplicaciones.",
                     icon = Icons.Default.PictureInPicture,
@@ -383,6 +394,8 @@ fun MainScreen() {
                 )
 
                 6 -> PermissionStepScreen(
+                    stepNumber = 6,
+                    totalSteps = 6,
                     title = "Modo Alto Rendimiento Auto",
                     description = "Como la tablet funciona con la energía del vehículo, quita los límites de energía para que el Launcher, la Radio y los Mapas NUNCA se detengan.",
                     icon = Icons.Default.FlashOn,
@@ -409,21 +422,26 @@ fun MainScreen() {
                     currentIsBold = currentIsBold,
                     currentButtonScale = currentButtonScale,
                     currentEqualizerStyle = currentEqStyle,
-                    currentFont = currentFont, // 👈 PASA LA FUENTE AL TABLERO
+                    currentFont = currentFont,
                     onThemeChanged = { newTheme -> currentTheme = newTheme },
                     onTextScaleChanged = { newScale -> currentTextScale = newScale },
                     onIsBoldChanged = { newIsBold -> currentIsBold = newIsBold },
                     onButtonScaleChanged = { newButtonScale -> currentButtonScale = newButtonScale },
                     onEqualizerStyleChanged = { newStyle -> currentEqStyle = newStyle },
-                    onFontChanged = { newFont -> currentFont = newFont } // 👈 CALLBACK AL CAMBIAR FUENTE
+                    onFontChanged = { newFont -> currentFont = newFont }
                 )
             }
         }
     }
 }
 
+// =========================================================================
+// 🛡️ PANTALLA DE PERMISOS CON JERARQUÍA DE 3 COLORES Y FONDO RADIAL
+// =========================================================================
 @Composable
 fun PermissionStepScreen(
+    stepNumber: Int,
+    totalSteps: Int,
     title: String,
     description: String,
     icon: ImageVector,
@@ -436,36 +454,105 @@ fun PermissionStepScreen(
     ) { onPermissionGranted() }
 
     val theme = LocalDashboardTheme.current
+    val dashboardFont = LocalDashboardFont.current
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+    Interactive3DBackground(
+        theme = theme,
+        modifier = Modifier.fillMaxSize()
     ) {
-        Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(90.dp), tint = theme.accentCyan)
-        Spacer(modifier = Modifier.height(20.dp))
-        Text(text = title, style = MaterialTheme.typography.headlineLarge, color = Color.White)
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(text = description, style = MaterialTheme.typography.bodyLarge, color = Color.LightGray, textAlign = TextAlign.Center)
-        Spacer(modifier = Modifier.height(36.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            OutlinedButton(onClick = {
-                onPermissionGranted()
-            }) { Text("Omitir", color = Color.White) }
-
-            Button(
-                onClick = {
-                    if (customAction != null) {
-                        customAction()
-                    } else {
-                        permissionLauncher.launch(permissionsToRequest)
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            // 🟠 Indicador de Paso (Color de Números)
+            Surface(
+                color = theme.cardBackground,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, theme.numberColor.copy(alpha = 0.5f))
             ) {
-                Text("Conceder Permiso", color = Color.Black, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "PASO $stepNumber DE $totalSteps",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontFamily = dashboardFont.fontFamily,
+                    color = theme.numberColor,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // 🔵 Icono Gigante (Color Primario con Halo)
+            Box(
+                modifier = Modifier
+                    .size(90.dp)
+                    .clip(CircleShape)
+                    .background(theme.primaryColor.copy(alpha = 0.15f))
+                    .border(2.dp, theme.primaryColor, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(46.dp),
+                    tint = theme.primaryColor
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // 🟣 Título (Color de Texto)
+            Text(
+                text = title,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = dashboardFont.fontFamily,
+                color = theme.textColor,
+                letterSpacing = 1.sp
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = description,
+                fontSize = 13.sp,
+                color = Color.LightGray,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(max = 480.dp)
+            )
+
+            Spacer(modifier = Modifier.height(30.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                OutlinedButton(
+                    onClick = { onPermissionGranted() },
+                    border = BorderStroke(1.2.dp, Color.Gray.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Omitir", color = Color.LightGray, fontWeight = FontWeight.Bold)
+                }
+
+                // 🔵 Botón Conceder Permiso (Color Primario)
+                Button(
+                    onClick = {
+                        if (customAction != null) {
+                            customAction()
+                        } else {
+                            permissionLauncher.launch(permissionsToRequest)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = theme.primaryColor,
+                        contentColor = Color.Black
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.height(44.dp)
+                ) {
+                    Text("Conceder Permiso", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                }
             }
         }
     }
@@ -478,13 +565,13 @@ fun CarDashboard(
     currentIsBold: Boolean,
     currentButtonScale: Float,
     currentEqualizerStyle: EqualizerStyle,
-    currentFont: DashboardFont, // 👈 RECIBIDO
+    currentFont: DashboardFont,
     onThemeChanged: (DashboardTheme) -> Unit,
     onTextScaleChanged: (Float) -> Unit,
     onIsBoldChanged: (Boolean) -> Unit,
     onButtonScaleChanged: (Float) -> Unit,
     onEqualizerStyleChanged: (EqualizerStyle) -> Unit,
-    onFontChanged: (DashboardFont) -> Unit // 👈 CALLBACK
+    onFontChanged: (DashboardFont) -> Unit
 ) {
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
@@ -556,7 +643,7 @@ fun CarDashboard(
                     Icon(
                         imageVector = Icons.Default.FullscreenExit,
                         contentDescription = "Salir de Pantalla Completa",
-                        tint = theme.accentCyan,
+                        tint = theme.primaryColor,
                         modifier = Modifier.size(28.dp)
                     )
                 }
@@ -587,7 +674,7 @@ fun CarDashboard(
                                 icon = Icons.Default.Map,
                                 headerAction = {
                                     IconButton(onClick = { isMapExpanded = true }, modifier = Modifier.size(24.dp)) {
-                                        Icon(Icons.Default.Fullscreen, contentDescription = "Expandir Mapa", tint = theme.accentCyan)
+                                        Icon(Icons.Default.Fullscreen, contentDescription = "Expandir Mapa", tint = theme.primaryColor)
                                     }
                                 }
                             ) {
@@ -633,7 +720,7 @@ fun CarDashboard(
                                             Icon(
                                                 imageVector = Icons.Default.Launch,
                                                 contentDescription = "Ver Todas",
-                                                tint = theme.accentCyan
+                                                tint = theme.primaryColor
                                             )
                                         }
                                     }
@@ -665,14 +752,17 @@ fun CarDashboard(
                                         }
                                     )
 
+                                    // 🎨 Botón Flotante del Estudio de Temas
                                     FloatingActionButton(
                                         onClick = { showThemeModal = true },
                                         containerColor = theme.cardBackground,
-                                        contentColor = theme.accentCyan,
+                                        contentColor = theme.primaryColor,
+                                        shape = CircleShape,
                                         modifier = Modifier
                                             .align(Alignment.BottomStart)
                                             .padding(8.dp)
                                             .size(38.dp)
+                                            .border(1.2.dp, theme.primaryColor.copy(alpha = 0.6f), CircleShape)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Palette,
@@ -756,15 +846,18 @@ fun CarDashboard(
                 currentIsBold = currentIsBold,
                 currentButtonScale = currentButtonScale,
                 currentEqualizerStyle = currentEqualizerStyle,
-                currentFont = currentFont, // 👈 PASADO AL MODAL
+                currentFont = currentFont,
                 onDismiss = { showThemeModal = false },
                 onThemeSelected = { newTheme: DashboardTheme -> onThemeChanged(newTheme) },
                 onTextScaleChanged = { newScale: Float -> onTextScaleChanged(newScale) },
                 onIsBoldChanged = { newIsBold: Boolean -> onIsBoldChanged(newIsBold) },
                 onButtonScaleChanged = { newButtonScale: Float -> onButtonScaleChanged(newButtonScale) },
                 onEqualizerStyleChanged = { newStyle: EqualizerStyle -> onEqualizerStyleChanged(newStyle) },
-                onFontChanged = { newFont: DashboardFont -> onFontChanged(newFont) } // 👈 ACTUALIZADO
+                onFontChanged = { newFont: DashboardFont -> onFontChanged(newFont) }
             )
         }
+
+        // 📍 MODAL DE PERMISO DE VENTANA FLOTANTE
+        OverlayPermissionHost()
     }
 }

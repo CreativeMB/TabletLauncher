@@ -5,8 +5,11 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -14,6 +17,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -23,9 +27,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,7 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import androidx.activity.compose.BackHandler
+
 data class AndroidInstalledApp(
     val appName: String,
     val packageName: String,
@@ -41,15 +50,13 @@ data class AndroidInstalledApp(
 )
 
 // =======================================================================
-// FUNCIÓN DE GUARDADO DINÁMICO PARA CUALQUIER NÚMERO DE SLOT (101 A 120+)
+// FUNCIÓN DE GUARDADO DINÁMICO PARA SLOTS
 // =======================================================================
 fun saveSelectedAppForSlot(context: Context, slotId: Int, packageName: String) {
     if (slotId in 1..2) {
-        // Guardado para los accesos del Velocímetro
         val prefs = context.getSharedPreferences("speedometer_apps_prefs", Context.MODE_PRIVATE)
         prefs.edit().putString("slot_$slotId", packageName).apply()
     } else if (slotId >= 101) {
-        // Guardado dinámico para la cuadrícula
         val prefs = context.getSharedPreferences("custom_grid_apps_prefs", Context.MODE_PRIVATE)
         prefs.edit().putString("grid_slot_$slotId", packageName).apply()
     }
@@ -63,22 +70,34 @@ fun FullscreenAppDrawerWidget(
     onClose: () -> Unit,
     onAppSelected: ((packageName: String) -> Unit)? = null
 ) {
-    BackHandler {
-        onClose()
-    }
+    BackHandler { onClose() }
+
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
     val isBold = LocalIsBoldText.current
+    val dashboardFont = LocalDashboardFont.current
 
-    // 📏 ESCALAS SEPARADAS: ÍCONOS Y TEXTOS INDEPENDIENTES
-    val buttonScale = LocalButtonScale.current ?: 1.0f
+    val buttonScale = LocalButtonScale.current
     val textScale = remember { ThemeManager.getSavedTextScale(context) }
 
     var searchQuery by remember { mutableStateOf("") }
     var installedApps by remember { mutableStateOf<List<AndroidInstalledApp>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // LECTOR DE APLICACIONES INSTALADAS EN LA TABLET
+    // 🌌 FONDO DINÁMICO DEL TEMA DE ADENTRO HACIA AFUERA
+    val dynamicDrawerBackground = remember(theme) {
+        Brush.radialGradient(
+            colors = listOf(
+                lerp(theme.cardBackground, theme.primaryColor, 0.30f), // Centro iluminado
+                lerp(theme.dashBackground, theme.textColor, 0.12f),    // Halo medio
+                lerp(theme.dashBackground, theme.numberColor, 0.06f),  // Destello exterior
+                theme.dashBackground                                  // Fondo general
+            ),
+            radius = 900f
+        )
+    }
+
+    // LECTOR DE APLICACIONES INSTALADAS
     LaunchedEffect(Unit) {
         installedApps = withContext(Dispatchers.IO) {
             val pm = context.packageManager
@@ -111,110 +130,163 @@ fun FullscreenAppDrawerWidget(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(theme.dashBackground)
-            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .background(dynamicDrawerBackground)
+            .padding(horizontal = 20.dp, vertical = 14.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // BARRA SUPERIOR MODERNA DE NAVEGACIÓN Y BÚSQUEDA
+            // =========================================================================
+            // BARRA SUPERIOR DE NAVEGACIÓN Y BÚSQUEDA
+            // =========================================================================
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp),
+                    .padding(bottom = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 🔵 Botón Volver (Color Primario)
                     IconButton(
                         onClick = onClose,
                         modifier = Modifier
                             .clip(CircleShape)
                             .background(theme.cardBackground)
-                            .size((28 * buttonScale).dp)
+                            .border(1.2.dp, theme.primaryColor.copy(alpha = 0.6f), CircleShape)
+                            .size((34 * buttonScale).dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = "Volver",
-                            tint = theme.accentCyan,
+                            tint = theme.primaryColor,
                             modifier = Modifier.size((18 * buttonScale).dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text(
-                        text = title,
-                        fontSize = (14 * textScale * 0.8f).sp,
-                        fontWeight = if (isBold) FontWeight.ExtraBold else FontWeight.Bold,
-                        color = Color.White,
-                        letterSpacing = 1.sp
-                    )
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    // 🟣 Título (Color de Texto) + 🟠 Contador Numérico
+                    Column {
+                        Text(
+                            text = title,
+                            fontSize = (13 * textScale * 0.85f).sp,
+                            fontWeight = if (isBold) FontWeight.ExtraBold else FontWeight.Bold,
+                            fontFamily = dashboardFont.fontFamily,
+                            color = theme.textColor,
+                            letterSpacing = 1.sp
+                        )
+                        Text(
+                            text = "${filteredApps.size} APPS INSTALADAS",
+                            fontSize = (8.5f * textScale * 0.8f).sp,
+                            fontWeight = FontWeight.Bold,
+                            color = theme.numberColor, // 🟠 Números en color de números
+                            letterSpacing = 0.5.sp
+                        )
+                    }
                 }
 
-                // BARRA DE BÚSQUEDA TÁCTIL
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = {
-                        Text(
-                            "Buscar aplicación...",
-                            color = Color.Gray,
-                            fontSize = (8 * textScale * 0.8f).sp
-                        )
-                    },
-                    leadingIcon = {
+                // 🔍 BARRA DE BÚSQUEDA MODERNA (100% COMPATIBLE Y CENTRADA)
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = theme.cardBackground,
+                    border = BorderStroke(
+                        1.2.dp,
+                        if (searchQuery.isNotEmpty()) theme.primaryColor else theme.cardBorder.copy(alpha = 0.6f)
+                    ),
+                    modifier = Modifier
+                        .width((250 * buttonScale).dp)
+                        .height((40 * buttonScale).dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(
-                            Icons.Default.Search,
+                            imageVector = Icons.Default.Search,
                             contentDescription = null,
-                            tint = theme.accentCyan,
-                            modifier = Modifier.size((20 * buttonScale).dp)
+                            tint = theme.primaryColor, // 🔵 Icono Primario
+                            modifier = Modifier.size(16.dp)
                         )
-                    },
-                    trailingIcon = {
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Box(
+                            modifier = Modifier.weight(1f),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = "Buscar aplicación...",
+                                    color = Color.Gray,
+                                    fontSize = 10.sp,
+                                    fontFamily = dashboardFont.fontFamily,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    fontSize = 10.5.sp,
+                                    color = Color.White,
+                                    fontFamily = dashboardFont.fontFamily,
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                cursorBrush = Brush.verticalGradient(listOf(theme.primaryColor, theme.primaryColor)),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
                         if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = "Limpiar", tint = Color.Gray)
+                            IconButton(
+                                onClick = { searchQuery = "" },
+                                modifier = Modifier.size(22.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Limpiar",
+                                    tint = Color.Gray,
+                                    modifier = Modifier.size(14.dp)
+                                )
                             }
                         }
-                    },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = theme.accentCyan,
-                        unfocusedBorderColor = theme.cardBorder.copy(alpha = 0.5f),
-                        focusedContainerColor = theme.cardBackground,
-                        unfocusedContainerColor = theme.cardBackground,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier
-                        .width((280 * buttonScale).dp)
-                        .height((50 * buttonScale).dp)
-                )
+                    }
+                }
             }
 
-            // CUADRÍCULA PANTALLA COMPLETA
+            // =========================================================================
+            // CUADRÍCULA DE APLICACIONES
+            // =========================================================================
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = theme.accentCyan, strokeWidth = 3.dp)
+                        CircularProgressIndicator(color = theme.primaryColor, strokeWidth = 3.dp)
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = "Cargando aplicaciones de la tablet...",
-                            color = Color.Gray,
-                            fontSize = (12 * textScale * 0.8f).sp,
+                            color = Color.LightGray,
+                            fontSize = (11 * textScale * 0.8f).sp,
+                            fontFamily = dashboardFont.fontFamily,
                             fontWeight = if (isBold) FontWeight.Bold else FontWeight.Medium
                         )
                     }
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = (125 * buttonScale).dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    columns = GridCells.Adaptive(minSize = (120 * buttonScale).dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(filteredApps) { app ->
                         ModernAppTileCard(
                             app = app,
                             theme = theme,
+                            dashboardFont = dashboardFont,
                             isBold = isBold,
                             buttonScale = buttonScale,
                             textScale = textScale,
@@ -234,35 +306,51 @@ fun FullscreenAppDrawerWidget(
 }
 
 // =========================================================================
-// 🔲 TARJETA DE APLICACIÓN CON ÍCONOS CUADRADOS Y TEXTO INDEPENDIENTE
+// 🔲 TARJETA DE APLICACIÓN CON FONDO Y TEXTO UNIFICADO
 // =========================================================================
 @Composable
 private fun ModernAppTileCard(
     app: AndroidInstalledApp,
     theme: DashboardTheme,
+    dashboardFont: DashboardFont,
     isBold: Boolean,
     buttonScale: Float,
     textScale: Float,
     onClick: () -> Unit
 ) {
-    // 📐 1. EL ÍCONO ES CUADRADO Y GIGANTE (ESCALA CON BOTONES)
-    val iconSize = (74 * buttonScale).dp
+    val iconSize = (70 * buttonScale).dp
     val iconCorner = (16 * buttonScale).dp
-
-    // 🔤 2. EL TEXTO ESCALA DE FORMA INDEPENDIENTE (CON LA ESCALA DE FUENTES DEL TEMA)
-    val fontSize = (4.5f * textScale).sp
+    val fontSize = (9.5f * textScale * 0.85f).sp
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .shadow(6.dp, RoundedCornerShape(18.dp), spotColor = theme.primaryColor.copy(alpha = 0.15f))
             .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.04f)) // Fondo suave translúcido
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        theme.cardBackground.copy(alpha = 0.85f),
+                        theme.dashBackground.copy(alpha = 0.95f)
+                    )
+                )
+            )
+            .border(
+                1.dp,
+                Brush.verticalGradient(
+                    listOf(
+                        theme.primaryColor.copy(alpha = 0.40f),
+                        Color.Transparent
+                    )
+                ),
+                RoundedCornerShape(18.dp)
+            )
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp, horizontal = 4.dp),
+            .padding(vertical = 12.dp, horizontal = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // ÍCONO CUADRADO Y GRANDE PARA PANTALLAS DE AUTO
+        // Ícono cuadrado de la app
         Box(
             modifier = Modifier
                 .size(iconSize)
@@ -278,11 +366,12 @@ private fun ModernAppTileCard(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // NOMBRE DE LA APLICACIÓN (ESCALADO INDEPENDIENTE POR TEMA)
+        // 🟣 Nombre de la app (Color de Texto / Letras)
         Text(
             text = app.appName,
-            color = Color.White,
+            color = theme.textColor, // 🟣 Letras en Color de Texto
             fontSize = fontSize,
+            fontFamily = dashboardFont.fontFamily,
             fontWeight = if (isBold) FontWeight.ExtraBold else FontWeight.Bold,
             textAlign = TextAlign.Center,
             maxLines = 1,

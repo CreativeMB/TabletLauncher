@@ -21,12 +21,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -37,12 +38,10 @@ import kotlin.math.sin
 
 @Composable
 fun ModernClockWidget() {
-    val theme = LocalDashboardTheme.current // TEMA DE COLORES GLOBAL
-    val isBold = LocalIsBoldText.current     // ESTADO DE NEGRITA GLOBAL
-    val density = LocalDensity.current       // DENSIDAD (Incluye la escala de texto personalizada)
-
-    val timeWeight = if (isBold) FontWeight.ExtraBold else FontWeight.Bold
-    val dateWeight = if (isBold) FontWeight.Bold else FontWeight.Medium
+    val theme = LocalDashboardTheme.current
+    val isBold = LocalIsBoldText.current
+    val dashboardFont = LocalDashboardFont.current
+    val density = LocalDensity.current
 
     var hours by remember { mutableIntStateOf(0) }
     var minutes by remember { mutableIntStateOf(0) }
@@ -50,7 +49,6 @@ fun ModernClockWidget() {
 
     var digitalTimeDigits by remember { mutableStateOf("00:00") }
     var amPmText by remember { mutableStateOf("AM") }
-    var currentDateText by remember { mutableStateOf("") }
 
     // ACTUALIZACIÓN EN TIEMPO REAL CADA SEGUNDO
     LaunchedEffect(Unit) {
@@ -63,17 +61,56 @@ fun ModernClockWidget() {
             digitalTimeDigits = SimpleDateFormat("hh:mm", Locale.getDefault()).format(cal.time)
             amPmText = SimpleDateFormat("a", Locale.getDefault()).format(cal.time).uppercase()
 
-            // ✅ FECHA COMPLETA CON EL DÍA COMPLETO (Ej: "MIÉRCOLES, 05 AGOSTO")
-            currentDateText = SimpleDateFormat("EEEE, dd MMMM", Locale.getDefault()).format(cal.time).uppercase()
-
             delay(1000L)
         }
     }
 
-    val numberPaint = remember(theme, isBold, density) {
+    // =========================================================================
+    // 🎨 FONDOS 100% DINÁMICOS BASADOS EN LOS 3 COLORES DEL TEMA ACTIVO
+    // =========================================================================
+    // 🌌 1. Fondo Exterior (Radiación del centro hacia afuera con Primario predominante)
+    val dynamicOuterBackground = remember(theme) {
+        Brush.radialGradient(
+            colors = listOf(
+                lerp(theme.cardBackground, theme.primaryColor, 0.35f), // Centro iluminado con Primario
+                lerp(theme.dashBackground, theme.textColor, 0.15f),    // Halo medio con Color de Texto
+                lerp(theme.dashBackground, theme.numberColor, 0.08f),  // Destello exterior con Números
+                theme.dashBackground                                  // Borde fundido al fondo general
+            ),
+            radius = 650f
+        )
+    }
+
+    // 🌌 2. Fondo Interior Radiante (Centro de alto impacto)
+    val dynamicInnerBackground = remember(theme) {
+        Brush.radialGradient(
+            colors = listOf(
+                lerp(theme.cardBackground, theme.primaryColor, 0.45f), // Máxima intensidad en el centro
+                lerp(theme.cardBackground, theme.primaryColor, 0.20f),
+                lerp(theme.dashBackground, theme.textColor, 0.12f),
+                theme.dashBackground
+            ),
+            radius = 450f
+        )
+    }
+
+    // 🖼️ 3. Borde Dinámico con los 3 colores del tema
+    val dynamicBorderBrush = remember(theme) {
+        Brush.sweepGradient(
+            listOf(
+                theme.primaryColor.copy(alpha = 0.85f),
+                theme.textColor.copy(alpha = 0.50f),
+                theme.numberColor.copy(alpha = 0.40f),
+                theme.primaryColor.copy(alpha = 0.85f)
+            )
+        )
+    }
+
+    // 🟠 PINTURA PARA NÚMEROS DEL DIAL (1 al 12 en theme.numberColor)
+    val numberPaint = remember(theme, isBold, density, dashboardFont) {
         AndroidPaint().apply {
-            color = theme.accentCyan.toArgb()
-            textSize = with(density) { 13.sp.toPx() }
+            color = theme.numberColor.toArgb()
+            textSize = with(density) { 13.5.sp.toPx() }
             typeface = if (isBold) {
                 Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
             } else {
@@ -81,65 +118,37 @@ fun ModernClockWidget() {
             }
             textAlign = AndroidPaint.Align.CENTER
             isAntiAlias = true
+            setShadowLayer(5f, 0f, 0f, theme.numberColor.toArgb())
         }
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(4.dp),
+            .padding(0.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // ==========================================
-        // 1. RELOJ ANALÓGICO (FONDO SÓLIDO TECH DE ALTO CONTRASTE)
-        // ==========================================
+        // =========================================================================
+        // 1. RELOJ ANALÓGICO (FONDO DINÁMICO IDÉNTICO AL VELOCÍMETRO)
+        // =========================================================================
         Box(
             modifier = Modifier
                 .weight(1f)
                 .aspectRatio(1f)
-                .shadow(20.dp, CircleShape, spotColor = Color.Black, ambientColor = Color.Black)
+                .shadow(16.dp, CircleShape, spotColor = theme.primaryColor.copy(alpha = 0.25f))
                 .clip(CircleShape)
-                // Marco exterior sólido (sin transparencias)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color(0xFF2B364C), // Borde superior sólido iluminado
-                            Color(0xFF182030), // Cuerpo sólido
-                            Color(0xFF090D15)  // Base profunda
-                        )
-                    )
-                )
-                .border(
-                    2.dp,
-                    Brush.sweepGradient(
-                        listOf(
-                            theme.accentCyan,
-                            theme.accentPurple,
-                            theme.accentOrange,
-                            theme.accentCyan
-                        )
-                    ),
-                    CircleShape
-                )
-                .padding(4.dp),
+                .background(dynamicOuterBackground)
+                .border(1.8.dp, dynamicBorderBrush, CircleShape)
+                .padding(6.dp),
             contentAlignment = Alignment.Center
         ) {
-            // Fondo interior cóncavo 100% opaco
+            // Fondo interior radiante
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CircleShape)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                Color(0xFF1E283A), // Centro sólido
-                                Color(0xFF101622), // Medio
-                                Color(0xFF05070B)  // Fondo ultra oscuro
-                            ),
-                            radius = 380f
-                        )
-                    )
+                    .background(dynamicInnerBackground)
             )
 
             Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
@@ -147,16 +156,48 @@ fun ModernClockWidget() {
                 val maxRadius = size.minDimension / 2f - 2.dp.toPx()
 
                 // =========================================================
-                // 🌌 1. ANILLOS CONCÉNTRICOS MODERNOS
+                // 🔵 1. RAYOS HUD Y ANILLOS CONCÉNTRICOS
                 // =========================================================
-                // Anillo 1: Exterior continuo
+                val rayCount = 28
+                val innerR = 12.dp.toPx()
+                for (i in 0 until rayCount) {
+                    val rayAngleDeg = i * (360f / rayCount)
+                    val rayAngleRad = Math.toRadians(rayAngleDeg.toDouble())
+
+                    val rayStart = Offset(
+                        x = center.x + innerR * cos(rayAngleRad).toFloat(),
+                        y = center.y + innerR * sin(rayAngleRad).toFloat()
+                    )
+                    val rayEnd = Offset(
+                        x = center.x + maxRadius * cos(rayAngleRad).toFloat(),
+                        y = center.y + maxRadius * sin(rayAngleRad).toFloat()
+                    )
+
+                    drawLine(
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                theme.primaryColor.copy(alpha = 0.18f),
+                                theme.textColor.copy(alpha = 0.08f),
+                                Color.Transparent
+                            ),
+                            start = rayStart,
+                            end = rayEnd
+                        ),
+                        start = rayStart,
+                        end = rayEnd,
+                        strokeWidth = 1.2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+
+                // Anillo 1: Exterior continuo (3 Colores)
                 drawCircle(
                     brush = Brush.sweepGradient(
                         listOf(
-                            theme.accentCyan.copy(alpha = 0.5f),
-                            theme.accentPurple.copy(alpha = 0.5f),
-                            theme.accentOrange.copy(alpha = 0.5f),
-                            theme.accentCyan.copy(alpha = 0.5f)
+                            theme.primaryColor.copy(alpha = 0.20f),
+                            theme.textColor.copy(alpha = 0.15f),
+                            theme.numberColor.copy(alpha = 0.10f),
+                            theme.primaryColor.copy(alpha = 0.20f)
                         )
                     ),
                     radius = maxRadius,
@@ -164,27 +205,21 @@ fun ModernClockWidget() {
                     style = Stroke(width = 1.5.dp.toPx())
                 )
 
-                // Anillo 2: Punteado Radar/Tech
+                // Anillo 2: Punteado Radar (Primario)
                 drawCircle(
-                    brush = Brush.sweepGradient(
-                        listOf(
-                            theme.accentCyan.copy(alpha = 0.7f),
-                            theme.accentPurple.copy(alpha = 0.7f),
-                            theme.accentCyan.copy(alpha = 0.7f)
-                        )
-                    ),
+                    color = theme.primaryColor.copy(alpha = 0.5f),
                     radius = maxRadius - 5.dp.toPx(),
                     center = center,
                     style = Stroke(
-                        width = 1.5.dp.toPx(),
+                        width = 1.2.dp.toPx(),
                         pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 10f), 0f)
                     )
                 )
 
-                // Anillo 3: Cuadrantes iluminados en 12, 3, 6 y 9
+                // Anillo 3: Cuadrantes iluminados en 12, 3, 6 y 9 (Primario)
                 for (quadrantAngle in listOf(0f, 90f, 180f, 270f)) {
                     drawArc(
-                        color = theme.accentCyan,
+                        color = theme.primaryColor,
                         startAngle = quadrantAngle - 12f,
                         sweepAngle = 24f,
                         useCenter = false,
@@ -194,16 +229,10 @@ fun ModernClockWidget() {
                     )
                 }
 
-                // Anillo 4: Halo interior
+                // Anillo 4: Halo interior (Color de Texto)
                 val innerHaloRadius = maxRadius - 28.dp.toPx()
                 drawCircle(
-                    brush = Brush.sweepGradient(
-                        listOf(
-                            theme.accentPurple.copy(alpha = 0.3f),
-                            theme.accentCyan.copy(alpha = 0.3f),
-                            theme.accentPurple.copy(alpha = 0.3f)
-                        )
-                    ),
+                    color = theme.textColor.copy(alpha = 0.25f),
                     radius = innerHaloRadius,
                     center = center,
                     style = Stroke(
@@ -213,7 +242,7 @@ fun ModernClockWidget() {
                 )
 
                 // =========================================================
-                // ⏱️ 2. MARCAS Y NÚMEROS
+                // ⏱️ 2. MARCAS (TICKS) Y NÚMEROS
                 // =========================================================
                 val ticksRadius = maxRadius - 9.dp.toPx()
                 for (i in 0..11) {
@@ -228,7 +257,7 @@ fun ModernClockWidget() {
                     val endY = center.y + ticksRadius * sin(angleRad).toFloat()
 
                     drawLine(
-                        color = if (isMainTick) theme.accentCyan else theme.accentPurple.copy(alpha = 0.7f),
+                        color = if (isMainTick) theme.primaryColor.copy(alpha = 0.90f) else theme.primaryColor.copy(alpha = 0.40f),
                         start = Offset(startX, startY),
                         end = Offset(endX, endY),
                         strokeWidth = if (isMainTick) 2.5.dp.toPx() else 1.2.dp.toPx(),
@@ -236,6 +265,7 @@ fun ModernClockWidget() {
                     )
                 }
 
+                // 🟠 Dibuja los números del reloj (1 al 12 en theme.numberColor)
                 val textRadius = ticksRadius - 14.dp.toPx()
                 for (i in 1..12) {
                     val angleDeg = i * 30f - 90f
@@ -254,7 +284,7 @@ fun ModernClockWidget() {
                 // =========================================================
                 // 🎯 3. AGUJAS
                 // =========================================================
-                // AGUJA HORA
+                // 🔵 AGUJA HORA (Primario)
                 val hourAngleDeg = ((hours % 12) + minutes / 60f) * 30f - 90f
                 val hourRad = Math.toRadians(hourAngleDeg.toDouble())
                 val hourEnd = Offset(
@@ -269,14 +299,14 @@ fun ModernClockWidget() {
                     cap = StrokeCap.Round
                 )
                 drawLine(
-                    color = theme.accentCyan,
+                    color = theme.primaryColor,
                     start = center,
                     end = hourEnd,
                     strokeWidth = 3.2.dp.toPx(),
                     cap = StrokeCap.Round
                 )
 
-                // AGUJA MINUTERO
+                // 🟣 AGUJA MINUTERO (Color de Texto)
                 val minAngleDeg = (minutes + seconds / 60f) * 6f - 90f
                 val minRad = Math.toRadians(minAngleDeg.toDouble())
                 val minEnd = Offset(
@@ -291,14 +321,14 @@ fun ModernClockWidget() {
                     cap = StrokeCap.Round
                 )
                 drawLine(
-                    color = theme.accentPurple,
+                    color = theme.textColor,
                     start = center,
                     end = minEnd,
                     strokeWidth = 2.4.dp.toPx(),
                     cap = StrokeCap.Round
                 )
 
-                // AGUJA SEGUNDERO
+                // 🟠 AGUJA SEGUNDERO (Color de Números)
                 val secAngleDeg = seconds * 6f - 90f
                 val secRad = Math.toRadians(secAngleDeg.toDouble())
                 val secEnd = Offset(
@@ -306,7 +336,7 @@ fun ModernClockWidget() {
                     y = center.y + (maxRadius * 0.82f * sin(secRad)).toFloat()
                 )
                 drawLine(
-                    color = theme.accentOrange,
+                    color = theme.numberColor,
                     start = center,
                     end = secEnd,
                     strokeWidth = 1.4.dp.toPx(),
@@ -315,43 +345,24 @@ fun ModernClockWidget() {
 
                 // Pivote central
                 drawCircle(color = Color.Black, radius = 5.dp.toPx(), center = center)
-                drawCircle(color = theme.accentCyan, radius = 3.5.dp.toPx(), center = center)
+                drawCircle(color = theme.primaryColor, radius = 3.5.dp.toPx(), center = center)
                 drawCircle(color = Color.White, radius = 1.8.dp.toPx(), center = center)
             }
         }
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // ==========================================
-        // 2. RELOJ DIGITAL (FONDO SÓLIDO PROFUNDO)
-        // ==========================================
+        // =========================================================================
+        // 2. RELOJ DIGITAL (FONDO DINÁMICO IDÉNTICO AL VELOCÍMETRO DIGITAL)
+        // =========================================================================
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(44.dp)
-                .shadow(10.dp, RoundedCornerShape(14.dp), spotColor = Color.Black)
+                .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = theme.primaryColor.copy(alpha = 0.2f))
                 .clip(RoundedCornerShape(14.dp))
-                // Fondo totalmente sólido y blindado
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color(0xFF222C3E),
-                            Color(0xFF121724),
-                            Color(0xFF07090F)
-                        )
-                    )
-                )
-                .border(
-                    1.4.dp,
-                    Brush.linearGradient(
-                        listOf(
-                            theme.accentCyan.copy(alpha = 0.7f),
-                            Color(0xFF1E2838),
-                            theme.accentPurple.copy(alpha = 0.7f)
-                        )
-                    ),
-                    RoundedCornerShape(14.dp)
-                )
+                .background(dynamicOuterBackground)
+                .border(1.6.dp, dynamicBorderBrush, RoundedCornerShape(14.dp))
                 .padding(horizontal = 12.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -359,28 +370,37 @@ fun ModernClockWidget() {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
+                // 🟠 Números del reloj digital (Color de Números)
                 Text(
                     text = digitalTimeDigits,
-                    fontSize = 24.sp,
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.Black,
-                    fontFamily = FontFamily.SansSerif,
-                    color = Color.White,
+                    fontFamily = dashboardFont.fontFamily,
                     letterSpacing = (-0.5).sp,
                     maxLines = 1,
-                    softWrap = false
+                    softWrap = false,
+                    style = TextStyle(
+                        brush = Brush.verticalGradient(
+                            listOf(
+                                Color.White,
+                                theme.numberColor
+                            )
+                        )
+                    )
                 )
 
                 Spacer(modifier = Modifier.width(6.dp))
 
+                // 🟣 Texto "A. M." / "P. M." (Color de Texto)
                 Text(
                     text = amPmText,
-                    fontSize = 11.sp,
+                    fontSize = 8.5.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = theme.accentCyan,
+                    fontFamily = dashboardFont.fontFamily,
+                    color = theme.textColor,
                     letterSpacing = 1.2.sp
                 )
             }
         }
     }
-
 }

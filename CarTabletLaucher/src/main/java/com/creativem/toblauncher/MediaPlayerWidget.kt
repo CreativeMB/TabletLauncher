@@ -7,8 +7,12 @@ import android.widget.VideoView
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,59 +33,30 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.ui.draw.scale
 import kotlinx.coroutines.isActive
 
-
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.ui.window.Dialog
-
-
-
-
-
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalClipboardManager
-
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.TextDecoration
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 // =========================================================================
 // 1. ENUM PARA LOS 4 MODOS
 // =========================================================================
@@ -103,12 +78,11 @@ fun ModernMediaPlayerWidget(
 ) {
     val theme = LocalDashboardTheme.current
     val context = LocalContext.current
+    val dashboardFont = LocalDashboardFont.current
 
-    // Carga del orden de íconos guardado en la tablet
     var tabOrder by remember { mutableStateOf(getSavedMediaTabOrder(context)) }
     var showReorderModal by remember { mutableStateOf(false) }
 
-    // Identificar la prioridad #1 absoluta del usuario
     val preferredFirstMode = remember(tabOrder) {
         tabOrder.firstOrNull() ?: MediaMode.MUSIC
     }
@@ -116,15 +90,12 @@ fun ModernMediaPlayerWidget(
     var isInitialized by remember { mutableStateOf(false) }
     val sidebarScrollState = rememberScrollState()
 
-    // Instancias de reproductores
     val musicPlayer = remember { SmartMusicPlayer.getInstance(context) }
     val videoPlayer = remember { SmartVideoPlayer.getInstance(context) }
     val radioPlayer = remember { SmartRadioManager.getInstance(context) }
     val iptvPlayer = remember { SmartIptvPlayer.getInstance(context) }
 
-    // =========================================================================
-    // ✅ 1. BLOQUEO Y SILENCIADO INICIAL (SIN PAUSAR EL MODO #1)
-    // =========================================================================
+    // 1. BLOQUEO Y SILENCIADO INICIAL
     LaunchedEffect(preferredFirstMode) {
         if (preferredFirstMode != MediaMode.MUSIC) runCatching { musicPlayer.pausePlayback() }
         if (preferredFirstMode != MediaMode.VIDEO) runCatching { videoPlayer.pausePlayback() }
@@ -138,9 +109,7 @@ fun ModernMediaPlayerWidget(
         isInitialized = true
     }
 
-    // =========================================================================
-    // 🛡️ 2. GUARDAS DE SEGURIDAD: SILENCIAR CUALQUIER AUDIO INACTIVO
-    // =========================================================================
+    // 2. GUARDAS DE SEGURIDAD
     LaunchedEffect(currentMode, musicPlayer.isPlaying) {
         if (currentMode != MediaMode.MUSIC && musicPlayer.isPlaying) {
             runCatching { musicPlayer.pausePlayback() }
@@ -165,9 +134,7 @@ fun ModernMediaPlayerWidget(
         }
     }
 
-    // =========================================================================
-    // 🚀 3. BUCLE DE CONTROL Y REANUDACIÓN SILENCIOSA
-    // =========================================================================
+    // 3. REANUDACIÓN EN MODO ACTIVO
     LaunchedEffect(currentMode, isInitialized) {
         if (!isInitialized) return@LaunchedEffect
 
@@ -206,7 +173,6 @@ fun ModernMediaPlayerWidget(
                 runCatching { musicPlayer.pausePlayback() }
                 runCatching { radioPlayer.stopPlayback() }
                 runCatching { iptvPlayer.pausePlayback() }
-                // La reproducción de video la gestiona de forma segura VideoPlayerView
             }
         }
     }
@@ -215,12 +181,20 @@ fun ModernMediaPlayerWidget(
         modifier = Modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF141414)),
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        lerp(theme.cardBackground, theme.primaryColor, 0.22f),
+                        theme.dashBackground
+                    ),
+                    radius = 700f
+                )
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
 
         // =========================================================================
-        // 🎛️ BARRA LATERAL: DEGRADADO HORIZONTAL (ORILLA IZQ -> CENTRO -> ORILLA DER)
+        // 🎛️ BARRA LATERAL CON LOS 3 COLORES DEL TEMA
         // =========================================================================
         Column(
             modifier = Modifier
@@ -229,11 +203,11 @@ fun ModernMediaPlayerWidget(
                 .background(
                     Brush.horizontalGradient(
                         colors = listOf(
-                            theme.accentCyan.copy(alpha = 0.22f),    // 💎 Orilla Izquierda (Color Principal)
-                            theme.accentPurple.copy(alpha = 0.16f),  // 🔮 Transición (Color Secundario)
-                            theme.accentOrange.copy(alpha = 0.26f),  // 🌟 CENTRO VERTICAL (Color Terciario)
-                            theme.accentPurple.copy(alpha = 0.16f),  // 🔮 Transición (Color Secundario)
-                            theme.accentCyan.copy(alpha = 0.22f)     // 💎 Orilla Derecha (Color Principal)
+                            theme.primaryColor.copy(alpha = 0.25f),
+                            theme.textColor.copy(alpha = 0.16f),
+                            theme.numberColor.copy(alpha = 0.20f),
+                            theme.textColor.copy(alpha = 0.16f),
+                            theme.primaryColor.copy(alpha = 0.25f)
                         )
                     )
                 )
@@ -260,7 +234,9 @@ fun ModernMediaPlayerWidget(
             }
         }
 
-        // CONTENIDO PRINCIPAL REPRODUCTOR
+        // =========================================================================
+        // CONTENIDO PRINCIPAL DEL REPRODUCTOR
+        // =========================================================================
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -275,21 +251,25 @@ fun ModernMediaPlayerWidget(
                 when (mode) {
                     MediaMode.MUSIC -> MusicPlayerView(
                         theme = theme,
+                        dashboardFont = dashboardFont,
                         onExpandFullscreen = onExpandMusicFullscreen
                     )
 
                     MediaMode.VIDEO -> VideoPlayerView(
                         theme = theme,
+                        dashboardFont = dashboardFont,
                         onExpandFullscreen = onExpandVideoFullscreen
                     )
 
                     MediaMode.RADIO -> RadioPlayerView(
                         theme = theme,
+                        dashboardFont = dashboardFont,
                         onExpandFullscreen = onExpandRadioFullscreen
                     )
 
                     MediaMode.IPTV -> IptvPlayerView(
                         theme = theme,
+                        dashboardFont = dashboardFont,
                         onExpandFullscreen = onExpandIptvFullscreen
                     )
                 }
@@ -297,15 +277,14 @@ fun ModernMediaPlayerWidget(
         }
     }
 
-    // Modal de reorganización
     if (showReorderModal) {
         ReorderMediaTabsModal(
             currentOrder = tabOrder,
+            theme = theme,
             onDismiss = { showReorderModal = false },
             onOrderSaved = { newOrder ->
                 tabOrder = newOrder
                 saveMediaTabOrder(context, newOrder)
-
                 if (newOrder.isNotEmpty()) {
                     onModeChange(newOrder.first())
                 }
@@ -313,17 +292,18 @@ fun ModernMediaPlayerWidget(
         )
     }
 }
+
 // =========================================================================
 // 3. MODAL REORGANIZADOR
 // =========================================================================
 @Composable
 fun ReorderMediaTabsModal(
     currentOrder: List<MediaMode>,
+    theme: DashboardTheme,
     onDismiss: () -> Unit,
     onOrderSaved: (List<MediaMode>) -> Unit
 ) {
     var tabsList by remember { mutableStateOf(currentOrder.toMutableList()) }
-    val theme = LocalDashboardTheme.current
     val modalScrollState = rememberScrollState()
 
     AlertDialog(
@@ -331,9 +311,9 @@ fun ReorderMediaTabsModal(
         containerColor = Color(0xFF1E1E24),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.SwapVert, contentDescription = null, tint = theme.accentCyan)
+                Icon(Icons.Default.SwapVert, contentDescription = null, tint = theme.primaryColor)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Organizar Menú de Medios", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Organizar Menú de Medios", color = theme.textColor, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         },
         text = {
@@ -344,7 +324,7 @@ fun ReorderMediaTabsModal(
                     .verticalScroll(modalScrollState),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("El ícono en el puesto #1 será el que arrancarás al encender el auto:", color = Color.Gray, fontSize = 11.sp)
+                Text("El ícono en el puesto #1 será el que arrancará al encender el auto:", color = Color.Gray, fontSize = 11.sp)
 
                 tabsList.forEachIndexed { index, mode ->
                     val (title, icon) = when (mode) {
@@ -366,14 +346,14 @@ fun ReorderMediaTabsModal(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "${index + 1}.",
-                                color = if (index == 0) theme.accentCyan else Color.Gray,
+                                color = if (index == 0) theme.numberColor else Color.Gray,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Icon(imageVector = icon, contentDescription = null, tint = theme.accentCyan, modifier = Modifier.size(22.dp))
+                            Icon(imageVector = icon, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size(22.dp))
                             Spacer(modifier = Modifier.width(10.dp))
-                            Text(text = title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(text = title, color = theme.textColor, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
 
                         Row {
@@ -413,7 +393,7 @@ fun ReorderMediaTabsModal(
                     onOrderSaved(tabsList)
                     onDismiss()
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan)
+                colors = ButtonDefaults.buttonColors(containerColor = theme.primaryColor)
             ) {
                 Text("Guardar Cambios", color = Color.Black, fontWeight = FontWeight.Bold)
             }
@@ -427,7 +407,7 @@ fun ReorderMediaTabsModal(
 }
 
 // =========================================================================
-// 🔲 BOTÓN CUADRADO: DEGRADADO RADIAL (CENTRO A ORILLAS) CON ALTO CONTRASTE
+// 🔲 BOTÓN CUADRADO DEL MENÚ LATERAL
 // =========================================================================
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -438,28 +418,25 @@ fun SquareMediaTabButton(
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
 ) {
-    val buttonScale = LocalButtonScale.current ?: 1.0f
+    val buttonScale = LocalButtonScale.current
 
-    // 🔘 FONDO: Radial del centro a las orillas
     val containerBrush = if (isSelected) {
         Brush.radialGradient(
             colors = listOf(
-                theme.accentCyan,
-                theme.accentCyan.copy(alpha = 0.80f)
+                theme.primaryColor,
+                theme.primaryColor.copy(alpha = 0.80f)
             )
         )
     } else {
-        // Centro neutro iluminado -> Orilla oscura con destello sutil del tema
         Brush.radialGradient(
             colors = listOf(
-                Color(0xFF2C2D3E),                      // Centro neutro claro (da profundidad)
-                Color(0xFF1C1C28),                      // Cuerpo intermedio
-                theme.accentPurple.copy(alpha = 0.18f)  // Orilla exterior
+                Color(0xFF2C2D3E),
+                Color(0xFF1C1C28),
+                theme.textColor.copy(alpha = 0.18f)
             )
         )
     }
 
-    // 🔲 BORDES NÍTIDOS: Recortan el botón sobre el fondo para que nunca se pierda
     val borderModifier = if (isSelected) {
         Modifier.border(
             width = 2.dp,
@@ -471,9 +448,9 @@ fun SquareMediaTabButton(
             width = 1.dp,
             brush = Brush.linearGradient(
                 colors = listOf(
-                    theme.accentCyan.copy(alpha = 0.50f),
-                    theme.accentPurple.copy(alpha = 0.35f),
-                    theme.accentOrange.copy(alpha = 0.45f)
+                    theme.primaryColor.copy(alpha = 0.50f),
+                    theme.textColor.copy(alpha = 0.35f),
+                    theme.numberColor.copy(alpha = 0.45f)
                 )
             ),
             shape = RoundedCornerShape((14 * buttonScale).dp)
@@ -495,23 +472,18 @@ fun SquareMediaTabButton(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            // Seleccionado en negro brillante; No seleccionados en blanco puro nítido
             tint = if (isSelected) Color.Black else Color(0xFFF1F5F9),
             modifier = Modifier.size((26 * buttonScale).dp)
         )
     }
 }
 
-// =========================================================================
-// 🌎 ESTRUCTURA DE DATOS Y AYUDANTE PARA LA API DE RADIO
-// =========================================================================
 data class CountryItem(
-    val displayName: String, // Nombre en español para mostrar en pantalla
-    val flag: String,        // Emoji de la bandera
-    val apiName: String      // Nombre exacto que requiere la API de Radio Browser
+    val displayName: String,
+    val flag: String,
+    val apiName: String
 )
 
-// Convierte nombres en español al nombre en inglés reconocido por la API
 fun getApiCountryName(displayName: String): String {
     return when (displayName) {
         "México" -> "Mexico"
@@ -524,19 +496,16 @@ fun getApiCountryName(displayName: String): String {
 }
 
 // =========================================================================
-// 📻 VISTA DE RADIO ONLINE (CON AUTO-RECONEXIÓN Y RETRY AUTOMÁTICO DE API)
-// =========================================================================
-// =========================================================================
-// 📻 VISTA DE RADIO ONLINE (CON ECUALIZADOR DINÁMICO)
+// 📻 VISTA DE RADIO ONLINE CON 3 COLORES
 // =========================================================================
 @Composable
 fun RadioPlayerView(
     theme: DashboardTheme,
+    dashboardFont: DashboardFont,
     onExpandFullscreen: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val buttonScale = LocalButtonScale.current ?: 1.0f
-
+    val buttonScale = LocalButtonScale.current
     val radioManager = remember { SmartRadioManager.getInstance(context) }
 
     var isOnline by remember { mutableStateOf(radioManager.isConnectedToInternet()) }
@@ -545,22 +514,18 @@ fun RadioPlayerView(
 
     val currentStation = radioManager.stationList.getOrNull(radioManager.currentStationIndex)
     var favoriteIds by remember { mutableStateOf(radioManager.getSavedFavorites()) }
-
     val isFavorite = currentStation != null && favoriteIds.contains(currentStation.id)
 
     val displayStations = remember(radioManager.stationList, favoriteIds) {
         radioManager.stationList.sortedByDescending { favoriteIds.contains(it.id) }
     }
 
-    // 🎛️ RECUPERAR ESTILO DE ECUALIZADOR GUARDADO
     val currentEqStyle = LocalEqualizerStyle.current
 
     LaunchedEffect(Unit) {
         while (isActive) {
             val connected = radioManager.isConnectedToInternet()
-            if (connected != isOnline) {
-                isOnline = connected
-            }
+            if (connected != isOnline) isOnline = connected
             delay(2000L)
         }
     }
@@ -591,30 +556,27 @@ fun RadioPlayerView(
             .background(
                 Brush.linearGradient(
                     colors = listOf(
-                        theme.accentCyan.copy(alpha = 0.18f),
-                        Color(0xFF101014),
-                        theme.accentCyan.copy(alpha = 0.06f)
+                        theme.primaryColor.copy(alpha = 0.20f),
+                        theme.dashBackground,
+                        theme.primaryColor.copy(alpha = 0.08f)
                     )
                 )
             )
-            .border(1.dp, theme.accentCyan.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
+            .border(1.dp, theme.primaryColor.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
     ) {
-        // 📊 ECUALIZADOR CON ESTILO Y COLORES DINÁMICOS
         EqualizerVisualizer(
             isPlaying = radioManager.isPlaying,
-            primaryColor = theme.accentCyan,
-            secondaryColor = theme.accentPurple,
-            tertiaryColor = theme.accentOrange,
-            style = currentEqStyle, // 👈 AHORA APLICA EL ESTILO SELECCIONADO
+            primaryColor = theme.primaryColor,
+            secondaryColor = theme.textColor,
+            tertiaryColor = theme.numberColor,
+            style = currentEqStyle,
             modifier = Modifier.fillMaxSize()
         )
 
         when {
             !isOnline -> {
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -624,106 +586,35 @@ fun RadioPlayerView(
                     ) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(36.dp),
-                            color = theme.accentCyan,
+                            color = theme.primaryColor,
                             strokeWidth = 3.dp
                         )
-
                         Spacer(modifier = Modifier.height(12.dp))
-
                         Text(
                             text = "Esperando Conexión Wi-Fi / Datos...",
-                            color = Color.White,
+                            color = theme.textColor,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center
                         )
-
                         Spacer(modifier = Modifier.height(4.dp))
-
                         Text(
-                            text = "Cargará las emisoras de radio automáticamente al obtener internet.",
+                            text = "Cargará las emisoras automáticamente al obtener internet.",
                             color = Color.Gray,
                             fontSize = 11.sp,
                             textAlign = TextAlign.Center
                         )
-                    }
-                }
-            }
-
-            radioManager.isFetchingApi && radioManager.stationList.isEmpty() -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(36.dp),
-                            color = theme.accentCyan,
-                            strokeWidth = 3.dp
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Obteniendo emisoras de $selectedCountry...",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            }
-
-            radioManager.isApiError || radioManager.stationList.isEmpty() -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(28.dp),
-                            color = Color(0xFFFFB74D),
-                            strokeWidth = 2.5.dp
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "Conectando al servidor de radio ($selectedCountry)...",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Reintentando conectar automáticamente...",
-                            color = Color.Gray,
-                            fontSize = 11.sp,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Button(
-                            onClick = { showCountryModal = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Text("Cambiar País", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
                     }
                 }
             }
 
             else -> {
                 Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(8.dp),
+                    modifier = Modifier.fillMaxSize().padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                         verticalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(
@@ -735,14 +626,12 @@ fun RadioPlayerView(
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
-                                        .background(
-                                            if (radioManager.isPlaying) Color(0xFF00C853) else theme.accentCyan.copy(alpha = 0.2f)
-                                        )
+                                        .background(if (radioManager.isPlaying) theme.primaryColor else theme.primaryColor.copy(alpha = 0.2f))
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
                                         text = if (radioManager.isPlaying) "EN VIVO" else "SEÑAL RADIO",
-                                        color = if (radioManager.isPlaying) Color.Black else theme.accentCyan,
+                                        color = if (radioManager.isPlaying) Color.Black else theme.primaryColor,
                                         fontSize = 8.sp,
                                         fontWeight = FontWeight.ExtraBold
                                     )
@@ -754,30 +643,15 @@ fun RadioPlayerView(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(Color(0xFF1E1E28))
-                                        .border(1.dp, theme.accentCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                        .border(1.dp, theme.primaryColor.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
                                         .clickable { showCountryModal = true }
                                         .padding(horizontal = 6.dp, vertical = 3.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Public,
-                                        contentDescription = "Pon tu país",
-                                        tint = theme.accentCyan,
-                                        modifier = Modifier.size(12.dp)
-                                    )
+                                    Icon(Icons.Default.Public, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size(12.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = selectedCountry,
-                                        color = Color.White,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Default.ArrowDropDown,
-                                        contentDescription = null,
-                                        tint = Color.Gray,
-                                        modifier = Modifier.size(14.dp)
-                                    )
+                                    Text(text = selectedCountry, color = theme.textColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(14.dp))
                                 }
                             }
 
@@ -789,11 +663,7 @@ fun RadioPlayerView(
                                         .background(Color(0xFF1E1E26))
                                         .clickable {
                                             if (currentStation != null) {
-                                                val newFavs = if (isFavorite) {
-                                                    favoriteIds - currentStation.id
-                                                } else {
-                                                    (favoriteIds + currentStation.id).distinct()
-                                                }
+                                                val newFavs = if (isFavorite) favoriteIds - currentStation.id else (favoriteIds + currentStation.id).distinct()
                                                 favoriteIds = newFavs
                                                 radioManager.saveFavorites(newFavs)
                                             }
@@ -809,33 +679,24 @@ fun RadioPlayerView(
                                 }
 
                                 Box(
-                                    modifier = Modifier
-                                        .size(30.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF1E1E26))
-                                        .clickable { onExpandFullscreen() },
+                                    modifier = Modifier.size(30.dp).clip(CircleShape).background(Color(0xFF1E1E26)).clickable { onExpandFullscreen() },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Fullscreen,
-                                        contentDescription = "Pantalla Completa",
-                                        tint = theme.accentCyan,
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                    Icon(Icons.Default.Fullscreen, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size(18.dp))
                                 }
                             }
                         }
 
+                        // 🟣 Título de la emisora (Color de Texto) y 🟠 Frecuencia (Color de Números)
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
                                 text = currentStation?.name ?: "Cargando Emisora...",
-                                color = Color.White,
+                                color = theme.textColor,
                                 fontSize = 16.sp,
+                                fontFamily = dashboardFont.fontFamily,
                                 fontWeight = FontWeight.ExtraBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -848,33 +709,24 @@ fun RadioPlayerView(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.LocationOn,
-                                    contentDescription = null,
-                                    tint = theme.accentCyan,
-                                    modifier = Modifier.size(11.dp)
-                                )
+                                Icon(Icons.Default.LocationOn, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size(11.dp))
                                 Spacer(modifier = Modifier.width(2.dp))
                                 Text(
-                                    text = "${currentStation?.freqLabel ?: ""} • ${currentStation?.city ?: selectedCountry}",
-                                    color = theme.accentCyan,
+                                    text = currentStation?.freqLabel ?: "",
+                                    color = theme.numberColor, // 🟠 Frecuencia en Color de Números
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = " • ${currentStation?.city ?: selectedCountry}",
+                                    color = theme.textColor.copy(alpha = 0.8f),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
-
-                            Spacer(modifier = Modifier.height(2.dp))
-
-                            Text(
-                                text = currentStation?.genre ?: "Variada",
-                                color = Color.Gray,
-                                fontSize = 10.sp,
-                                maxLines = 1
-                            )
                         }
 
+                        // Botonera de Control (Color Primario)
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -889,82 +741,35 @@ fun RadioPlayerView(
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size((40 * buttonScale).dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF22222E))
-                                        .border(1.dp, Color(0xFF333345), CircleShape)
-                                        .clickable { radioManager.playPreviousStation() },
-                                    contentAlignment = Alignment.Center
+                                IconButton(
+                                    onClick = { radioManager.playPreviousStation() },
+                                    modifier = Modifier.size((40 * buttonScale).dp).background(Color(0xFF22222E), CircleShape)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.SkipPrevious,
-                                        contentDescription = "Anterior",
-                                        tint = theme.accentCyan,
-                                        modifier = Modifier.size((22 * buttonScale).dp)
-                                    )
+                                    Icon(Icons.Default.SkipPrevious, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size((22 * buttonScale).dp))
                                 }
 
-                                val playButtonScale by animateFloatAsState(
-                                    targetValue = if (radioManager.isPlaying) 1.05f else 1.0f,
-                                    animationSpec = tween(durationMillis = 200),
-                                    label = "playScale"
-                                )
-
-                                Box(
-                                    modifier = Modifier
-                                        .scale(playButtonScale)
-                                        .size((50 * buttonScale).dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            Brush.radialGradient(
-                                                colors = listOf(
-                                                    theme.accentCyan,
-                                                    theme.accentCyan.copy(alpha = 0.85f)
-                                                )
-                                            )
-                                        )
-                                        .border(2.dp, Color.White.copy(alpha = 0.4f), CircleShape)
-                                        .clickable { radioManager.togglePlayPause() },
-                                    contentAlignment = Alignment.Center
+                                IconButton(
+                                    onClick = { radioManager.togglePlayPause() },
+                                    modifier = Modifier.size((50 * buttonScale).dp).background(theme.primaryColor, CircleShape)
                                 ) {
                                     if (radioManager.isLoading) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size((26 * buttonScale).dp),
-                                            color = Color.Black,
-                                            strokeWidth = 2.5.dp
-                                        )
+                                        CircularProgressIndicator(modifier = Modifier.size((26 * buttonScale).dp), color = Color.Black, strokeWidth = 2.5.dp)
                                     } else {
-                                        Icon(
-                                            imageVector = if (radioManager.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                            contentDescription = "Play/Pausa",
-                                            tint = Color.Black,
-                                            modifier = Modifier.size((28 * buttonScale).dp)
-                                        )
+                                        Icon(if (radioManager.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size((28 * buttonScale).dp))
                                     }
                                 }
 
-                                Box(
-                                    modifier = Modifier
-                                        .size((40 * buttonScale).dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF22222E))
-                                        .border(1.dp, Color(0xFF333345), CircleShape)
-                                        .clickable { radioManager.playNextStation() },
-                                    contentAlignment = Alignment.Center
+                                IconButton(
+                                    onClick = { radioManager.playNextStation() },
+                                    modifier = Modifier.size((40 * buttonScale).dp).background(Color(0xFF22222E), CircleShape)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.SkipNext,
-                                        contentDescription = "Siguiente",
-                                        tint = theme.accentCyan,
-                                        modifier = Modifier.size((22 * buttonScale).dp)
-                                    )
+                                    Icon(Icons.Default.SkipNext, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size((22 * buttonScale).dp))
                                 }
                             }
                         }
                     }
 
+                    // Lista de Emisoras Lateral
                     Column(
                         modifier = Modifier
                             .widthIn(min = 125.dp, max = 230.dp)
@@ -975,86 +780,39 @@ fun RadioPlayerView(
                             .padding(6.dp)
                     ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 2.dp, vertical = 4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(
-                                text = "EMISORAS (${displayStations.size})",
-                                color = Color.Gray,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                maxLines = 1
-                            )
-                            Icon(
-                                imageVector = Icons.Default.Radio,
-                                contentDescription = null,
-                                tint = theme.accentCyan,
-                                modifier = Modifier.size(12.dp)
-                            )
+                            Text("EMISORAS", color = theme.textColor, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
+                            Text("(${displayStations.size})", color = theme.numberColor, fontSize = 9.sp, fontWeight = FontWeight.Bold) // 🟠 Cantidad
                         }
 
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
+                        LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             itemsIndexed(displayStations) { _, station ->
                                 val isCurrentSelected = currentStation?.id == station.id
-                                val isStationFav = favoriteIds.contains(station.id)
-
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(
-                                            if (isCurrentSelected) theme.accentCyan.copy(alpha = 0.22f)
-                                            else Color(0xFF1E1E28)
-                                        )
-                                        .border(
-                                            width = if (isCurrentSelected) 1.dp else 0.dp,
-                                            color = if (isCurrentSelected) theme.accentCyan else Color.Transparent,
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
+                                        .background(if (isCurrentSelected) theme.primaryColor.copy(alpha = 0.22f) else Color(0xFF1E1E28))
+                                        .border(if (isCurrentSelected) 1.dp else 0.dp, if (isCurrentSelected) theme.primaryColor else Color.Transparent, RoundedCornerShape(8.dp))
                                         .clickable {
-                                            val originalIndex = radioManager.stationList.indexOfFirst { it.id == station.id }
-                                            if (originalIndex != -1) {
-                                                radioManager.playStationAtIndex(originalIndex)
-                                            }
+                                            val idx = radioManager.stationList.indexOfFirst { it.id == station.id }
+                                            if (idx != -1) radioManager.playStationAtIndex(idx)
                                         }
                                         .padding(horizontal = 8.dp, vertical = 6.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = station.name,
-                                            color = if (isCurrentSelected) theme.accentCyan else Color.White,
-                                            fontSize = 10.sp,
-                                            fontWeight = if (isCurrentSelected) FontWeight.ExtraBold else FontWeight.Bold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            text = station.city.ifEmpty { selectedCountry },
-                                            color = Color.Gray,
-                                            fontSize = 8.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-
-                                    if (isStationFav) {
-                                        Icon(
-                                            imageVector = Icons.Default.Favorite,
-                                            contentDescription = "Favorita",
-                                            tint = Color(0xFFFF5252),
-                                            modifier = Modifier
-                                                .size(12.dp)
-                                                .padding(start = 2.dp)
-                                        )
-                                    }
+                                    Text(
+                                        text = station.name,
+                                        color = if (isCurrentSelected) theme.primaryColor else theme.textColor,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 }
                             }
                         }
@@ -1072,11 +830,8 @@ fun RadioPlayerView(
                     selectedCountry = displayName
                     radioManager.selectedCountry = displayName
                     showCountryModal = false
-
                     radioManager.fetchStationsByCountry(apiName) {
-                        if (radioManager.stationList.isNotEmpty()) {
-                            radioManager.playStationAtIndex(0)
-                        }
+                        if (radioManager.stationList.isNotEmpty()) radioManager.playStationAtIndex(0)
                     }
                 }
             )
@@ -1085,7 +840,7 @@ fun RadioPlayerView(
 }
 
 // =========================================================================
-// 🌎 MODAL PARA SELECCIONAR EL PAÍS DE EMISORAS
+// 🌎 MODAL PARA SELECCIONAR PAÍS
 // =========================================================================
 @Composable
 fun CountryPickerModal(
@@ -1114,30 +869,24 @@ fun CountryPickerModal(
         containerColor = Color(0xFF1C1C24),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Public, contentDescription = null, tint = theme.accentCyan)
+                Icon(Icons.Default.Public, contentDescription = null, tint = theme.primaryColor)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Pon Tu País", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Selecciona Tu País", color = theme.textColor, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         },
         text = {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 280.dp)
-                    .verticalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text("Elige tu ubicación para cargar emisoras locales HD:", color = Color.Gray, fontSize = 11.sp)
-
                 countries.forEach { item ->
                     val isSelected = item.displayName.equals(currentCountry, ignoreCase = true)
-
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSelected) theme.accentCyan.copy(alpha = 0.2f) else Color(0xFF262632))
-                            .border(1.dp, if (isSelected) theme.accentCyan else Color.Transparent, RoundedCornerShape(10.dp))
+                            .background(if (isSelected) theme.primaryColor.copy(alpha = 0.2f) else Color(0xFF262632))
+                            .border(1.dp, if (isSelected) theme.primaryColor else Color.Transparent, RoundedCornerShape(10.dp))
                             .clickable { onCountrySelected(item.displayName, item.apiName) }
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1146,35 +895,28 @@ fun CountryPickerModal(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(text = item.flag, fontSize = 18.sp)
                             Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = item.displayName,
-                                color = if (isSelected) theme.accentCyan else Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
+                            Text(text = item.displayName, color = if (isSelected) theme.primaryColor else theme.textColor, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
-
                         if (isSelected) {
-                            Icon(Icons.Default.Check, contentDescription = null, tint = theme.accentCyan, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Check, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancelar", color = Color.White)
-            }
+            TextButton(onClick = onDismiss) { Text("Cerrar", color = Color.White) }
         }
     )
 }
 
 // =========================================================================
-// 🎵 VISTA DE MÚSICA CON ECUALIZADOR DINÁMICO
+// 🎵 VISTA DE MÚSICA CON 3 COLORES
 // =========================================================================
 @Composable
 fun MusicPlayerView(
     theme: DashboardTheme,
+    dashboardFont: DashboardFont,
     onExpandFullscreen: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -1182,9 +924,8 @@ fun MusicPlayerView(
     var showFolderModal by remember { mutableStateOf(false) }
 
     val currentTrack = musicPlayer.playlist.getOrNull(musicPlayer.currentTrackIndex)
-
-    // 🎛️ RECUPERAR ESTILO DE ECUALIZADOR GUARDADO
     val currentEqStyle = LocalEqualizerStyle.current
+    val buttonScale = LocalButtonScale.current
 
     Box(
         modifier = Modifier
@@ -1193,22 +934,21 @@ fun MusicPlayerView(
             .background(
                 Brush.linearGradient(
                     colors = listOf(
-                        theme.accentCyan.copy(alpha = 0.25f),
-                        Color(0xFF0F0F14),
-                        theme.accentCyan.copy(alpha = 0.10f)
+                        theme.primaryColor.copy(alpha = 0.20f),
+                        theme.dashBackground,
+                        theme.primaryColor.copy(alpha = 0.08f)
                     )
                 )
             )
             .clickable { onExpandFullscreen() }
             .padding(10.dp)
     ) {
-        // 📊 ECUALIZADOR CON ESTILO Y COLORES DINÁMICOS DEL TEMA
         EqualizerVisualizer(
             isPlaying = musicPlayer.isPlaying,
-            primaryColor = theme.accentCyan,
-            secondaryColor = theme.accentPurple,
-            tertiaryColor = theme.accentOrange,
-            style = currentEqStyle, // 👈 AHORA APLICA EL ESTILO SELECCIONADO
+            primaryColor = theme.primaryColor,
+            secondaryColor = theme.textColor,
+            tertiaryColor = theme.numberColor,
+            style = currentEqStyle,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -1222,29 +962,35 @@ fun MusicPlayerView(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
+                    // 🟣 Título de la canción en COLOR DE TEXTO
                     Text(
                         text = currentTrack?.title ?: if (musicPlayer.isScanning) "Analizando USB..." else "Sin Música",
-                        color = Color.White,
+                        color = theme.textColor,
                         fontSize = 15.sp,
+                        fontFamily = dashboardFont.fontFamily,
                         fontWeight = FontWeight.ExtraBold,
                         maxLines = 1
                     )
 
                     Spacer(modifier = Modifier.height(2.dp))
 
-                    Text(
-                        text = if (musicPlayer.isScanning) {
-                            "⚡ Actualizando biblioteca..."
-                        } else if (musicPlayer.playlist.isNotEmpty()) {
-                            "📂 ${musicPlayer.selectedFolderName} • ${musicPlayer.playlist.size} pistas"
-                        } else {
-                            "📂 Toca aquí o conecta tu USB"
-                        },
-                        color = theme.accentCyan,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
-                    )
+                    // 🟣 Carpeta + 🟠 Cantidad de pistas en COLOR DE NÚMEROS
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (musicPlayer.playlist.isNotEmpty()) "📂 ${musicPlayer.selectedFolderName} • " else "📂 Conecta tu USB",
+                            color = theme.textColor.copy(alpha = 0.8f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (musicPlayer.playlist.isNotEmpty()) {
+                            Text(
+                                text = "${musicPlayer.playlist.size} pistas",
+                                color = theme.numberColor, // 🟠 Número de pistas
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
 
                 IconButton(
@@ -1254,61 +1000,53 @@ fun MusicPlayerView(
                     Icon(
                         imageVector = Icons.Default.FolderOpen,
                         contentDescription = "Abrir USB",
-                        tint = theme.accentCyan,
+                        tint = theme.primaryColor,
                         modifier = Modifier.size(24.dp)
                     )
                 }
             }
 
+            // Barra de progreso y tiempos
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
             ) {
                 val elapsedTimeFormatted = formatMs(musicPlayer.currentPositionMs)
                 val totalTimeFormatted = formatMs(musicPlayer.totalDurationMs)
 
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 2.dp, end = 2.dp, bottom = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, bottom = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    // 🟠 Tiempos en COLOR DE NÚMEROS
                     Text(
                         text = elapsedTimeFormatted,
-                        color = Color.White,
-                        fontSize = 10.sp,
+                        color = theme.numberColor,
+                        fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = totalTimeFormatted,
-                        color = Color.Gray,
-                        fontSize = 10.sp,
+                        color = theme.numberColor.copy(alpha = 0.7f),
+                        fontSize = 10.5.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
 
                 val progressPercent: Float = if (musicPlayer.totalDurationMs > 0L) {
                     (musicPlayer.currentPositionMs.toFloat() / musicPlayer.totalDurationMs.toFloat()).coerceIn(0f, 1f)
-                } else {
-                    0f
-                }
+                } else 0f
 
                 LinearProgressIndicator(
                     progress = progressPercent,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(5.dp)
-                        .clip(CircleShape),
-                    color = theme.accentCyan,
-                    trackColor = theme.cardBorder
+                    modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
+                    color = theme.primaryColor, // 🔵 Barra en Color Primario
+                    trackColor = theme.cardBorder.copy(alpha = 0.4f)
                 )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            val buttonScale = LocalButtonScale.current ?: 1.0f
-
+            // Botonera Multimedia
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -1318,66 +1056,35 @@ fun MusicPlayerView(
                     onClick = { musicPlayer.toggleShuffle() },
                     modifier = Modifier.size((38 * buttonScale).dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Shuffle,
-                        contentDescription = "Aleatorio",
-                        tint = if (musicPlayer.isShuffle) theme.accentCyan else Color.DarkGray,
-                        modifier = Modifier.size((20 * buttonScale).dp)
-                    )
+                    Icon(Icons.Default.Shuffle, contentDescription = null, tint = if (musicPlayer.isShuffle) theme.primaryColor else Color.DarkGray, modifier = Modifier.size((20 * buttonScale).dp))
                 }
 
                 IconButton(
                     onClick = { musicPlayer.playPreviousTrack() },
-                    modifier = Modifier
-                        .size((44 * buttonScale).dp)
-                        .background(Color(0xFF22222E), CircleShape)
+                    modifier = Modifier.size((44 * buttonScale).dp).background(Color(0xFF22222E), CircleShape)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.SkipPrevious,
-                        contentDescription = "Anterior",
-                        tint = theme.accentCyan,
-                        modifier = Modifier.size((28 * buttonScale).dp)
-                    )
+                    Icon(Icons.Default.SkipPrevious, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size((28 * buttonScale).dp))
                 }
 
                 IconButton(
                     onClick = { musicPlayer.togglePlayPause() },
-                    modifier = Modifier
-                        .size((54 * buttonScale).dp)
-                        .background(theme.accentCyan, CircleShape)
+                    modifier = Modifier.size((54 * buttonScale).dp).background(theme.primaryColor, CircleShape)
                 ) {
-                    Icon(
-                        imageVector = if (musicPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = "Play/Pausa",
-                        tint = Color.Black,
-                        modifier = Modifier.size((32 * buttonScale).dp)
-                    )
+                    Icon(if (musicPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size((32 * buttonScale).dp))
                 }
 
                 IconButton(
                     onClick = { musicPlayer.playNextTrack(userTriggered = true) },
-                    modifier = Modifier
-                        .size((44 * buttonScale).dp)
-                        .background(Color(0xFF22222E), CircleShape)
+                    modifier = Modifier.size((44 * buttonScale).dp).background(Color(0xFF22222E), CircleShape)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.SkipNext,
-                        contentDescription = "Siguiente",
-                        tint = theme.accentCyan,
-                        modifier = Modifier.size((28 * buttonScale).dp)
-                    )
+                    Icon(Icons.Default.SkipNext, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size((28 * buttonScale).dp))
                 }
 
                 IconButton(
                     onClick = { onExpandFullscreen() },
                     modifier = Modifier.size((38 * buttonScale).dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Fullscreen,
-                        contentDescription = "Pantalla Completa",
-                        tint = theme.accentCyan,
-                        modifier = Modifier.size((22 * buttonScale).dp)
-                    )
+                    Icon(Icons.Default.Fullscreen, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size((22 * buttonScale).dp))
                 }
             }
         }
@@ -1385,9 +1092,7 @@ fun MusicPlayerView(
         if (showFolderModal) {
             FolderPickerModal(
                 onDismiss = { showFolderModal = false },
-                onFolderSelected = { selectedFolder ->
-                    musicPlayer.scanFolderPath(selectedFolder)
-                }
+                onFolderSelected = { selectedFolder -> musicPlayer.scanFolderPath(selectedFolder) }
             )
         }
     }
@@ -1402,12 +1107,13 @@ private fun formatMs(ms: Long): String {
 }
 
 // =========================================================================
-// 🎬 VISTA DE VIDEO (AUTO-ARRANQUE ÚNICO SIN PAUSA DOBLE)
+// 🎬 VISTA DE VIDEO CON 3 COLORES
 // =========================================================================
 @OptIn(UnstableApi::class)
 @Composable
 fun VideoPlayerView(
     theme: DashboardTheme,
+    dashboardFont: DashboardFont,
     onExpandFullscreen: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -1415,7 +1121,6 @@ fun VideoPlayerView(
     var showFolderModal by remember { mutableStateOf(false) }
 
     val currentVideo = videoPlayer.playlist.getOrNull(videoPlayer.currentTrackIndex)
-
     val showUI = videoPlayer.showControls
     val interactionSource = remember { MutableInteractionSource() }
     val buttonScale = LocalButtonScale.current
@@ -1424,10 +1129,8 @@ fun VideoPlayerView(
     var sliderPosition by remember { mutableFloatStateOf(0f) }
 
     val rebindTrigger = videoPlayer.rebindTrigger
-    // ✅ AUTO-ARRANQUE GARANTIZADO ÚNICO (EVITA QUE SE PAUSE TRAS 1 SEGUNDO)
     var hasAutoPlayedForCurrentVideo by remember(currentVideo) { mutableStateOf(false) }
 
-    // ✅ 1. Auto-arranque al cargar el video por primera vez
     LaunchedEffect(currentVideo) {
         if (currentVideo != null && !hasAutoPlayedForCurrentVideo) {
             videoPlayer.forcePlay()
@@ -1435,11 +1138,9 @@ fun VideoPlayerView(
         }
     }
 
-    // ✅ 2. Reanudar cuando SALGAS de Pantalla Completa (USANDO forcePlay, NUNCA togglePlayPause)
     LaunchedEffect(videoPlayer.isFullscreenActive) {
-        // Solo actúa si NO está en pantalla completa y el video estaba pausado
         if (!videoPlayer.isFullscreenActive && videoPlayer.playlist.isNotEmpty() && !videoPlayer.isPlaying) {
-            videoPlayer.forcePlay() // 👈 AQUÍ ESTABA EL ERROR: Decía togglePlayPause()
+            videoPlayer.forcePlay()
         }
     }
 
@@ -1448,10 +1149,7 @@ fun VideoPlayerView(
             .fillMaxSize()
             .clip(RoundedCornerShape(12.dp))
             .background(Color.Black)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null
-            ) {
+            .clickable(interactionSource = interactionSource, indication = null) {
                 videoPlayer.toggleControls()
             }
     ) {
@@ -1466,55 +1164,38 @@ fun VideoPlayerView(
                             android.view.ViewGroup.LayoutParams.MATCH_PARENT
                         )
                         val exoPlayer = if (!videoPlayer.isFullscreenActive) videoPlayer.getOrCreatePlayer() else null
-                        exoPlayer?.playWhenReady = true // 👈 ESTO FORZA EL PLAY INMEDIATO EN EXOPLAYER
+                        exoPlayer?.playWhenReady = true
                         player = exoPlayer
                     }
                 },
                 update = { playerView ->
                     val player = if (!videoPlayer.isFullscreenActive) videoPlayer.getOrCreatePlayer() else null
                     if (rebindTrigger >= 0 && player != null) {
-                        playerView.player = null // Desconecta la superficie vieja
-                        playerView.player = player // Reconecta la superficie activa
+                        playerView.player = null
+                        playerView.player = player
                     }
                 },
                 modifier = Modifier.fillMaxSize()
             )
-        } else {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Cargando videos de la USB...", color = Color.Gray, fontSize = 12.sp)
-            }
         }
 
         AnimatedVisibility(
             visible = showUI,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
+            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Movie,
-                        contentDescription = null,
-                        tint = theme.accentCyan,
-                        modifier = Modifier.size(16.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Movie, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = currentVideo?.title ?: "Reproductor de Video",
-                        color = Color.White,
+                        color = theme.textColor,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -1522,21 +1203,14 @@ fun VideoPlayerView(
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = {
-                            videoPlayer.resetControlsTimer()
-                            showFolderModal = true
-                        },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.FolderOpen,
-                            contentDescription = "Elegir Carpeta USB",
-                            tint = theme.accentCyan,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                IconButton(
+                    onClick = {
+                        videoPlayer.resetControlsTimer()
+                        showFolderModal = true
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(Icons.Default.FolderOpen, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -1545,68 +1219,32 @@ fun VideoPlayerView(
             visible = showUI,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp)
-            ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
                 val totalMs = videoPlayer.totalDurationMs.coerceAtLeast(1L)
-                val displayPositionMs = if (isDraggingSlider) {
-                    (sliderPosition * totalMs).toLong()
-                } else {
-                    videoPlayer.currentPositionMs.coerceIn(0L, totalMs)
+                val displayPositionMs = if (isDraggingSlider) (sliderPosition * totalMs).toLong() else videoPlayer.currentPositionMs.coerceIn(0L, totalMs)
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(text = formatMs(displayPositionMs), color = theme.numberColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(text = formatMs(totalMs), color = theme.numberColor.copy(alpha = 0.7f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = formatMs(displayPositionMs),
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = formatMs(totalMs),
-                        color = Color.Gray,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                val currentProgress = if (totalMs <= 1L) {
-                    0f
-                } else if (isDraggingSlider) {
-                    sliderPosition
-                } else {
-                    (displayPositionMs.toFloat() / totalMs.toFloat()).coerceIn(0f, 1f)
-                }
+                val currentProgress = if (totalMs <= 1L) 0f else if (isDraggingSlider) sliderPosition else (displayPositionMs.toFloat() / totalMs.toFloat()).coerceIn(0f, 1f)
 
                 Slider(
                     value = currentProgress,
-                    onValueChange = { newValue ->
+                    onValueChange = {
                         isDraggingSlider = true
-                        sliderPosition = newValue
+                        sliderPosition = it
                         videoPlayer.resetControlsTimer()
                     },
                     onValueChangeFinished = {
-                        val targetMs = (sliderPosition * totalMs).toLong()
-                        videoPlayer.seekTo(targetMs)
+                        videoPlayer.seekTo((sliderPosition * totalMs).toLong())
                         isDraggingSlider = false
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(24.dp),
-                    colors = SliderDefaults.colors(
-                        thumbColor = theme.accentCyan,
-                        activeTrackColor = theme.accentCyan,
-                        inactiveTrackColor = theme.cardBorder.copy(alpha = 0.5f)
-                    )
+                    modifier = Modifier.fillMaxWidth().height(24.dp),
+                    colors = SliderDefaults.colors(thumbColor = theme.primaryColor, activeTrackColor = theme.primaryColor)
                 )
 
                 Row(
@@ -1614,70 +1252,20 @@ fun VideoPlayerView(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = { videoPlayer.toggleShuffle() },
-                        modifier = Modifier.size((34 * buttonScale).dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Shuffle,
-                            contentDescription = "Aleatorio",
-                            tint = if (videoPlayer.isShuffleMode) theme.accentCyan else Color.DarkGray,
-                            modifier = Modifier.size((18 * buttonScale).dp)
-                        )
+                    IconButton(onClick = { videoPlayer.toggleShuffle() }, modifier = Modifier.size((34 * buttonScale).dp)) {
+                        Icon(Icons.Default.Shuffle, contentDescription = null, tint = if (videoPlayer.isShuffleMode) theme.primaryColor else Color.DarkGray, modifier = Modifier.size((18 * buttonScale).dp))
                     }
-
-                    IconButton(
-                        onClick = { videoPlayer.playPreviousVideo() },
-                        modifier = Modifier
-                            .size((38 * buttonScale).dp)
-                            .background(Color(0xFF22222E), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipPrevious,
-                            contentDescription = "Anterior",
-                            tint = theme.accentCyan,
-                            modifier = Modifier.size((22 * buttonScale).dp)
-                        )
+                    IconButton(onClick = { videoPlayer.playPreviousVideo() }, modifier = Modifier.size((38 * buttonScale).dp).background(Color(0xFF22222E), CircleShape)) {
+                        Icon(Icons.Default.SkipPrevious, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size((22 * buttonScale).dp))
                     }
-
-                    IconButton(
-                        onClick = { videoPlayer.togglePlayPause() },
-                        modifier = Modifier
-                            .size((46 * buttonScale).dp)
-                            .background(theme.accentCyan, CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = if (videoPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play/Pausa",
-                            tint = Color.Black,
-                            modifier = Modifier.size((26 * buttonScale).dp)
-                        )
+                    IconButton(onClick = { videoPlayer.togglePlayPause() }, modifier = Modifier.size((46 * buttonScale).dp).background(theme.primaryColor, CircleShape)) {
+                        Icon(if (videoPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size((26 * buttonScale).dp))
                     }
-
-                    IconButton(
-                        onClick = { videoPlayer.playNextVideo() },
-                        modifier = Modifier
-                            .size((38 * buttonScale).dp)
-                            .background(Color(0xFF22222E), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipNext,
-                            contentDescription = "Siguiente",
-                            tint = theme.accentCyan,
-                            modifier = Modifier.size((22 * buttonScale).dp)
-                        )
+                    IconButton(onClick = { videoPlayer.playNextVideo() }, modifier = Modifier.size((38 * buttonScale).dp).background(Color(0xFF22222E), CircleShape)) {
+                        Icon(Icons.Default.SkipNext, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size((22 * buttonScale).dp))
                     }
-
-                    IconButton(
-                        onClick = { onExpandFullscreen() },
-                        modifier = Modifier.size((34 * buttonScale).dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Fullscreen,
-                            contentDescription = "Expandir",
-                            tint = Color.White,
-                            modifier = Modifier.size((20 * buttonScale).dp)
-                        )
+                    IconButton(onClick = { onExpandFullscreen() }, modifier = Modifier.size((34 * buttonScale).dp)) {
+                        Icon(Icons.Default.Fullscreen, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size((20 * buttonScale).dp))
                     }
                 }
             }
@@ -1697,41 +1285,35 @@ fun VideoPlayerView(
         }
     }
 }
+
 // =========================================================================
-// 📺 VISTA DE IPTV (CON RECONEXIÓN AUTOMÁTICA EN TIEMPO REAL)
+// 📺 VISTA DE IPTV CON 3 COLORES
 // =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IptvPlayerView(
     theme: DashboardTheme,
+    dashboardFont: DashboardFont,
     onExpandFullscreen: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val iptvPlayer = remember { SmartIptvPlayer.getInstance(context) }
-
-    // Cambiado de modal de carpetas a diálogo de URL remota
     var showUrlModal by remember { mutableStateOf(false) }
 
     val currentChannel = iptvPlayer.playlist.getOrNull(iptvPlayer.currentChannelIndex)
     val buttonScale = LocalButtonScale.current
-
     var showUI by remember { mutableStateOf(true) }
     val interactionSource = remember { MutableInteractionSource() }
-
-    // 📡 ESTADO DE INTERNET EN TIEMPO REAL
     var isOnline by remember { mutableStateOf(iptvPlayer.isConnectedToInternet()) }
 
-    // 🔄 MONITOR DE CONEXIÓN EN TIEMPO REAL
     LaunchedEffect(Unit) {
         while (isActive) {
             val connected = iptvPlayer.isConnectedToInternet()
             if (connected != isOnline) {
                 isOnline = connected
                 if (connected && iptvPlayer.playlist.isNotEmpty() && !iptvPlayer.isPlaying) {
-                    val targetIndex = if (iptvPlayer.currentChannelIndex in iptvPlayer.playlist.indices) {
-                        iptvPlayer.currentChannelIndex
-                    } else 0
-                    iptvPlayer.playChannelAtIndex(targetIndex)
+                    val idx = if (iptvPlayer.currentChannelIndex in iptvPlayer.playlist.indices) iptvPlayer.currentChannelIndex else 0
+                    iptvPlayer.playChannelAtIndex(idx)
                 }
             }
             delay(2000L)
@@ -1745,93 +1327,20 @@ fun IptvPlayerView(
         }
     }
 
-    LaunchedEffect(iptvPlayer.playlist.isNotEmpty(), iptvPlayer.isFullscreenActive, isOnline) {
-        if (isOnline && !iptvPlayer.isFullscreenActive && iptvPlayer.playlist.isNotEmpty()) {
-            val targetIndex = if (iptvPlayer.currentChannelIndex in iptvPlayer.playlist.indices) {
-                iptvPlayer.currentChannelIndex
-            } else 0
-
-            if (!iptvPlayer.isPlaying) {
-                iptvPlayer.playChannelAtIndex(targetIndex)
-            }
-        }
-    }
-
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color.Black)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null
-            ) {
-                showUI = !showUI
-            }
+        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).background(Color.Black).clickable(interactionSource = interactionSource, indication = null) { showUI = !showUI }
     ) {
-        if (!isOnline) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF0F0F14))
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(32.dp),
-                    color = theme.accentCyan,
-                    strokeWidth = 3.dp
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = "Esperando Conexión Wi-Fi / Datos...",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Conectará automáticamente en cuanto la tablet obtenga internet",
-                    color = Color.Gray,
-                    fontSize = 10.sp,
-                    textAlign = TextAlign.Center
-                )
-            }
-        } else if (currentChannel != null) {
+        if (currentChannel != null) {
             AndroidView(
                 factory = { ctx ->
                     object : VideoView(ctx) {
-                        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                            val width = MeasureSpec.getSize(widthMeasureSpec)
-                            val height = MeasureSpec.getSize(heightMeasureSpec)
-                            setMeasuredDimension(width, height)
-                        }
+                        override fun onMeasure(w: Int, h: Int) = setMeasuredDimension(MeasureSpec.getSize(w), MeasureSpec.getSize(h))
                     }.apply {
                         if (!iptvPlayer.isFullscreenActive) {
                             setVideoPath(currentChannel.streamUrl)
                             tag = currentChannel.streamUrl
                             setOnPreparedListener { mp ->
                                 iptvPlayer.bindMediaPlayer(mp)
-
-                                try {
-                                    val videoWidth = mp.videoWidth.toFloat()
-                                    val videoHeight = mp.videoHeight.toFloat()
-                                    if (videoWidth > 0 && videoHeight > 0) {
-                                        val surfaceViewField = VideoView::class.java.getDeclaredField("mSurfaceView")
-                                        surfaceViewField.isAccessible = true
-                                        val surfaceView = surfaceViewField.get(this) as? android.view.SurfaceView
-                                        surfaceView?.let { sv ->
-                                            val lp = sv.layoutParams
-                                            lp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                                            lp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                                            sv.layoutParams = lp
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
-
                                 mp.start()
                                 iptvPlayer.isPlaying = true
                             }
@@ -1841,7 +1350,6 @@ fun IptvPlayerView(
                 update = { view ->
                     val currentPlayingUri = view.tag as? String
                     val newUrl = currentChannel.streamUrl
-
                     if (!iptvPlayer.isFullscreenActive) {
                         if (currentPlayingUri != newUrl || !view.isPlaying) {
                             view.tag = newUrl
@@ -1859,201 +1367,80 @@ fun IptvPlayerView(
                 },
                 modifier = Modifier.fillMaxSize()
             )
-        } else {
-            // Estado vacío cuando no hay lista cargada
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Tv,
-                    contentDescription = null,
-                    tint = theme.accentCyan,
-                    modifier = Modifier.size(40.dp)
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text("Carga una lista remota (.m3u) ingresando la URL", color = Color.Gray, fontSize = 11.sp)
-                Spacer(modifier = Modifier.height(10.dp))
-                Button(
-                    onClick = { showUrlModal = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                ) {
-                    Text("Ingresar Enlace", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            }
         }
 
-        AnimatedVisibility(
-            visible = showUI,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.fillMaxSize()
-        ) {
+        AnimatedVisibility(visible = showUI, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Brush.verticalGradient(listOf(Color(0xAA000000), Color.Transparent, Color(0xCC000000))))
-                    .padding(8.dp),
+                modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xAA000000), Color.Transparent, Color(0xCC000000)))).padding(8.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(Color.Red)
-                                .padding(horizontal = 5.dp, vertical = 2.dp)
-                        ) {
+                        Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color.Red).padding(horizontal = 5.dp, vertical = 2.dp)) {
                             Text("EN VIVO", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold)
                         }
-
                         Spacer(modifier = Modifier.width(6.dp))
-
-                        ChannelLogoImage(
-                            logoUrl = currentChannel?.logoUrl,
-                            modifier = Modifier.size(24.dp),
-                            tint = theme.accentCyan
-                        )
-
-                        Spacer(modifier = Modifier.width(6.dp))
-
                         Column {
                             Text(
-                                text = currentChannel?.name ?: if (iptvPlayer.isScanning) "Cargando M3U..." else "Sin Lista IPTV",
-                                color = Color.White,
+                                text = currentChannel?.name ?: "Sin Canal",
+                                color = theme.textColor, // 🟣 Canal en Color de Texto
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1
                             )
-                            Text(
-                                text = "📺 ${iptvPlayer.selectedFileName} (${iptvPlayer.playlist.size} canales)",
-                                color = theme.accentCyan,
-                                fontSize = 9.sp
-                            )
+                            Row {
+                                Text(text = "📺 ${iptvPlayer.selectedFileName} • ", color = theme.textColor.copy(alpha = 0.8f), fontSize = 9.sp)
+                                Text(text = "${iptvPlayer.playlist.size} canales", color = theme.numberColor, fontSize = 9.sp, fontWeight = FontWeight.Bold) // 🟠 Cantidad de Canales
+                            }
                         }
                     }
 
-                    // Botón de enlace remoto (reemplaza el de carpeta local)
-                    IconButton(
-                        onClick = {
-                            showUrlModal = true
-                            showUI = true
-                        },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(Icons.Default.Link, contentDescription = "Configurar URL", tint = theme.accentCyan, modifier = Modifier.size(22.dp))
+                    IconButton(onClick = { showUrlModal = true; showUI = true }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Link, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size(22.dp))
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                     Button(
-                        onClick = {
-                            iptvPlayer.playPreviousChannel()
-                            showUI = true
-                        },
-                        modifier = Modifier.height((34 * buttonScale).dp),
+                        onClick = { iptvPlayer.playPreviousChannel(); showUI = true },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E28)),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text("CH -", color = Color.White, fontSize = (11 * buttonScale).sp, fontWeight = FontWeight.Bold)
+                        Text("CH -", color = theme.textColor, fontSize = (11 * buttonScale).sp, fontWeight = FontWeight.Bold)
                     }
 
                     IconButton(
-                        onClick = {
-                            iptvPlayer.togglePlayPause()
-                            showUI = true
-                        },
-                        modifier = Modifier
-                            .size((42 * buttonScale).dp)
-                            .background(theme.accentCyan, CircleShape)
+                        onClick = { iptvPlayer.togglePlayPause(); showUI = true },
+                        modifier = Modifier.size((42 * buttonScale).dp).background(theme.primaryColor, CircleShape)
                     ) {
-                        Icon(
-                            imageVector = if (iptvPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play/Pausa",
-                            tint = Color.Black,
-                            modifier = Modifier.size((24 * buttonScale).dp)
-                        )
+                        Icon(if (iptvPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size((24 * buttonScale).dp))
                     }
 
                     Button(
-                        onClick = {
-                            iptvPlayer.playNextChannel()
-                            showUI = true
-                        },
-                        modifier = Modifier.height((34 * buttonScale).dp),
+                        onClick = { iptvPlayer.playNextChannel(); showUI = true },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E28)),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text("CH +", color = Color.White, fontSize = (11 * buttonScale).sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    // Botón de Favorito ⭐ (para conservar el orden/acceso rápido)
-                    if (currentChannel != null) {
-                        val isFav = iptvPlayer.isFavorite(currentChannel)
-                        IconButton(
-                            onClick = {
-                                iptvPlayer.toggleFavorite(currentChannel)
-                            },
-                            modifier = Modifier.size((34 * buttonScale).dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isFav) Icons.Default.Star else Icons.Default.StarBorder,
-                                contentDescription = "Favoritos",
-                                tint = if (isFav) Color(0xFFFFD700) else theme.accentCyan,
-                                modifier = Modifier.size((22 * buttonScale).dp)
-                            )
-                        }
+                        Text("CH +", color = theme.textColor, fontSize = (11 * buttonScale).sp, fontWeight = FontWeight.Bold)
                     }
 
                     IconButton(
-                        onClick = {
-                            try {
-                                iptvPlayer.pausePlayback()
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
-                            onExpandFullscreen()
-                        },
+                        onClick = { onExpandFullscreen() },
                         modifier = Modifier.size((34 * buttonScale).dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Fullscreen,
-                            contentDescription = "Pantalla Completa",
-                            tint = theme.accentCyan,
-                            modifier = Modifier.size((22 * buttonScale).dp)
-                        )
+                        Icon(Icons.Default.Fullscreen, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size((22 * buttonScale).dp))
                     }
                 }
             }
         }
 
-        // Diálogo / Cajuela de Entrada de la URL Remota
         if (showUrlModal) {
             RemoteUrlInputDialog(
                 theme = theme,
-                currentUrl = context.getSharedPreferences("smart_iptv_prefs", Context.MODE_PRIVATE)
-                    .getString("selected_playlist_url", "") ?: "",
-                onDismiss = {
-                    showUrlModal = false
-                    showUI = true
-                },
+                currentUrl = context.getSharedPreferences("smart_iptv_prefs", Context.MODE_PRIVATE).getString("selected_playlist_url", "") ?: "",
+                onDismiss = { showUrlModal = false; showUI = true },
                 onConfirmUrl = { url ->
-                    if (url.isNotBlank()) {
-                        iptvPlayer.parseAndLoadM3uUrl(url.trim())
-                    }
+                    if (url.isNotBlank()) iptvPlayer.parseAndLoadM3uUrl(url.trim())
                     showUrlModal = false
                     showUI = true
                 }
@@ -2062,7 +1449,9 @@ fun IptvPlayerView(
     }
 }
 
-// Composable del cuadro de diálogo personalizado para pegar la URL
+// =========================================================================
+// 🔗 MODAL URL REMOTA
+// =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RemoteUrlInputDialog(
@@ -2077,58 +1466,10 @@ fun RemoteUrlInputDialog(
         Card(
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF16161F)),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
+            modifier = Modifier.fillMaxWidth().padding(16.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "Configurar Lista IPTV Remota",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-
-                // =========================================================================
-                // 💡 SECCIÓN DE URL SUGERIDA (Interactiva)
-                // =========================================================================
-                val suggestedUrl = "https://iptv-org.github.io/iptv/languages/spa.m3u"
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF1E1E28))
-                        .clickable {
-                            // Al tocarla se escribe sola y se copia al portapapeles
-                            urlText = suggestedUrl
-                            clipboardManager.setText(AnnotatedString(suggestedUrl))
-                        }
-                        .padding(10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "💡 Enlace sugerido (Toca para copiar y usar):",
-                        color = Color.Gray,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = suggestedUrl,
-                        color = theme.accentCyan,
-                        fontSize = 11.sp,
-                        textAlign = TextAlign.Center,
-                        textDecoration = TextDecoration.Underline,
-                        maxLines = 2
-                    )
-                }
-                // =========================================================================
+            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(text = "Configurar Lista IPTV", color = theme.textColor, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
 
                 OutlinedTextField(
                     value = urlText,
@@ -2137,10 +1478,8 @@ fun RemoteUrlInputDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White,
-                        focusedBorderColor = theme.accentCyan,
-                        unfocusedBorderColor = Color.Gray,
-                        focusedLabelColor = theme.accentCyan,
-                        unfocusedLabelColor = Color.Gray
+                        focusedBorderColor = theme.primaryColor,
+                        focusedLabelColor = theme.primaryColor
                     ),
                     textStyle = TextStyle(fontSize = 12.sp),
                     singleLine = true,
@@ -2149,19 +1488,10 @@ fun RemoteUrlInputDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancelar", color = Color.Gray, fontSize = 12.sp)
-                    }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Cancelar", color = Color.Gray, fontSize = 12.sp) }
                     Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = { onConfirmUrl(urlText) },
-                        colors = ButtonDefaults.buttonColors(containerColor = theme.accentCyan),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
+                    Button(onClick = { onConfirmUrl(urlText) }, colors = ButtonDefaults.buttonColors(containerColor = theme.primaryColor), shape = RoundedCornerShape(6.dp)) {
                         Text("Guardar", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
@@ -2170,8 +1500,8 @@ fun RemoteUrlInputDialog(
     }
 }
 
-//===========================================
-// 💾 FUNCIONES DE PERSISTENCIA GENERAL
+// =========================================================================
+// 💾 PERSISTENCIA
 // =========================================================================
 fun saveMediaTabOrder(context: Context, newOrder: List<MediaMode>) {
     val prefs = context.getSharedPreferences("media_widget_prefs", Context.MODE_PRIVATE)

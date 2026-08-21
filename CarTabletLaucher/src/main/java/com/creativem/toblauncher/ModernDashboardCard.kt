@@ -26,6 +26,8 @@ fun ModernDashboardCard(
     content: @Composable () -> Unit
 ) {
     val theme = LocalDashboardTheme.current
+    val dashboardFont = LocalDashboardFont.current
+    val isBold = LocalIsBoldText.current
     val paddingValue = if (title.isNullOrEmpty()) 6.dp else 10.dp
 
     // 🌌 CONTENEDOR FLOTANTE 3D CON DESVANECIMIENTO PERIMETRAL
@@ -44,9 +46,9 @@ fun ModernDashboardCard(
                 brush = Brush.verticalGradient(
                     colors = listOf(
                         Color.Transparent,                                          // 0% Arriba
-                        theme.accentCyan.copy(alpha = 0.28f),                       // Color 1 Fuerte
+                        theme.primaryColor.copy(alpha = 0.28f),                     // Color 1 Fuerte
                         theme.cardBackground.copy(alpha = 0.90f),                   // Profundidad oscura
-                        theme.accentCyan.copy(alpha = 0.18f),
+                        theme.primaryColor.copy(alpha = 0.18f),
                         Color.Transparent                                           // 0% Abajo
                     ),
                     startY = 0f,
@@ -58,9 +60,9 @@ fun ModernDashboardCard(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        theme.accentCyan.copy(alpha = 0.42f),                       // Núcleo brillante
-                        theme.accentCyan.copy(alpha = 0.20f),
-                        theme.accentCyan.copy(alpha = 0.05f),
+                        theme.primaryColor.copy(alpha = 0.42f),                     // Núcleo brillante
+                        theme.primaryColor.copy(alpha = 0.20f),
+                        theme.primaryColor.copy(alpha = 0.05f),
                         Color.Transparent                                           // Se desvanece antes del borde
                     ),
                     center = Offset(w * 0.45f, h * 0.35f),
@@ -74,8 +76,8 @@ fun ModernDashboardCard(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        theme.accentPurple.copy(alpha = 0.28f),
-                        theme.accentPurple.copy(alpha = 0.10f),
+                        theme.textColor.copy(alpha = 0.28f),
+                        theme.textColor.copy(alpha = 0.10f),
                         Color.Transparent
                     ),
                     center = Offset(w * 0.85f, h * 0.55f),
@@ -89,8 +91,8 @@ fun ModernDashboardCard(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        theme.accentOrange.copy(alpha = 0.22f),
-                        theme.accentOrange.copy(alpha = 0.06f),
+                        theme.numberColor.copy(alpha = 0.22f),
+                        theme.numberColor.copy(alpha = 0.06f),
                         Color.Transparent
                     ),
                     center = Offset(w * 0.70f, h * 0.90f),
@@ -100,7 +102,7 @@ fun ModernDashboardCard(
                 radius = w * 0.45f
             )
 
-            // 5. VIÑETA LATERAL (Garantiza que izquierda y derecha también desaparezcan a 0%)
+            // 5. VIÑETA LATERAL
             drawRect(
                 brush = Brush.horizontalGradient(
                     colors = listOf(
@@ -113,14 +115,14 @@ fun ModernDashboardCard(
                 )
             )
 
-            // 6. FILAMENTO DE LUZ SUPERIOR (Resplandor fino flotante que se apaga a los lados)
+            // 6. FILAMENTO DE LUZ SUPERIOR
             drawLine(
                 brush = Brush.horizontalGradient(
                     colors = listOf(
                         Color.Transparent,
-                        theme.accentCyan.copy(alpha = 0.85f),
-                        Color.White.copy(alpha = 0.90f),                            // Destello blanco central
-                        theme.accentPurple.copy(alpha = 0.75f),
+                        theme.primaryColor.copy(alpha = 0.85f),
+                        Color.White.copy(alpha = 0.90f),
+                        theme.textColor.copy(alpha = 0.75f),
                         Color.Transparent
                     )
                 ),
@@ -146,18 +148,22 @@ fun ModernDashboardCard(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // 🔵 Icono en COLOR PRIMARIO
                         Icon(
                             imageVector = icon,
                             contentDescription = null,
-                            tint = theme.accentCyan,
+                            tint = theme.primaryColor,
                             modifier = Modifier.size(15.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
+
+                        // 🟣 TÍTULO EN COLOR SECUNDARIO (TEXTO)
                         Text(
                             text = title,
-                            color = Color.White.copy(alpha = 0.92f),
+                            color = theme.textColor, // 👈 ¡AQUÍ ESTÁ LA CORRECCIÓN!
                             fontSize = 10.5.sp,
-                            fontWeight = FontWeight.ExtraBold,
+                            fontFamily = dashboardFont.fontFamily,
+                            fontWeight = if (isBold) FontWeight.ExtraBold else FontWeight.Bold,
                             letterSpacing = 1.sp
                         )
                     }
