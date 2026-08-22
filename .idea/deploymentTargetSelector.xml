@@ -4,10 +4,10 @@
     <selectionStates>
       <SelectionState runConfigName="tabletlaucher">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2026-08-19T22:34:14.842949800Z">
+        <DropdownSelection timestamp="2026-08-22T22:42:32.932025200Z">
           <Target type="DEFAULT_BOOT">
             <handle>
-              <DeviceId pluginId="Default" identifier="serial=emulator-5556;connection=dc9aaa58" />
+              <DeviceId pluginId="Default" identifier="serial=emulator-5556;connection=82cc65f7" />
             </handle>
           </Target>
         </DropdownSelection>

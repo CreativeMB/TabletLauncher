@@ -45,6 +45,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.jvm.java
+import android.app.Activity
+import android.content.ComponentName
+import android.content.ContextWrapper
+import android.util.Log
+
 
 // =========================================================================
 // 🎨 MODELO DE TEMA CON JERARQUÍA AUTOMOTRIZ DE 3 COLORES
@@ -100,11 +106,22 @@ val LocalIsBoldText = compositionLocalOf { true }
 val LocalButtonScale = compositionLocalOf { 1.0f }
 val LocalEqualizerStyle = compositionLocalOf { EqualizerStyle.CLASSIC_BARS }
 val LocalDashboardFont = compositionLocalOf { DashboardFont.HYPERCAR_NEO_TECH }
-
 // =========================================================================
-// 🚀 GESTOR PARA SELECCIÓN DE LAUNCHER PREDETERMINADO
+// 🚀 GESTOR DE LAUNCHER RESISTENTE A SUPRESIÓN DE GOOGLE
 // =========================================================================
 object LauncherManager {
+
+    private const val TAG = "LAUNCHER_DEBUG"
+
+    private fun Context.findActivity(): Activity? {
+        var currentContext = this
+        while (currentContext is ContextWrapper) {
+            if (currentContext is Activity) return currentContext
+            currentContext = currentContext.baseContext
+        }
+        return null
+    }
+
     fun isDefaultLauncher(context: Context): Boolean {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -113,7 +130,9 @@ object LauncherManager {
                     return roleManager.isRoleHeld(RoleManager.ROLE_HOME)
                 }
             }
-            val intent = Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) }
+            val intent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+            }
             val resolveInfo = context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
             val currentPackage = resolveInfo?.activityInfo?.packageName
             currentPackage != null && currentPackage == context.packageName
@@ -123,48 +142,70 @@ object LauncherManager {
     }
 
     fun forceAndroidChooser(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
-            if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)) {
-                if (!roleManager.isRoleHeld(RoleManager.ROLE_HOME)) {
-                    val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    try {
-                        context.startActivity(intent)
-                        return
-                    } catch (e: Exception) { e.printStackTrace() }
-                }
-            }
-        }
+        val activity = context.findActivity()
 
+        // 1️⃣ INTENTO DIRECTO: Ajustes de Pantalla de Inicio del Sistema (Siempre accesible)
         try {
             val homeSettingsIntent = Intent(Settings.ACTION_HOME_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(homeSettingsIntent)
+            Log.i(TAG, "✅ Abierto ACTION_HOME_SETTINGS exitosamente")
             return
-        } catch (e: Exception) { e.printStackTrace() }
-
-        try {
-            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            val chooser = Intent.createChooser(homeIntent, "Selecciona Car Tablet Launcher").apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(chooser)
         } catch (e: Exception) {
-            val appIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            Log.w(TAG, "ACTION_HOME_SETTINGS no disponible: ${e.message}")
+        }
+
+        // 2️⃣ INTENTO: Apps Predeterminadas del Sistema (Ajustes -> Aplicaciones Predeterminadas)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                val defaultAppsIntent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(defaultAppsIntent)
+                Log.i(TAG, "✅ Abierto ACTION_MANAGE_DEFAULT_APPS_SETTINGS exitosamente")
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "ACTION_MANAGE_DEFAULT_APPS_SETTINGS no disponible: ${e.message}")
+            }
+        }
+
+        // 3️⃣ INTENTO: RoleManager de Android 10+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
+                if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)) {
+                    val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME)
+                    if (activity != null) {
+                        activity.startActivity(intent)
+                    } else {
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent)
+                    }
+                    Log.i(TAG, "✅ Lanzado RoleManager")
+                    return
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "RoleManager falló: ${e.message}")
+            }
+        }
+
+        // 4️⃣ INTENTO FINAL: Pantalla de Información de la propia Aplicación
+        try {
+            val appDetailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.fromParts("package", context.packageName, null)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            context.startActivity(appIntent)
+            context.startActivity(appDetailsIntent)
+            Log.i(TAG, "✅ Abierto Detalles de Aplicación")
+        } catch (e: Exception) {
+            val settingsIntent = Intent(Settings.ACTION_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(settingsIntent)
         }
     }
 }
-
 // =========================================================================
 // 🎛️ GESTOR PRINCIPAL DE TEMAS (40 TEMAS COMPLETOS)
 // =========================================================================
@@ -1295,3 +1336,5 @@ fun Interactive3DBackground(
         content()
     }
 }
+// Agrega esto al final del archivo
+class FakeLauncherActivity : android.app.Activity()

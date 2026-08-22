@@ -1,6 +1,7 @@
 package com.creativem.toblauncher
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -24,7 +25,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.min
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -34,102 +34,109 @@ fun CustomApps3DGridWidget(
     val context = LocalContext.current
     val theme = LocalDashboardTheme.current
 
-    val prefs = remember { context.getSharedPreferences("custom_grid_apps_prefs", Context.MODE_PRIVATE) }
-    var refreshTrigger by remember { mutableIntStateOf(0) }
+    val prefs = remember {
+        context.getSharedPreferences("custom_grid_apps_prefs", Context.MODE_PRIVATE)
+    }
 
-    // 📱 9 slots en total (3 filas x 3 columnas: 101 al 109)
-    val slots = (101..109).toList()
+    var updateTrigger by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    BoxWithConstraints(
+    DisposableEffect(prefs) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key != null && key.startsWith("grid_slot_")) {
+                updateTrigger = System.currentTimeMillis()
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+
+    val slots = remember { (101..109).toList() }
+    val cellSpacing = 3.dp // Espaciado mínimo ultra-limpio
+
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(4.dp),
-        contentAlignment = Alignment.Center
+            .padding(2.dp), // Se aprovecha hasta la última esquina
+        verticalArrangement = Arrangement.spacedBy(cellSpacing)
     ) {
-        val totalWidth = maxWidth
-        val totalHeight = maxHeight
+        slots.chunked(3).forEach { rowSlots ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f), // Llena toda la altura disponible
+                horizontalArrangement = Arrangement.spacedBy(cellSpacing),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                rowSlots.forEach { slotId ->
+                    val pkgName = remember(slotId, updateTrigger) {
+                        prefs.getString("grid_slot_$slotId", null)
+                    }
 
-        // 📐 Calculamos el tamaño exacto para que sean 100% idénticos y quepan perfecto
-        val horizontalSpacing = 6.dp
-        val verticalSpacing = 6.dp
+                    val appInfo = remember(pkgName, updateTrigger) {
+                        pkgName?.let { getAppInfo(context, it) }
+                    }
 
-        // Ancho y alto dividido entre 3 columnas y 3 filas (restando los 2 espacios intermedios)
-        val itemWidth = (totalWidth - (horizontalSpacing * 2)) / 3
-        val itemHeight = (totalHeight - (verticalSpacing * 2)) / 3
-        val squareSize = min(itemWidth, itemHeight) // Tamaño idéntico para todos
-
-        Column(
-            modifier = Modifier.wrapContentSize(),
-            verticalArrangement = Arrangement.spacedBy(verticalSpacing),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            slots.chunked(3).forEach { rowSlots ->
-                Row(
-                    modifier = Modifier.wrapContentSize(),
-                    horizontalArrangement = Arrangement.spacedBy(horizontalSpacing),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    rowSlots.forEach { slotId ->
-                        val pkgName = prefs.getString("grid_slot_$slotId", null)
-                        val appInfo = remember(pkgName, refreshTrigger) {
-                            pkgName?.let { getAppInfo(context, it) }
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .size(squareSize) // 📏 TAMAÑO FORZADO IDÉNTICO PARA TODOS
-                                .shadow(6.dp, RoundedCornerShape(14.dp), spotColor = theme.primaryColor.copy(alpha = 0.25f))
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            theme.cardBackground.copy(alpha = 0.90f),
-                                            theme.dashBackground.copy(alpha = 0.95f)
-                                        )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f) // Llena todo el ancho disponible
+                            .fillMaxHeight()
+                            .shadow(
+                                elevation = 3.dp,
+                                shape = RoundedCornerShape(10.dp),
+                                spotColor = theme.primaryColor.copy(alpha = 0.35f)
+                            )
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        theme.cardBackground.copy(alpha = 0.85f),
+                                        theme.dashBackground.copy(alpha = 0.95f)
                                     )
                                 )
-                                .border(
-                                    1.2.dp,
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            theme.primaryColor.copy(alpha = 0.6f),
-                                            Color.Transparent
-                                        )
-                                    ),
-                                    RoundedCornerShape(14.dp)
-                                )
-                                .combinedClickable(
-                                    onClick = {
-                                        if (appInfo != null) {
-                                            AppLauncher.launchKeepingVideo(context, appInfo.packageName)
-                                        } else {
-                                            onRequestAppSelection(slotId)
-                                        }
-                                    },
-                                    onLongClick = {
+                            )
+                            .border(
+                                1.dp,
+                                Brush.verticalGradient(
+                                    listOf(
+                                        theme.primaryColor.copy(alpha = 0.55f),
+                                        Color.Transparent
+                                    )
+                                ),
+                                RoundedCornerShape(10.dp)
+                            )
+                            .combinedClickable(
+                                onClick = {
+                                    if (appInfo != null) {
+                                        AppLauncher.launchKeepingVideo(context, appInfo.packageName)
+                                    } else {
                                         onRequestAppSelection(slotId)
                                     }
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (appInfo != null) {
-                                Image(
-                                    bitmap = appInfo.icon.asImageBitmap(),
-                                    contentDescription = appInfo.name,
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(4.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = "Agregar App",
-                                    tint = theme.primaryColor.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(squareSize * 0.4f)
-                                )
-                            }
+                                },
+                                onLongClick = {
+                                    onRequestAppSelection(slotId)
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (appInfo != null) {
+                            // 🚀 ICONO DE BORDE A BORDE (SIN MÁRGENES NEGROS)
+                            Image(
+                                bitmap = appInfo.icon.asImageBitmap(),
+                                contentDescription = appInfo.name,
+                                contentScale = ContentScale.FillBounds, // Llena el 100% de la celda
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(10.dp))
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Agregar App",
+                                tint = theme.primaryColor.copy(alpha = 0.6f),
+                                modifier = Modifier.fillMaxSize(0.45f)
+                            )
                         }
                     }
                 }
@@ -146,14 +153,15 @@ private fun getAppInfo(context: Context, packageName: String): SimpleAppInfo? {
         val info = pm.getApplicationInfo(packageName, 0)
         val name = pm.getApplicationLabel(info).toString()
         val drawable = pm.getApplicationIcon(info)
-        val bitmap = Bitmap.createBitmap(
-            drawable.intrinsicWidth.coerceAtLeast(1),
-            drawable.intrinsicHeight.coerceAtLeast(1),
-            Bitmap.Config.ARGB_8888
-        )
+
+        val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 128
+        val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 128
+
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         drawable.setBounds(0, 0, canvas.width, canvas.height)
         drawable.draw(canvas)
+
         SimpleAppInfo(name, packageName, bitmap)
     } catch (e: Exception) {
         null

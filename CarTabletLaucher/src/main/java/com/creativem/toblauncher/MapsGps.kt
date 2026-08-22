@@ -1183,7 +1183,7 @@ fun MapsforgeWidget(
             }
         }
 
-        mapRefs.zoomObserver?.let { mapView.model.mapViewPosition.removeObserver(it) }
+        mapRefs.zoomObserver?.let { try { mapView.model.mapViewPosition.removeObserver(it) } catch (e: Exception) {} }
         val zoomObserver = Observer {
             mainHandler.removeCallbacks(refreshElementsRunnable)
             mainHandler.postDelayed(refreshElementsRunnable, 150L)
