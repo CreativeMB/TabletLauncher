@@ -37,8 +37,8 @@ fun CustomApps3DGridWidget(
     val prefs = remember { context.getSharedPreferences("custom_grid_apps_prefs", Context.MODE_PRIVATE) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
 
-    // 📱 6 slots en total (2 filas x 3 columnas)
-    val slots = (101..106).toList()
+    // 📱 9 slots en total (3 filas x 3 columnas: 101 al 109)
+    val slots = (101..109).toList()
 
     BoxWithConstraints(
         modifier = Modifier
@@ -53,8 +53,9 @@ fun CustomApps3DGridWidget(
         val horizontalSpacing = 6.dp
         val verticalSpacing = 6.dp
 
+        // Ancho y alto dividido entre 3 columnas y 3 filas (restando los 2 espacios intermedios)
         val itemWidth = (totalWidth - (horizontalSpacing * 2)) / 3
-        val itemHeight = (totalHeight - verticalSpacing) / 2
+        val itemHeight = (totalHeight - (verticalSpacing * 2)) / 3
         val squareSize = min(itemWidth, itemHeight) // Tamaño idéntico para todos
 
         Column(

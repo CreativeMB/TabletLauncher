@@ -177,56 +177,109 @@ object ThemeManager {
     // Colores ordenados: 1° Borde/Iconos | 2° Letras | 3° Números/Datos
     // 🎨 ORDEN ESTRICTO: 1° Borde/Iconos | 2° Letras/Texto | 3° Números/Métricas
     val themes = listOf(
-        // 0. OLED CLÁSICO: Cian Eléctrico + Magenta Suave + Naranja Ámbar
-        DashboardTheme(0, "Negro OLED (Predeterminado)", Color(0xFF000000), Color(0xFF0C0E14), Color(0xFF1E2230), Color(0xFF00E5FF), Color(0xFFE040FB), Color(0xFFFF9100)),
+        // =========================================================================
+        // 🏎️ SECCIÓN 1: SUPERCARS & RACING (COLORES FUERTES Y DEPORTIVOS)
+        // =========================================================================
 
-        // 1. CIAN ELÉCTRICO: Cian Brillante + Azul Hielo + Coral Fuego
-        DashboardTheme(1, "Cian Eléctrico", Color(0xFF03090F), Color(0xFF0A131F), Color(0xFF00838F), Color(0xFF00F2FE), Color(0xFF70D6FF), Color(0xFFFF5252)),
+        // 0. OLED CLÁSICO HYPER
+        DashboardTheme(0, "OLED Clásico (Predeterminado)", Color(0xFF000000), Color(0xFF0B0D14), Color(0xFF1B2234), Color(0xFF00E5FF), Color(0xFFE040FB), Color(0xFFFF9100)),
 
-        // 2. ROJO PASIÓN SPORT: Rojo Ferrari + Carmesí Suave + Amarillo Speed
-        DashboardTheme(2, "Rojo Pasión Sport", Color(0xFF0A0204), Color(0xFF160609), Color(0xFF88111A), Color(0xFFFF1744), Color(0xFFFF8A9E), Color(0xFFFFD600)),
+        // 1. FERRARI CORSA RED: Rojo Corsa + Blanco Glaciar + Amarillo Modena
+        DashboardTheme(1, "Ferrari Corsa Sport", Color(0xFF080102), Color(0xFF140407), Color(0xFF7A0C14), Color(0xFFFF1744), Color(0xFFFFFFFF), Color(0xFFFFD600)),
 
-        // 3. VERDE ESMERALDA: Esmeralda Eléctrico + Menta Lima + Ámbar Dorado
-        DashboardTheme(3, "Verde Esmeralda", Color(0xFF020A05), Color(0xFF08180E), Color(0xFF0D6136), Color(0xFF00E676), Color(0xFF69F0AE), Color(0xFFFFAB00)),
+        // 2. PORSCHE GT3 ACID GREEN: Verde Ácido + Lima Neón + Naranja Carrera
+        DashboardTheme(2, "Porsche GT3 Acid Green", Color(0xFF020904), Color(0xFF07170B), Color(0xFF135A25), Color(0xFF00FF66), Color(0xFFB2FF59), Color(0xFFFF3D00)),
 
-        // 4. AZUL ZAFIRO: Azul Zafiro Hyper + Celeste Cristal + Naranja Ópalo
-        DashboardTheme(4, "Azul Zafiro", Color(0xFF030712), Color(0xFF0A1224), Color(0xFF1446A0), Color(0xFF2979FF), Color(0xFF82B1FF), Color(0xFFFF9100)),
+        // 3. LAMBORGHINI GIALLO ORION: Amarillo Hipervelocidad + Blanco Puro + Cian Eléctrico
+        DashboardTheme(3, "Lamborghini Giallo", Color(0xFF080701), Color(0xFF141203), Color(0xFF5E500A), Color(0xFFFFEA00), Color(0xFFFFFFFF), Color(0xFF00E5FF)),
 
-        // 5. CYBERPUNK SYNTHWAVE: Cian 2077 + Rosa Synthwave + Amarillo Láser
-        DashboardTheme(5, "Cyberpunk Synthwave", Color(0xFF080210), Color(0xFF140824), Color(0xFF6A1B9A), Color(0xFF00F5FF), Color(0xFFFF007F), Color(0xFFFFEE00)),
+        // 4. MCLAREN PAPAYA ORANGE: Naranja Papaya F1 + Blanco Diamante + Turquesa Aerodinámico
+        DashboardTheme(4, "McLaren Papaya F1", Color(0xFF090401), Color(0xFF170903), Color(0xFF8A3300), Color(0xFFFF6D00), Color(0xFFFFF3E0), Color(0xFF00F2FE)),
 
-        // 6. TOKYO DRIFT PINK: Rosa Magenta + Violeta Orquídea + Verde Tóxico
-        DashboardTheme(6, "Tokyo Drift Pink", Color(0xFF0A0208), Color(0xFF180514), Color(0xFF880E4F), Color(0xFFFF007F), Color(0xFFE040FB), Color(0xFFCCFF00)),
+        // 5. BMW M PERFORMANCE CARBON: Azul BMW M + Celeste Glaciar + Rojo M Power
+        DashboardTheme(5, "BMW M Power", Color(0xFF000000), Color(0xFF070B14), Color(0xFF162544), Color(0xFF2979FF), Color(0xFF90CAF9), Color(0xFFFF1744)),
 
-        // 7. NARANJA FUEGO VOLCÁNICO: Naranja Lava + Melocotón Fuego + Amarillo Volcán
-        DashboardTheme(7, "Naranja Fuego Volcánico", Color(0xFF0A0401), Color(0xFF1A0A04), Color(0xFFA84200), Color(0xFFFF6D00), Color(0xFFFFAB91), Color(0xFFFFD600)),
+        // 6. ASTON MARTIN F1 RACING: Verde Competición + Lima Flúor + Plata Platino
+        DashboardTheme(6, "Aston Martin Racing", Color(0xFF010805), Color(0xFF05140D), Color(0xFF004D25), Color(0xFF00E676), Color(0xFFCCFF00), Color(0xFFE0E0E0)),
 
-        // 8. VERDE NEÓN TÓXICO: Verde Radiactivo + Lima Neón + Naranja Fuego
-        DashboardTheme(8, "Verde Neón Tóxico", Color(0xFF020803), Color(0xFF07180A), Color(0xFF1B5E20), Color(0xFF00FF66), Color(0xFFB2FF59), Color(0xFFFF3D00)),
+        // 7. MERCEDES-AMG SOLARSUN: Oro Ámbar AMG + Blanco Ártico + Naranja Fuego
+        DashboardTheme(7, "Mercedes-AMG Solar", Color(0xFF080501), Color(0xFF140D03), Color(0xFF6E430A), Color(0xFFFFAB00), Color(0xFFFFFFFF), Color(0xFFFF3D00)),
 
-        // 9. HYPER VIOLETA: Violeta Neón + Lavanda Eléctrica + Oro Solar
-        DashboardTheme(9, "Hyper Violeta", Color(0xFF06020E), Color(0xFF100620), Color(0xFF4A148C), Color(0xFFD500F9), Color(0xFFB388FF), Color(0xFFFFD600)),
+        // 8. BUGATTI CHIRON ATLANTIC: Azul Francés Hyper + Celeste Polar + Carmín
+        DashboardTheme(8, "Bugatti Chiron Blue", Color(0xFF010612), Color(0xFF050E24), Color(0xFF0D2C6B), Color(0xFF0080FF), Color(0xFF80D8FF), Color(0xFFFF2A4B)),
 
-        // 10. MENTA SUAVE PASTEL: Turquesa Menta + Menta Pastel + Coral Durazno
-        DashboardTheme(10, "Menta Suave Pastel", Color(0xFF030A07), Color(0xFF0A1812), Color(0xFF2E5A4C), Color(0xFF48CAE4), Color(0xFF80CBC4), Color(0xFFFFAB91)),
+        // 9. TOKYO DRIFT SYNTHWAVE: Púrpura Nocturno + Magenta Láser + Amarillo Neón
+        DashboardTheme(9, "Tokyo Drift JDM", Color(0xFF08010C), Color(0xFF14031E), Color(0xFF660E8A), Color(0xFFFF007F), Color(0xFFE040FB), Color(0xFFFFEA00)),
 
-        // 11. LAVANDA NOCTURNA: Lavanda Neón + Malva Claro + Ámbar Cálido
-        DashboardTheme(11, "Lavanda Nocturna", Color(0xFF06040C), Color(0xFF120E1E), Color(0xFF453A68), Color(0xFFB388FF), Color(0xFFE1BEE7), Color(0xFFFFCC80)),
+        // 10. CYBERPUNK NIGHT CITY: Cian 2077 + Rosa Neón + Oro Láser
+        DashboardTheme(10, "Cyberpunk 2077", Color(0xFF020810), Color(0xFF051224), Color(0xFF00607A), Color(0xFF00F5FF), Color(0xFFFF006E), Color(0xFFFFD700)),
 
-        // 12. TURQUESA BRISA MARINA: Turquesa Oceánico + Aguamarina Suave + Naranja Coral
-        DashboardTheme(12, "Turquesa Brisa Marina", Color(0xFF020A0E), Color(0xFF081720), Color(0xFF254B5A), Color(0xFF00E5FF), Color(0xFF80DEEA), Color(0xFFFF8A80)),
 
-        // 13. ROSA PASTEL & CYAN: Cian Hielo + Rosa Chicle + Amarillo Sol
-        DashboardTheme(13, "Rosa Pastel & Cyan", Color(0xFF0A0307), Color(0xFF1A0A13), Color(0xFF5E2B4E), Color(0xFF00F5FF), Color(0xFFF48FB1), Color(0xFFFFE082)),
+        // =========================================================================
+        // 🌿 SECCIÓN 2: AMBIENT LOUNGE & SUAVES (CONDUCCIÓN RELAJADA Y NOCTURNA)
+        // =========================================================================
 
-        // 14. ORO IMPERIAL LUXURY: Oro Real Imperial + Platino Champán + Fuego Carmín
-        DashboardTheme(14, "Oro Imperial Luxury", Color(0xFF000000), Color(0xFF0F0D05), Color(0xFF5E4E0A), Color(0xFFFFD700), Color(0xFFFFF59D), Color(0xFFFF3D00)),
+        // 11. AUDI MOONLIGHT MINIMAL: Blanco Lunar Suave + Celeste Glaciar + Ámbar Sutil
+        DashboardTheme(11, "Audi Moonlight Soft", Color(0xFF060709), Color(0xFF0F1116), Color(0xFF282E3D), Color(0xFFE2E8F0), Color(0xFF90CAF9), Color(0xFFFFB74D)),
 
-        // 15. CARBONO M PERFORMANCE: Azul BMW M + Azul Glaciar + Rojo M Power
-        DashboardTheme(15, "Carbono M Performance", Color(0xFF000000), Color(0xFF0A0D14), Color(0xFF1F2838), Color(0xFF2979FF), Color(0xFF90CAF9), Color(0xFFFF1744)),
+        // 12. MERCEDES S-CLASS AMBIENT BLUE: Azul Índigo Suave + Celeste Niebla + Champán Cálido
+        DashboardTheme(12, "Mercedes Ambient Blue", Color(0xFF020710), Color(0xFF071020), Color(0xFF1C3150), Color(0xFF64B5F6), Color(0xFFBBDEFB), Color(0xFFFFD180)),
 
-        // 16. AMARILLO SPEED GT: Amarillo Speed GT + Amarillo Limón + Cian Hipervelocidad
-        DashboardTheme(16, "Amarillo Speed GT", Color(0xFF080801), Color(0xFF141403), Color(0xFF52520B), Color(0xFFFFEA00), Color(0xFFFFF176), Color(0xFF00E5FF))
+        // 13. MENTA NÓRDICA & EUCALIPTO: Verde Salvia Suave + Menta Pastel + Durazno Cálido
+        DashboardTheme(13, "Menta Salvia Nórdica", Color(0xFF020906), Color(0xFF07150F), Color(0xFF1E4234), Color(0xFF48CAE4), Color(0xFF80CBC4), Color(0xFFFFAB91)),
+
+        // 14. LAVANDA NOCTURNA RELAX: Lavanda Sereno + Malva Claro + Oro Suave
+        DashboardTheme(14, "Lavanda Nocturna", Color(0xFF06040C), Color(0xFF100B1C), Color(0xFF382A54), Color(0xFFB388FF), Color(0xFFE1BEE7), Color(0xFFFFE082)),
+
+        // 15. TURQUESA BRISA MARINA: Aguamarina Suave + Turquesa Cristal + Coral Pálido
+        DashboardTheme(15, "Turquesa Brisa Marina", Color(0xFF01080C), Color(0xFF04141E), Color(0xFF1B4054), Color(0xFF00E5FF), Color(0xFF80DEEA), Color(0xFFFF8A80)),
+
+        // 16. SUNSET CREPÚSCULO: Índigo Nocturno + Rosa Atardecer + Melocotón
+        DashboardTheme(16, "Sunset Atardecer", Color(0xFF08030A), Color(0xFF140819), Color(0xFF4A1E46), Color(0xFFFF80AB), Color(0xFFF8BBD0), Color(0xFFFFB74D)),
+
+        // 17. MATCHA JAPONÉS: Verde Matcha + Crema Té + Naranja Miel
+        DashboardTheme(17, "Matcha Lounge Zen", Color(0xFF040803), Color(0xFF0C160B), Color(0xFF2D4428), Color(0xFFAED581), Color(0xFFDCEDC8), Color(0xFFFFB74D)),
+
+        // 18. OCÉANO PROFUNDO ABISAL: Azul Océano + Celeste Cristal + Arena Dorada
+        DashboardTheme(18, "Océano Profundo", Color(0xFF01060E), Color(0xFF041021), Color(0xFF123458), Color(0xFF00B0FF), Color(0xFFB3E5FC), Color(0xFFFFCC80)),
+
+        // 19. ROSA PASTEL & FROST: Rosa Algodón + Blanco Nieve + Azul Hielo
+        DashboardTheme(19, "Rosa Pastel & Frost", Color(0xFF090306), Color(0xFF160910), Color(0xFF4B2239), Color(0xFFF48FB1), Color(0xFFFCE4EC), Color(0xFF80D8FF)),
+
+        // 20. NIEBLA ÁRTICA MINIMAL: Blanco Nieve + Gris Grafito + Ámbar Sutil
+        DashboardTheme(20, "Niebla Ártica Minimal", Color(0xFF040608), Color(0xFF0A0E13), Color(0xFF222B36), Color(0xFFCFD8DC), Color(0xFFECEFF1), Color(0xFFFFAB40)),
+
+
+        // =========================================================================
+        // 💎 SECCIÓN 3: PLATINO, METÁLICOS & ULTRA LUXURY (PREMIUM Y EXCLUSIVO)
+        // =========================================================================
+
+        // 21. PLATINO PURO & CROMO: Platino Cepillado + Blanco Diamante + Azul Acero
+        DashboardTheme(21, "Platino Puro & Cromo", Color(0xFF030508), Color(0xFF090D13), Color(0xFF283444), Color(0xFFE2E8F0), Color(0xFFF8FAFC), Color(0xFF38BDF8)),
+
+        // 22. TITANIO FORJADO (GUNMETAL): Gris Titanio + Plata Líquida + Naranja Cobre
+        DashboardTheme(22, "Titanio Forjado GT", Color(0xFF040507), Color(0xFF0C0E12), Color(0xFF282D37), Color(0xFF94A3B8), Color(0xFFE2E8F0), Color(0xFFFF7A00)),
+
+        // 23. ORO ROSA ROLLS-ROYCE: Oro Rosa Champán + Marfil Suave + Bronce Noble
+        DashboardTheme(23, "Oro Rosa Rolls-Royce", Color(0xFF080304), Color(0xFF14080B), Color(0xFF532832), Color(0xFFF472B6), Color(0xFFFDE8E9), Color(0xFFF59E0B)),
+
+        // 24. MAYBACH CHAMPAGNE GOLD: Oro Champán + Platino Puro + Rubí Emperador
+        DashboardTheme(24, "Maybach Champán Gold", Color(0xFF000000), Color(0xFF0F0D05), Color(0xFF483C08), Color(0xFFFFD700), Color(0xFFFFF9C4), Color(0xFFFF2A4B)),
+
+        // 25. BRONCE FORJADO HYPERCAR: Bronce Metálico + Champán + Naranja Lava
+        DashboardTheme(25, "Bronce Forjado Hypercar", Color(0xFF060301), Color(0xFF120904), Color(0xFF4E2A12), Color(0xFFFB923C), Color(0xFFFED7AA), Color(0xFFFF5722)),
+
+        // 26. PLATA LÍQUIDA MERCURIO: Plata Mercurio Brillante + Blanco Láser + Rojo Rubí
+        DashboardTheme(26, "Plata Líquida SLR", Color(0xFF000000), Color(0xFF090A0D), Color(0xFF262B36), Color(0xFFCBD5E1), Color(0xFFFFFFFF), Color(0xFFFF1744)),
+
+        // 27. COBRE AHUMADO LUXURY: Cobre Pulido + Marfil Cálido + Fuego Ámbar
+        DashboardTheme(27, "Cobre Ahumado Luxury", Color(0xFF080402), Color(0xFF140B06), Color(0xFF56301A), Color(0xFFF97316), Color(0xFFFFEDD5), Color(0xFFFFB300)),
+
+        // 28. CUARZO AZUL TITANIUM: Cuarzo Glaciar + Titanio Claro + Azul Zafiro
+        DashboardTheme(28, "Cuarzo Azul Titanium", Color(0xFF01060B), Color(0xFF061019), Color(0xFF183B58), Color(0xFF38BDF8), Color(0xFFE0F2FE), Color(0xFF0284C7)),
+
+        // 29. OBSIDIANA MONOCROMO PURO: Blanco Láser Ultra HD + Gris Acero + Blanco Nieve (OLED Puro)
+        DashboardTheme(29, "Obsidiana Monocromo OLED", Color(0xFF000000), Color(0xFF050505), Color(0xFF222222), Color(0xFFFFFFFF), Color(0xFFE5E5E5), Color(0xFF9E9E9E))
     )
 
     fun getAllThemes(context: Context): List<DashboardTheme> = themes + getCustomThemes(context)
