@@ -60,7 +60,6 @@ data class DashboardTheme(
     val accentOrange: Color,   // 🟠 3er Color: Números, Velocímetro, Reloj y Métricas
     val isCustom: Boolean = false
 ) {
-    // 💡 Aliases semánticos para usar directamente en tus vistas:
     val primaryColor: Color get() = accentCyan
     val textColor: Color get() = accentPurple
     val numberColor: Color get() = accentOrange
@@ -96,7 +95,6 @@ enum class DashboardFont(
     }
 }
 
-// 🌐 PROVEEDORES GLOBALES (COMPOSITION LOCALS)
 val LocalDashboardTheme = compositionLocalOf { ThemeManager.themes[0] }
 val LocalIsBoldText = compositionLocalOf { true }
 val LocalButtonScale = compositionLocalOf { 1.0f }
@@ -168,118 +166,68 @@ object LauncherManager {
 }
 
 // =========================================================================
-// 🎛️ GESTOR PRINCIPAL DE TEMAS, COLORES Y PERSISTENCIA
+// 🎛️ GESTOR PRINCIPAL DE TEMAS (40 TEMAS COMPLETOS)
 // =========================================================================
 object ThemeManager {
     private const val PREFS_NAME = "dashboard_theme_prefs"
     private const val CUSTOM_THEMES_KEY = "custom_saved_themes_json"
 
-    // Colores ordenados: 1° Borde/Iconos | 2° Letras | 3° Números/Datos
-    // 🎨 ORDEN ESTRICTO: 1° Borde/Iconos | 2° Letras/Texto | 3° Números/Métricas
     val themes = listOf(
         // =========================================================================
         // 🏎️ SECCIÓN 1: SUPERCARS & RACING (COLORES FUERTES Y DEPORTIVOS)
         // =========================================================================
-
-        // 0. OLED CLÁSICO HYPER
         DashboardTheme(0, "OLED Clásico (Predeterminado)", Color(0xFF000000), Color(0xFF0B0D14), Color(0xFF1B2234), Color(0xFF00E5FF), Color(0xFFE040FB), Color(0xFFFF9100)),
-
-        // 1. FERRARI CORSA RED: Rojo Corsa + Blanco Glaciar + Amarillo Modena
         DashboardTheme(1, "Ferrari Corsa Sport", Color(0xFF080102), Color(0xFF140407), Color(0xFF7A0C14), Color(0xFFFF1744), Color(0xFFFFFFFF), Color(0xFFFFD600)),
-
-        // 2. PORSCHE GT3 ACID GREEN: Verde Ácido + Lima Neón + Naranja Carrera
         DashboardTheme(2, "Porsche GT3 Acid Green", Color(0xFF020904), Color(0xFF07170B), Color(0xFF135A25), Color(0xFF00FF66), Color(0xFFB2FF59), Color(0xFFFF3D00)),
-
-        // 3. LAMBORGHINI GIALLO ORION: Amarillo Hipervelocidad + Blanco Puro + Cian Eléctrico
         DashboardTheme(3, "Lamborghini Giallo", Color(0xFF080701), Color(0xFF141203), Color(0xFF5E500A), Color(0xFFFFEA00), Color(0xFFFFFFFF), Color(0xFF00E5FF)),
-
-        // 4. MCLAREN PAPAYA ORANGE: Naranja Papaya F1 + Blanco Diamante + Turquesa Aerodinámico
         DashboardTheme(4, "McLaren Papaya F1", Color(0xFF090401), Color(0xFF170903), Color(0xFF8A3300), Color(0xFFFF6D00), Color(0xFFFFF3E0), Color(0xFF00F2FE)),
-
-        // 5. BMW M PERFORMANCE CARBON: Azul BMW M + Celeste Glaciar + Rojo M Power
         DashboardTheme(5, "BMW M Power", Color(0xFF000000), Color(0xFF070B14), Color(0xFF162544), Color(0xFF2979FF), Color(0xFF90CAF9), Color(0xFFFF1744)),
-
-        // 6. ASTON MARTIN F1 RACING: Verde Competición + Lima Flúor + Plata Platino
         DashboardTheme(6, "Aston Martin Racing", Color(0xFF010805), Color(0xFF05140D), Color(0xFF004D25), Color(0xFF00E676), Color(0xFFCCFF00), Color(0xFFE0E0E0)),
-
-        // 7. MERCEDES-AMG SOLARSUN: Oro Ámbar AMG + Blanco Ártico + Naranja Fuego
         DashboardTheme(7, "Mercedes-AMG Solar", Color(0xFF080501), Color(0xFF140D03), Color(0xFF6E430A), Color(0xFFFFAB00), Color(0xFFFFFFFF), Color(0xFFFF3D00)),
-
-        // 8. BUGATTI CHIRON ATLANTIC: Azul Francés Hyper + Celeste Polar + Carmín
         DashboardTheme(8, "Bugatti Chiron Blue", Color(0xFF010612), Color(0xFF050E24), Color(0xFF0D2C6B), Color(0xFF0080FF), Color(0xFF80D8FF), Color(0xFFFF2A4B)),
-
-        // 9. TOKYO DRIFT SYNTHWAVE: Púrpura Nocturno + Magenta Láser + Amarillo Neón
         DashboardTheme(9, "Tokyo Drift JDM", Color(0xFF08010C), Color(0xFF14031E), Color(0xFF660E8A), Color(0xFFFF007F), Color(0xFFE040FB), Color(0xFFFFEA00)),
-
-        // 10. CYBERPUNK NIGHT CITY: Cian 2077 + Rosa Neón + Oro Láser
         DashboardTheme(10, "Cyberpunk 2077", Color(0xFF020810), Color(0xFF051224), Color(0xFF00607A), Color(0xFF00F5FF), Color(0xFFFF006E), Color(0xFFFFD700)),
-
 
         // =========================================================================
         // 🌿 SECCIÓN 2: AMBIENT LOUNGE & SUAVES (CONDUCCIÓN RELAJADA Y NOCTURNA)
         // =========================================================================
-
-        // 11. AUDI MOONLIGHT MINIMAL: Blanco Lunar Suave + Celeste Glaciar + Ámbar Sutil
         DashboardTheme(11, "Audi Moonlight Soft", Color(0xFF060709), Color(0xFF0F1116), Color(0xFF282E3D), Color(0xFFE2E8F0), Color(0xFF90CAF9), Color(0xFFFFB74D)),
-
-        // 12. MERCEDES S-CLASS AMBIENT BLUE: Azul Índigo Suave + Celeste Niebla + Champán Cálido
         DashboardTheme(12, "Mercedes Ambient Blue", Color(0xFF020710), Color(0xFF071020), Color(0xFF1C3150), Color(0xFF64B5F6), Color(0xFFBBDEFB), Color(0xFFFFD180)),
-
-        // 13. MENTA NÓRDICA & EUCALIPTO: Verde Salvia Suave + Menta Pastel + Durazno Cálido
         DashboardTheme(13, "Menta Salvia Nórdica", Color(0xFF020906), Color(0xFF07150F), Color(0xFF1E4234), Color(0xFF48CAE4), Color(0xFF80CBC4), Color(0xFFFFAB91)),
-
-        // 14. LAVANDA NOCTURNA RELAX: Lavanda Sereno + Malva Claro + Oro Suave
         DashboardTheme(14, "Lavanda Nocturna", Color(0xFF06040C), Color(0xFF100B1C), Color(0xFF382A54), Color(0xFFB388FF), Color(0xFFE1BEE7), Color(0xFFFFE082)),
-
-        // 15. TURQUESA BRISA MARINA: Aguamarina Suave + Turquesa Cristal + Coral Pálido
         DashboardTheme(15, "Turquesa Brisa Marina", Color(0xFF01080C), Color(0xFF04141E), Color(0xFF1B4054), Color(0xFF00E5FF), Color(0xFF80DEEA), Color(0xFFFF8A80)),
-
-        // 16. SUNSET CREPÚSCULO: Índigo Nocturno + Rosa Atardecer + Melocotón
         DashboardTheme(16, "Sunset Atardecer", Color(0xFF08030A), Color(0xFF140819), Color(0xFF4A1E46), Color(0xFFFF80AB), Color(0xFFF8BBD0), Color(0xFFFFB74D)),
-
-        // 17. MATCHA JAPONÉS: Verde Matcha + Crema Té + Naranja Miel
         DashboardTheme(17, "Matcha Lounge Zen", Color(0xFF040803), Color(0xFF0C160B), Color(0xFF2D4428), Color(0xFFAED581), Color(0xFFDCEDC8), Color(0xFFFFB74D)),
-
-        // 18. OCÉANO PROFUNDO ABISAL: Azul Océano + Celeste Cristal + Arena Dorada
         DashboardTheme(18, "Océano Profundo", Color(0xFF01060E), Color(0xFF041021), Color(0xFF123458), Color(0xFF00B0FF), Color(0xFFB3E5FC), Color(0xFFFFCC80)),
-
-        // 19. ROSA PASTEL & FROST: Rosa Algodón + Blanco Nieve + Azul Hielo
         DashboardTheme(19, "Rosa Pastel & Frost", Color(0xFF090306), Color(0xFF160910), Color(0xFF4B2239), Color(0xFFF48FB1), Color(0xFFFCE4EC), Color(0xFF80D8FF)),
-
-        // 20. NIEBLA ÁRTICA MINIMAL: Blanco Nieve + Gris Grafito + Ámbar Sutil
         DashboardTheme(20, "Niebla Ártica Minimal", Color(0xFF040608), Color(0xFF0A0E13), Color(0xFF222B36), Color(0xFFCFD8DC), Color(0xFFECEFF1), Color(0xFFFFAB40)),
-
 
         // =========================================================================
         // 💎 SECCIÓN 3: PLATINO, METÁLICOS & ULTRA LUXURY (PREMIUM Y EXCLUSIVO)
         // =========================================================================
-
-        // 21. PLATINO PURO & CROMO: Platino Cepillado + Blanco Diamante + Azul Acero
         DashboardTheme(21, "Platino Puro & Cromo", Color(0xFF030508), Color(0xFF090D13), Color(0xFF283444), Color(0xFFE2E8F0), Color(0xFFF8FAFC), Color(0xFF38BDF8)),
-
-        // 22. TITANIO FORJADO (GUNMETAL): Gris Titanio + Plata Líquida + Naranja Cobre
         DashboardTheme(22, "Titanio Forjado GT", Color(0xFF040507), Color(0xFF0C0E12), Color(0xFF282D37), Color(0xFF94A3B8), Color(0xFFE2E8F0), Color(0xFFFF7A00)),
-
-        // 23. ORO ROSA ROLLS-ROYCE: Oro Rosa Champán + Marfil Suave + Bronce Noble
         DashboardTheme(23, "Oro Rosa Rolls-Royce", Color(0xFF080304), Color(0xFF14080B), Color(0xFF532832), Color(0xFFF472B6), Color(0xFFFDE8E9), Color(0xFFF59E0B)),
-
-        // 24. MAYBACH CHAMPAGNE GOLD: Oro Champán + Platino Puro + Rubí Emperador
         DashboardTheme(24, "Maybach Champán Gold", Color(0xFF000000), Color(0xFF0F0D05), Color(0xFF483C08), Color(0xFFFFD700), Color(0xFFFFF9C4), Color(0xFFFF2A4B)),
-
-        // 25. BRONCE FORJADO HYPERCAR: Bronce Metálico + Champán + Naranja Lava
         DashboardTheme(25, "Bronce Forjado Hypercar", Color(0xFF060301), Color(0xFF120904), Color(0xFF4E2A12), Color(0xFFFB923C), Color(0xFFFED7AA), Color(0xFFFF5722)),
-
-        // 26. PLATA LÍQUIDA MERCURIO: Plata Mercurio Brillante + Blanco Láser + Rojo Rubí
         DashboardTheme(26, "Plata Líquida SLR", Color(0xFF000000), Color(0xFF090A0D), Color(0xFF262B36), Color(0xFFCBD5E1), Color(0xFFFFFFFF), Color(0xFFFF1744)),
-
-        // 27. COBRE AHUMADO LUXURY: Cobre Pulido + Marfil Cálido + Fuego Ámbar
         DashboardTheme(27, "Cobre Ahumado Luxury", Color(0xFF080402), Color(0xFF140B06), Color(0xFF56301A), Color(0xFFF97316), Color(0xFFFFEDD5), Color(0xFFFFB300)),
-
-        // 28. CUARZO AZUL TITANIUM: Cuarzo Glaciar + Titanio Claro + Azul Zafiro
         DashboardTheme(28, "Cuarzo Azul Titanium", Color(0xFF01060B), Color(0xFF061019), Color(0xFF183B58), Color(0xFF38BDF8), Color(0xFFE0F2FE), Color(0xFF0284C7)),
+        DashboardTheme(29, "Obsidiana Monocromo OLED", Color(0xFF000000), Color(0xFF050505), Color(0xFF222222), Color(0xFFFFFFFF), Color(0xFFE5E5E5), Color(0xFF9E9E9E)),
 
-        // 29. OBSIDIANA MONOCROMO PURO: Blanco Láser Ultra HD + Gris Acero + Blanco Nieve (OLED Puro)
-        DashboardTheme(29, "Obsidiana Monocromo OLED", Color(0xFF000000), Color(0xFF050505), Color(0xFF222222), Color(0xFFFFFFFF), Color(0xFFE5E5E5), Color(0xFF9E9E9E))
+        // =========================================================================
+        // 🪵 SECCIÓN 4: MADERAS NOBLES, CUERO & INTERIORES DE LUJO (TAPICERÍA)
+        // =========================================================================
+        DashboardTheme(30, "Cuero Cognac & Nogal", Color(0xFF070402), Color(0xFF130B06), Color(0xFF532E16), Color(0xFFD97724), Color(0xFFFDE8D0), Color(0xFFFFB300)),
+        DashboardTheme(31, "Caoba & Cuero Habana", Color(0xFF080202), Color(0xFF160806), Color(0xFF5E2016), Color(0xFFC85A32), Color(0xFFFEE8DF), Color(0xFFFFA000)),
+        DashboardTheme(32, "Saddle Brown & Roble", Color(0xFF060403), Color(0xFF120C08), Color(0xFF4A301E), Color(0xFFB45309), Color(0xFFF5E6D3), Color(0xFFFFC107)),
+        DashboardTheme(33, "Bentley Beige & Nogal", Color(0xFF050302), Color(0xFF110B07), Color(0xFF4E3622), Color(0xFFD4A373), Color(0xFFFAEDCD), Color(0xFFFFD54F)),
+        DashboardTheme(34, "Cuero Burdeos & Ébano", Color(0xFF080204), Color(0xFF17060A), Color(0xFF5E1724), Color(0xFFBE123C), Color(0xFFFCE7F3), Color(0xFFFF8A80)),
+        DashboardTheme(35, "Terracota Ferrari GT", Color(0xFF060505), Color(0xFF140D0B), Color(0xFF54291F), Color(0xFFEA580C), Color(0xFFEDE9FE), Color(0xFFFF9E80)),
+        DashboardTheme(36, "Moca Espresso & Zebrano", Color(0xFF060302), Color(0xFF120A07), Color(0xFF452417), Color(0xFFA16207), Color(0xFFFEF3C7), Color(0xFFFFB74D)),
+        DashboardTheme(37, "Alcántara & Costura Oro", Color(0xFF040404), Color(0xFF0E0E10), Color(0xFF333338), Color(0xFFEAB308), Color(0xFFE2E8F0), Color(0xFFFFD600)),
+        DashboardTheme(38, "Yachting & Madera Teca", Color(0xFF020509), Color(0xFF070F1A), Color(0xFF422818), Color(0xFFD97706), Color(0xFFE0F2FE), Color(0xFF38BDF8)),
+        DashboardTheme(39, "Jaguar Vintage Tobacco", Color(0xFF060402), Color(0xFF130D08), Color(0xFF4B321C), Color(0xFF9A3412), Color(0xFFFFFBEB), Color(0xFFFFAB00))
     )
 
     fun getAllThemes(context: Context): List<DashboardTheme> = themes + getCustomThemes(context)
@@ -684,7 +632,7 @@ fun ThemeSelectorModal(
                             modifier = Modifier.fillMaxSize().verticalScroll(leftScrollState).padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // VISTA PREVIA DINÁMICA CON JERARQUÍA VISUAL REAL
+                            // VISTA PREVIA
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -722,7 +670,7 @@ fun ThemeSelectorModal(
                                 }
                             }
 
-                            // TIPOGRAFÍAS AUTOMOTRICES
+                            // TIPOGRAFÍAS
                             Text("🔤 Selecciona Tipo de Letra:", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 DashboardFont.values().forEach { font ->
@@ -917,7 +865,7 @@ fun ThemeSelectorModal(
 
                             Text("🎨 Colección de Temas (${allThemesList.size})", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
 
-                            // LISTA DE TEMAS
+                            // LISTA DE TEMAS (GRILLA 2 COLUMNAS)
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 allThemesList.chunked(2).forEach { rowThemes ->
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -946,7 +894,6 @@ fun ThemeSelectorModal(
                                                         if (theme.isCustom) Text("Personalizado", color = localTheme.accentCyan, fontSize = 7.sp)
                                                     }
 
-                                                    // 3 Puntos ordenados: [Bordes/Acción] [Letras] [Números]
                                                     Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                                                         Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(theme.primaryColor))
                                                         Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(theme.textColor))
@@ -1096,7 +1043,7 @@ fun ThemeSelectorModal(
 }
 
 // =========================================================================
-// 🎨 MODAL MEZCLADOR 2D CON CATEGORÍAS CLARAS
+// 🎨 MODAL MEZCLADOR 2D
 // =========================================================================
 @Composable
 fun CustomColorMixerDialog(
@@ -1107,9 +1054,9 @@ fun CustomColorMixerDialog(
     var themeName by remember { mutableStateOf("Mi Estilo Personalizado") }
     var selectedColorIndex by remember { mutableIntStateOf(1) }
 
-    var colorPrimario by remember { mutableStateOf(Color(0xFF00E5FF)) }   // Bordes y Botones
-    var colorLetras by remember { mutableStateOf(Color(0xFFD500F9)) }     // Letras y Títulos
-    var colorNumeros by remember { mutableStateOf(Color(0xFFFF9100)) }    // Números y Métricas
+    var colorPrimario by remember { mutableStateOf(Color(0xFF00E5FF)) }
+    var colorLetras by remember { mutableStateOf(Color(0xFFD500F9)) }
+    var colorNumeros by remember { mutableStateOf(Color(0xFFFF9100)) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1136,7 +1083,6 @@ fun CustomColorMixerDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // 3 Pestañas con su función clara
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf(
                         Triple(1, "1️⃣ Bordes/Iconos", colorPrimario),
@@ -1178,7 +1124,6 @@ fun CustomColorMixerDialog(
                     }
                 )
 
-                // Previsualización directa
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
