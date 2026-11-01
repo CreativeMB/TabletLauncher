@@ -83,6 +83,7 @@ import com.google.android.gms.location.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import org.mapsforge.core.model.BoundingBox
 import org.mapsforge.core.model.LatLong
@@ -474,45 +475,46 @@ object NavigationStateHolder {
 }
 
 // ==========================================
-// REPOSITORIO DE CÁMARAS
+// REPOSITORIO DE CÁMARAS (CORREGIDO)
 // ==========================================
 object CameraRepository {
     private const val TAG = "RADAR_DEBUG"
     private const val CACHE_FILE_NAME = "speed_cameras_colombia.json"
 
+    // Endpoints válidos con certificados SSL confiables en Android
     private val OVERPASS_ENDPOINTS = listOf(
         "https://overpass-api.de/api/interpreter",
-        "https://lz4.overpass-api.de/api/interpreter",
-        "https://overpass.kumi.systems/api/interpreter",
-        "https://overpass.private.coffee/api/interpreter"
+        "https://overpass.private.coffee/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter" // Se mantiene como fallback si redirige correctamente
     )
 
+    // CONSULTA OPTIMIZADA: Bbox global y operadores compactos
     private fun buildFastQueryForBounds(bbox: BoundingBox): String {
         val s = String.format(Locale.US, "%.4f", bbox.minLatitude)
         val w = String.format(Locale.US, "%.4f", bbox.minLongitude)
         val n = String.format(Locale.US, "%.4f", bbox.maxLatitude)
         val e = String.format(Locale.US, "%.4f", bbox.maxLongitude)
-        val bboxStr = "($s,$w,$n,$e)"
 
-        return """[out:json][timeout:20];
+        // Usar [bbox:s,w,n,e] global hace que Overpass filtre primero por cuadrícula geográfica,
+        // siendo 10 veces más rápido que filtrar bbox en cada nodo.
+        return """[out:json][timeout:50][bbox:$s,$w,$n,$e];
 (
-  node["highway"="speed_camera"]$bboxStr;
-  node["enforcement"="maxspeed"]$bboxStr;
-  node["device"="speed_camera"]$bboxStr;
-  node["enforcement"="speed_camera"]$bboxStr;
+  node["highway"="speed_camera"];
+  node["device"="speed_camera"];
+  node["enforcement"~"maxspeed|speed_camera"];
 );
 out body;"""
     }
 
     fun getCachedCameras(context: Context): List<SpeedCamera> {
         val cacheFile = File(context.filesDir, CACHE_FILE_NAME)
-        if (!cacheFile.exists() || cacheFile.length() == 0L) return listOf()
+        if (!cacheFile.exists() || cacheFile.length() == 0L) return emptyList()
 
         return try {
             val jsonString = cacheFile.readText(Charsets.UTF_8)
             parseJson(jsonString)
         } catch (e: Exception) {
-            listOf()
+            emptyList()
         }
     }
 
@@ -533,20 +535,22 @@ out body;"""
         val previousCameras = getCachedCameras(context)
         val previousCount = previousCameras.size
         var lastErrorDetail = "No se pudo conectar a ningún servidor"
+
         val query = buildFastQueryForBounds(mapBounds)
         val postData = ("data=" + URLEncoder.encode(query, "UTF-8")).toByteArray(Charsets.UTF_8)
 
         for (endpoint in OVERPASS_ENDPOINTS) {
             var connection: HttpURLConnection? = null
             try {
+                Log.d(TAG, "Intentando sincronizar con: $endpoint")
                 val url = URL(endpoint)
                 connection = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     doOutput = true
-                    connectTimeout = 10000
-                    readTimeout = 20000
+                    connectTimeout = 15000
+                    readTimeout = 60000 // Margen amplio para esperar la cola del servidor
                     useCaches = false
-                    setRequestProperty("User-Agent", "TobLauncher/14.0")
+                    setRequestProperty("User-Agent", "TobLauncher/14.0 (soporte@toblauncher.app)")
                     setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
                     setRequestProperty("Accept", "application/json")
                     setFixedLengthStreamingMode(postData.size)
@@ -564,15 +568,23 @@ out body;"""
                         if (saveOk) {
                             val newTotal = downloadedList.size
                             val addedCount = (newTotal - previousCount).coerceAtLeast(0)
+                            Log.d(TAG, "✅ Sincronización exitosa desde $endpoint. Total cámaras: $newTotal")
                             return@withContext CameraSyncResult.Success(
                                 cameras = downloadedList,
                                 previousCount = previousCount,
                                 addedCount = addedCount
                             )
                         }
+                    } else {
+                        Log.w(TAG, "Servidor respondió OK pero sin cámaras en el área delimitada.")
                     }
+                } else {
+                    val errMessage = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+                    Log.w(TAG, "Fallo en $endpoint con código $responseCode: $errMessage")
+                    lastErrorDetail = "Servidor respondió HTTP $responseCode"
                 }
             } catch (ex: Exception) {
+                Log.e(TAG, "Error en $endpoint: ${ex.message}")
                 lastErrorDetail = "${ex.javaClass.simpleName}: ${ex.localizedMessage}"
             } finally {
                 connection?.disconnect()
@@ -585,7 +597,7 @@ out body;"""
     private fun saveCamerasToCache(context: Context, cameras: List<SpeedCamera>): Boolean {
         return try {
             val finalJson = JSONObject().apply {
-                val array = org.json.JSONArray()
+                val array = JSONArray()
                 for (cam in cameras) {
                     val obj = JSONObject().apply {
                         put("id", cam.id)
@@ -601,6 +613,7 @@ out body;"""
             val targetFile = File(context.filesDir, CACHE_FILE_NAME)
             val tempFile = File(context.filesDir, "$CACHE_FILE_NAME.tmp")
             tempFile.writeText(finalJson.toString(), Charsets.UTF_8)
+
             if (tempFile.exists() && tempFile.length() > 0) {
                 if (targetFile.exists()) targetFile.delete()
                 tempFile.renameTo(targetFile)
@@ -608,6 +621,7 @@ out body;"""
                 false
             }
         } catch (e: Exception) {
+            Log.e(TAG, "Error guardando caché: ${e.message}")
             false
         }
     }
@@ -640,7 +654,6 @@ out body;"""
         return cameraMap.values.toList()
     }
 }
-
 // ==========================================
 // CLASE CONTENEDORA DE REFERENCIAS
 // ==========================================

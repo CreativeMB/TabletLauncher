@@ -1,5 +1,7 @@
 package com.creativem.toblauncher
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
@@ -10,6 +12,7 @@ import android.media.session.PlaybackState
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
+import android.widget.Toast
 import androidx.compose.runtime.*
 import kotlinx.coroutines.*
 import java.io.BufferedReader
@@ -28,6 +31,9 @@ data class IptvChannel(
 class SmartIptvPlayer private constructor(private val context: Context) {
 
     companion object {
+        // URL sugerida por defecto accesible desde toda la app
+        const val DEFAULT_SUGGESTED_URL = "https://iptv-org.github.io/iptv/languages/spa.m3u"
+
         @Volatile
         private var INSTANCE: SmartIptvPlayer? = null
 
@@ -74,7 +80,7 @@ class SmartIptvPlayer private constructor(private val context: Context) {
             }
         }
 
-    var selectedFileName by mutableStateOf(prefs.getString("playlist_name", "Lista IPTV Remota") ?: "Lista IPTV Remota")
+    var selectedFileName by mutableStateOf(prefs.getString("playlist_name", "Lista IPTV") ?: "Lista IPTV")
         private set
 
     var isFullscreenActive by mutableStateOf(false)
@@ -102,9 +108,8 @@ class SmartIptvPlayer private constructor(private val context: Context) {
 
     private fun autoLoadPlaylistOnBoot() {
         val savedUrl = prefs.getString("selected_playlist_url", null)
-        if (!savedUrl.isNullOrEmpty()) {
-            parseAndLoadM3uUrl(savedUrl)
-        }
+        val urlToLoad = if (!savedUrl.isNullOrBlank()) savedUrl else DEFAULT_SUGGESTED_URL
+        parseAndLoadM3uUrl(urlToLoad)
     }
 
     private fun setupMediaSession() {
@@ -154,10 +159,13 @@ class SmartIptvPlayer private constructor(private val context: Context) {
     }
 
     // Método principal para cargar la lista remota desde una URL externa
-    fun parseAndLoadM3uUrl(urlString: String) {
+    fun parseAndLoadM3uUrl(urlString: String?) {
+        // Blindaje contra nulos y vacíos para evitar caídas de la app
+        if (urlString.isNullOrBlank()) return
+
         pausePlayback()
         isScanning = true
-        selectedFileName = "Lista IPTV Remota"
+        selectedFileName = "Lista IPTV"
 
         prefs.edit()
             .putString("playlist_name", selectedFileName)
@@ -173,8 +181,6 @@ class SmartIptvPlayer private constructor(private val context: Context) {
                 connection.connectTimeout = 15000
                 connection.readTimeout = 15000
                 connection.requestMethod = "GET"
-
-                // Cabecera estándar para evitar bloqueos por parte del servidor IPTV
                 connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
 
                 if (connection.responseCode == HttpURLConnection.HTTP_OK) {
@@ -370,7 +376,7 @@ class SmartIptvPlayer private constructor(private val context: Context) {
             updatePlaybackState(PlaybackState.STATE_PAUSED)
         }
 
-        player.setOnErrorListener { _, what, extra ->
+        player.setOnErrorListener { _, _, _ ->
             playNextChannel()
             true
         }
@@ -411,12 +417,28 @@ class SmartIptvPlayer private constructor(private val context: Context) {
     }
 
     fun release() {
-        mediaPlayer?.release()
-        mediaPlayer = null
+        try {
+            // 1. Detener y liberar el reproductor
+            mediaPlayer?.stop()
+            mediaPlayer?.release()
+            mediaPlayer = null
 
-        abandonAudioFocus()
-        mediaSession?.isActive = false
-        mediaSession?.release()
-        mediaSession = null
+            // 2. Liberar el foco de audio
+            abandonAudioFocus()
+
+            // 3. Desactivar y destruir la sesión multimedia
+            mediaSession?.isActive = false
+            mediaSession?.release()
+            mediaSession = null
+
+            // 4. Cancelar descargas de listas pendientes
+            scope.cancel()
+
+            // 5. IMPORTANTE: Limpiar el Singleton para que si se vuelve a pedir,
+            // se reconstruya desde cero sin componentes nulos
+            INSTANCE = null
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }
