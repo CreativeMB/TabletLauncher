@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Density
@@ -116,20 +117,25 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
 
-        val videoPlayer = SmartVideoPlayer.getInstance(this)
-        val musicPlayer = SmartMusicPlayer.getInstance(this)
-        val radioPlayer = SmartRadioManager.getInstance(this)
-        val iptvPlayer = SmartIptvPlayer.getInstance(this)
+        // 1. GADGET FLOTANTE DE MÚSICA / VIDEO (Si el usuario lo tiene activo en ajustes)
+        if (ThemeManager.getSavedFloatingMediaEnabled(this)) {
+            val videoPlayer = SmartVideoPlayer.getInstance(this)
+            val musicPlayer = SmartMusicPlayer.getInstance(this)
+            val radioPlayer = SmartRadioManager.getInstance(this)
+            val iptvPlayer = SmartIptvPlayer.getInstance(this)
 
-        if (videoPlayer.isPlaying || musicPlayer.isPlaying || radioPlayer.isPlaying || iptvPlayer.isPlaying) {
-            FloatingMediaService.start(this)
+            if (videoPlayer.isPlaying || musicPlayer.isPlaying || radioPlayer.isPlaying || iptvPlayer.isPlaying) {
+                FloatingMediaService.start(this)
+            }
         }
 
-        FloatingSpeedometerService.start(this)
+        // 2. GADGET FLOTANTE DE VELOCIDAD (Si el usuario lo tiene activo en ajustes)
+        if (ThemeManager.getSavedFloatingSpeedometerEnabled(this)) {
+            FloatingSpeedometerService.start(this)
+        }
     }
 
     override fun onResume() {
@@ -653,122 +659,131 @@ fun CarDashboard(
                 theme = theme,
                 modifier = Modifier.fillMaxSize()
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                // ⬇️ COLUMNA PRINCIPAL (FRANJA SUPERIOR Y WIDGETS PROPORCIONALES)
+                Column(modifier = Modifier.fillMaxSize()) {
+
+                    // 🌟 1. FRANJA SUPERIOR ESTILIZADA DE ORILLA A ORILLA
+                    TopHeaderBarWidget(onThemeClick = { showThemeModal = true })
+
+                    // 2. EL RESTO DE TUS CARDS (CON SU MARGEN HABITUAL Y DISTRIBUCIÓN FLUIDA)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .weight(1.2f)
-                                .fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            ModernDashboardCard(
-                                modifier = Modifier.weight(0.4f),
-                                title = null,
-                                icon = Icons.Default.Map,
-                                headerAction = {
-                                    IconButton(onClick = { isMapExpanded = true }, modifier = Modifier.size(24.dp)) {
-                                        Icon(Icons.Default.Fullscreen, contentDescription = "Expandir Mapa", tint = theme.primaryColor)
-                                    }
-                                }
-                            ) {
-                                MapContainerWidget(
-                                    onExpandClicked = { isMapExpanded = true }
-                                )
-                            }
-
-                            ModernDashboardCard(
-                                modifier = Modifier.weight(0.6f),
-                                title = null
-                            ) {
-                                ModernMediaPlayerWidget(
-                                    currentMode = currentMediaMode,
-                                    onModeChange = { newMode: MediaMode -> currentMediaMode = newMode },
-                                    onExpandMusicFullscreen = { showFullscreenMusic = true },
-                                    onExpandVideoFullscreen = { showFullscreenVideo = true },
-                                    onExpandIptvFullscreen = { showFullscreenIptv = true },
-                                    onExpandRadioFullscreen = { showFullscreenRadio = true }
-                                )
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             Row(
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
                                 ModernDashboardCard(
-                                    modifier = Modifier.weight(1.1f),
-                                    title = "APLICACIONES",
-                                    icon = Icons.Default.Apps,
+                                    modifier = Modifier.weight(0.4f),
+                                    title = null,
+                                    icon = Icons.Default.Map,
                                     headerAction = {
-                                        IconButton(
-                                            onClick = { activeAppDrawerTarget = 99 },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Launch,
-                                                contentDescription = "Ver Todas",
-                                                tint = theme.primaryColor
-                                            )
+                                        IconButton(onClick = { isMapExpanded = true }, modifier = Modifier.size(24.dp)) {
+                                            Icon(Icons.Default.Fullscreen, contentDescription = "Expandir Mapa", tint = theme.primaryColor)
                                         }
                                     }
                                 ) {
-                                    CustomApps3DGridWidget(
-                                        onRequestAppSelection = { slot -> activeAppDrawerTarget = slot }
+                                    MapContainerWidget(
+                                        onExpandClicked = { isMapExpanded = true }
                                     )
+                                }
+
+                                ModernDashboardCard(
+                                    modifier = Modifier.weight(0.6f),
+                                    title = null
+                                ) {
+                                    ModernMediaPlayerWidget(
+                                        currentMode = currentMediaMode,
+                                        onModeChange = { newMode: MediaMode -> currentMediaMode = newMode },
+                                        onExpandMusicFullscreen = { showFullscreenMusic = true },
+                                        onExpandVideoFullscreen = { showFullscreenVideo = true },
+                                        onExpandIptvFullscreen = { showFullscreenIptv = true },
+                                        onExpandRadioFullscreen = { showFullscreenRadio = true }
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    ModernDashboardCard(
+                                        modifier = Modifier.weight(1.1f),
+                                        title = "APLICACIONES",
+                                        icon = Icons.Default.Apps,
+                                        headerAction = {
+                                            IconButton(
+                                                onClick = { activeAppDrawerTarget = 99 },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Launch,
+                                                    contentDescription = "Ver Todas",
+                                                    tint = theme.primaryColor
+                                                )
+                                            }
+                                        }
+                                    ) {
+                                        CustomApps3DGridWidget(
+                                            onRequestAppSelection = { slot -> activeAppDrawerTarget = slot }
+                                        )
+                                    }
+
+                                    ModernDashboardCard(
+                                        modifier = Modifier.weight(1f),
+                                        title = null,
+                                        icon = Icons.Default.Schedule
+                                    ) {
+                                        ModernClockWidget()
+                                    }
                                 }
 
                                 ModernDashboardCard(
                                     modifier = Modifier.weight(1f),
-                                    title = null,
-                                    icon = Icons.Default.Schedule
+                                    title = null
                                 ) {
-                                    ModernClockWidget()
-                                }
-                            }
-
-                            ModernDashboardCard(
-                                modifier = Modifier.weight(1f),
-                                title = null
-                            ) {
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    ModernSpeedometerWidget(
-                                        speedKmH = currentSpeedKmH,
-                                        bearing = currentBearing,
-                                        onRequestAppSelection = { slot: Int ->
-                                            activeAppDrawerTarget = slot
-                                        }
-                                    )
-
-                                    // 🎨 Botón Flotante del Estudio de Temas
-                                    FloatingActionButton(
-                                        onClick = { showThemeModal = true },
-                                        containerColor = theme.cardBackground,
-                                        contentColor = theme.primaryColor,
-                                        shape = CircleShape,
-                                        modifier = Modifier
-                                            .align(Alignment.BottomStart)
-                                            .padding(8.dp)
-                                            .size(38.dp)
-                                            .border(1.2.dp, theme.primaryColor.copy(alpha = 0.6f), CircleShape)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Palette,
-                                            contentDescription = "Mundo de Colores",
-                                            modifier = Modifier.size(20.dp)
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        ModernSpeedometerWidget(
+                                            speedKmH = currentSpeedKmH,
+                                            bearing = currentBearing,
+                                            onRequestAppSelection = { slot: Int ->
+                                                activeAppDrawerTarget = slot
+                                            }
                                         )
+
+                                        // 🎨 Botón Flotante del Estudio de Temas
+                                        FloatingActionButton(
+                                            onClick = { showThemeModal = true },
+                                            containerColor = theme.cardBackground,
+                                            contentColor = theme.primaryColor,
+                                            shape = CircleShape,
+                                            modifier = Modifier
+                                                .align(Alignment.BottomStart)
+                                                .padding(8.dp)
+                                                .size(38.dp)
+                                                .border(1.2.dp, theme.primaryColor.copy(alpha = 0.6f), CircleShape)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Palette,
+                                                contentDescription = "Mundo de Colores",
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -859,5 +874,206 @@ fun CarDashboard(
 
         // 📍 MODAL DE PERMISO DE VENTANA FLOTANTE
         OverlayPermissionHost()
+    }
+}
+
+// =========================================================================
+// 🌟 FRANJA SUPERIOR: FECHA, HORA Y BOTÓN DE ESTUDIO DE TEMAS
+// =========================================================================
+@Composable
+fun TopHeaderBarWidget(
+    onThemeClick: () -> Unit = {} // 👈 Acción que abre el modal de temas
+) {
+    val context = LocalContext.current
+    val theme = LocalDashboardTheme.current
+    val dashboardFont = LocalDashboardFont.current
+
+    fun getFormattedDateTime(): Pair<String, Pair<String, String>> {
+        val locale = java.util.Locale.getDefault()
+        val now = java.util.Date()
+
+        val dateSdf = java.text.SimpleDateFormat("EEEE, dd 'DE' MMMM 'DE' yyyy", locale)
+        val fullDate = dateSdf.format(now).uppercase(locale)
+
+        val timeSdf = java.text.SimpleDateFormat("hh:mm", locale)
+        val amPmSdf = java.text.SimpleDateFormat("a", locale)
+        val timeStr = timeSdf.format(now)
+        val amPmStr = amPmSdf.format(now).uppercase(locale)
+
+        return Pair(fullDate, Pair(timeStr, amPmStr))
+    }
+
+    var currentDateTime by remember { mutableStateOf(getFormattedDateTime()) }
+
+    DisposableEffect(context) {
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: Intent?) {
+                currentDateTime = getFormattedDateTime()
+            }
+        }
+        val filter = android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_TIME_TICK)
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        }
+        context.registerReceiver(receiver, filter)
+        onDispose {
+            context.unregisterReceiver(receiver)
+        }
+    }
+
+    val (fullDate, timeData) = currentDateTime
+    val (timeText, amPmText) = timeData
+
+    val headerBackground = remember(theme) {
+        Brush.horizontalGradient(
+            colors = listOf(
+                lerp(theme.cardBackground, theme.primaryColor, 0.20f),
+                theme.dashBackground,
+                lerp(theme.cardBackground, theme.primaryColor, 0.20f)
+            )
+        )
+    }
+
+    val headerBorderBrush = remember(theme) {
+        Brush.horizontalGradient(
+            colors = listOf(
+                Color.Transparent,
+                theme.primaryColor.copy(alpha = 0.70f),
+                theme.primaryColor.copy(alpha = 0.70f),
+                Color.Transparent
+            )
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(58.dp)
+            .shadow(12.dp, spotColor = theme.primaryColor.copy(alpha = 0.35f))
+            .background(headerBackground)
+            .border(BorderStroke(1.2.dp, headerBorderBrush))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            // 📅 FECHA COMPLETA
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(theme.primaryColor.copy(alpha = 0.15f))
+                        .border(1.dp, theme.primaryColor.copy(alpha = 0.45f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CalendarToday,
+                        contentDescription = "Fecha",
+                        tint = theme.primaryColor,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+
+                Text(
+                    text = fullDate,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontFamily = dashboardFont.fontFamily,
+                    color = theme.textColor,
+                    letterSpacing = 1.3.sp,
+                    maxLines = 1
+                )
+            }
+
+            // ⏰ HORA GRANDE Y 🎨 BOTÓN DE TEMAS (Mundo de Colores)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = "Hora",
+                        tint = theme.primaryColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+
+                    Text(
+                        text = timeText,
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = dashboardFont.fontFamily,
+                        letterSpacing = 1.5.sp,
+                        style = TextStyle(
+                            fontFamily = dashboardFont.fontFamily,
+                            fontWeight = FontWeight.Black,
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    lerp(theme.numberColor, Color.White, 0.45f),
+                                    theme.numberColor
+                                )
+                            )
+                        )
+                    )
+
+                    Surface(
+                        color = theme.primaryColor.copy(alpha = 0.18f),
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, theme.primaryColor.copy(alpha = 0.55f))
+                    ) {
+                        Text(
+                            text = amPmText,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = dashboardFont.fontFamily,
+                            color = theme.primaryColor,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .height(26.dp)
+                        .width(1.dp)
+                        .background(theme.primaryColor.copy(alpha = 0.35f))
+                )
+
+                // 🎨 BOTÓN IDÉNTICO AL FLOTANTE: ABRE EL ESTUDIO DE TEMAS
+                IconButton(
+                    onClick = onThemeClick,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    theme.primaryColor.copy(alpha = 0.25f),
+                                    theme.cardBackground
+                                )
+                            )
+                        )
+                        .border(1.3.dp, theme.primaryColor.copy(alpha = 0.70f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Palette, // 👈 Mismo icono del botón flotante
+                        contentDescription = "Mundo de Colores",
+                        tint = theme.primaryColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
     }
 }

@@ -323,19 +323,15 @@ fun ModernSpeedometerWidget(
         }
 
         // =========================================================================
-        // 2. VELOCIDAD DIGITAL
+        // 2. VELOCIDAD DIGITAL (MAXIMIZADA Y CENTRADA)
         // =========================================================================
-        val currentDate = remember {
-            val sdf = java.text.SimpleDateFormat("EEEE, dd/MM/yyyy", java.util.Locale.getDefault())
-            sdf.format(java.util.Date()).uppercase()
-        }
-
         val speedText = "${displaySpeed.toInt()}"
 
+        // Tamaños de fuente aumentados al tener todo el espacio libre
         val digitalFontSize = when (speedText.length) {
-            3 -> 52.sp
-            2 -> 74.sp
-            else -> 84.sp
+            3 -> 62.sp
+            2 -> 86.sp
+            else -> 98.sp
         }
 
         Box(
@@ -356,24 +352,7 @@ fun ModernSpeedometerWidget(
                     .background(dynamicInnerBackground)
             )
 
-            // 🟣 FECHA SUPERIOR
-            Text(
-                text = currentDate,
-                fontSize = 7.sp,
-                fontWeight = FontWeight.ExtraBold,
-                fontFamily = dashboardFont.fontFamily,
-                color = theme.textColor,
-                letterSpacing = 1.2.sp,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                softWrap = false,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.TopCenter)
-                    .padding(top = 4.dp, start = 4.dp, end = 4.dp)
-            )
-
-            // 🟠 NÚMERO DIGITAL (CENTRADO EXACTO)
+            // 🟠 NÚMERO DIGITAL (CENTRADO TOTALMENTE CON MÁXIMO TAMAÑO)
             Text(
                 text = speedText,
                 fontSize = digitalFontSize,
@@ -384,6 +363,8 @@ fun ModernSpeedometerWidget(
                 maxLines = 1,
                 softWrap = false,
                 style = TextStyle(
+                    fontFamily = dashboardFont.fontFamily,
+                    fontWeight = FontWeight.Black,
                     brush = Brush.verticalGradient(
                         colors = listOf(
                             lerp(theme.numberColor, Color.White, 0.40f),
@@ -400,7 +381,7 @@ fun ModernSpeedometerWidget(
             // 🟣 KM / H INFERIOR
             Text(
                 text = "KM / H",
-                fontSize = 13.5.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.ExtraBold,
                 fontFamily = dashboardFont.fontFamily,
                 color = theme.textColor,
@@ -409,7 +390,7 @@ fun ModernSpeedometerWidget(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 6.dp)
+                    .padding(bottom = 10.dp)
             )
         }
     }

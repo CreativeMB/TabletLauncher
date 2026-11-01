@@ -683,6 +683,11 @@ class FloatingMediaService : Service() {
 
     companion object {
         fun start(context: Context) {
+            // 🛡️ Si el usuario lo desactivó en los ajustes, NO arranca bajo ninguna circunstancia
+            if (!ThemeManager.getSavedFloatingMediaEnabled(context)) {
+                return
+            }
+
             try {
                 val intent = Intent(context, FloatingMediaService::class.java)
                 context.startService(intent)

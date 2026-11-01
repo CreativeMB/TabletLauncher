@@ -1,13 +1,17 @@
 package com.creativem.toblauncher
 
+import android.app.Activity
 import android.app.role.RoleManager
+import android.content.ComponentName
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
@@ -46,11 +50,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.jvm.java
-import android.app.Activity
-import android.content.ComponentName
-import android.content.ContextWrapper
-import android.util.Log
-
 
 // =========================================================================
 // 🎨 MODELO DE TEMA CON JERARQUÍA AUTOMOTRIZ DE 3 COLORES
@@ -106,6 +105,7 @@ val LocalIsBoldText = compositionLocalOf { true }
 val LocalButtonScale = compositionLocalOf { 1.0f }
 val LocalEqualizerStyle = compositionLocalOf { EqualizerStyle.CLASSIC_BARS }
 val LocalDashboardFont = compositionLocalOf { DashboardFont.HYPERCAR_NEO_TECH }
+
 // =========================================================================
 // 🚀 GESTOR DE LAUNCHER RESISTENTE A SUPRESIÓN DE GOOGLE
 // =========================================================================
@@ -144,7 +144,6 @@ object LauncherManager {
     fun forceAndroidChooser(context: Context) {
         val activity = context.findActivity()
 
-        // 1️⃣ INTENTO DIRECTO: Ajustes de Pantalla de Inicio del Sistema (Siempre accesible)
         try {
             val homeSettingsIntent = Intent(Settings.ACTION_HOME_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -156,7 +155,6 @@ object LauncherManager {
             Log.w(TAG, "ACTION_HOME_SETTINGS no disponible: ${e.message}")
         }
 
-        // 2️⃣ INTENTO: Apps Predeterminadas del Sistema (Ajustes -> Aplicaciones Predeterminadas)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try {
                 val defaultAppsIntent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
@@ -170,7 +168,6 @@ object LauncherManager {
             }
         }
 
-        // 3️⃣ INTENTO: RoleManager de Android 10+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
@@ -190,7 +187,6 @@ object LauncherManager {
             }
         }
 
-        // 4️⃣ INTENTO FINAL: Pantalla de Información de la propia Aplicación
         try {
             val appDetailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.fromParts("package", context.packageName, null)
@@ -206,6 +202,7 @@ object LauncherManager {
         }
     }
 }
+
 // =========================================================================
 // 🎛️ GESTOR PRINCIPAL DE TEMAS (40 TEMAS COMPLETOS)
 // =========================================================================
@@ -214,9 +211,6 @@ object ThemeManager {
     private const val CUSTOM_THEMES_KEY = "custom_saved_themes_json"
 
     val themes = listOf(
-        // =========================================================================
-        // 🏎️ SECCIÓN 1: SUPERCARS & RACING (COLORES FUERTES Y DEPORTIVOS)
-        // =========================================================================
         DashboardTheme(0, "OLED Clásico (Predeterminado)", Color(0xFF000000), Color(0xFF0B0D14), Color(0xFF1B2234), Color(0xFF00E5FF), Color(0xFFE040FB), Color(0xFFFF9100)),
         DashboardTheme(1, "Ferrari Corsa Sport", Color(0xFF080102), Color(0xFF140407), Color(0xFF7A0C14), Color(0xFFFF1744), Color(0xFFFFFFFF), Color(0xFFFFD600)),
         DashboardTheme(2, "Porsche GT3 Acid Green", Color(0xFF020904), Color(0xFF07170B), Color(0xFF135A25), Color(0xFF00FF66), Color(0xFFB2FF59), Color(0xFFFF3D00)),
@@ -228,10 +222,6 @@ object ThemeManager {
         DashboardTheme(8, "Bugatti Chiron Blue", Color(0xFF010612), Color(0xFF050E24), Color(0xFF0D2C6B), Color(0xFF0080FF), Color(0xFF80D8FF), Color(0xFFFF2A4B)),
         DashboardTheme(9, "Tokyo Drift JDM", Color(0xFF08010C), Color(0xFF14031E), Color(0xFF660E8A), Color(0xFFFF007F), Color(0xFFE040FB), Color(0xFFFFEA00)),
         DashboardTheme(10, "Cyberpunk 2077", Color(0xFF020810), Color(0xFF051224), Color(0xFF00607A), Color(0xFF00F5FF), Color(0xFFFF006E), Color(0xFFFFD700)),
-
-        // =========================================================================
-        // 🌿 SECCIÓN 2: AMBIENT LOUNGE & SUAVES (CONDUCCIÓN RELAJADA Y NOCTURNA)
-        // =========================================================================
         DashboardTheme(11, "Audi Moonlight Soft", Color(0xFF060709), Color(0xFF0F1116), Color(0xFF282E3D), Color(0xFFE2E8F0), Color(0xFF90CAF9), Color(0xFFFFB74D)),
         DashboardTheme(12, "Mercedes Ambient Blue", Color(0xFF020710), Color(0xFF071020), Color(0xFF1C3150), Color(0xFF64B5F6), Color(0xFFBBDEFB), Color(0xFFFFD180)),
         DashboardTheme(13, "Menta Salvia Nórdica", Color(0xFF020906), Color(0xFF07150F), Color(0xFF1E4234), Color(0xFF48CAE4), Color(0xFF80CBC4), Color(0xFFFFAB91)),
@@ -242,10 +232,6 @@ object ThemeManager {
         DashboardTheme(18, "Océano Profundo", Color(0xFF01060E), Color(0xFF041021), Color(0xFF123458), Color(0xFF00B0FF), Color(0xFFB3E5FC), Color(0xFFFFCC80)),
         DashboardTheme(19, "Rosa Pastel & Frost", Color(0xFF090306), Color(0xFF160910), Color(0xFF4B2239), Color(0xFFF48FB1), Color(0xFFFCE4EC), Color(0xFF80D8FF)),
         DashboardTheme(20, "Niebla Ártica Minimal", Color(0xFF040608), Color(0xFF0A0E13), Color(0xFF222B36), Color(0xFFCFD8DC), Color(0xFFECEFF1), Color(0xFFFFAB40)),
-
-        // =========================================================================
-        // 💎 SECCIÓN 3: PLATINO, METÁLICOS & ULTRA LUXURY (PREMIUM Y EXCLUSIVO)
-        // =========================================================================
         DashboardTheme(21, "Platino Puro & Cromo", Color(0xFF030508), Color(0xFF090D13), Color(0xFF283444), Color(0xFFE2E8F0), Color(0xFFF8FAFC), Color(0xFF38BDF8)),
         DashboardTheme(22, "Titanio Forjado GT", Color(0xFF040507), Color(0xFF0C0E12), Color(0xFF282D37), Color(0xFF94A3B8), Color(0xFFE2E8F0), Color(0xFFFF7A00)),
         DashboardTheme(23, "Oro Rosa Rolls-Royce", Color(0xFF080304), Color(0xFF14080B), Color(0xFF532832), Color(0xFFF472B6), Color(0xFFFDE8E9), Color(0xFFF59E0B)),
@@ -255,10 +241,6 @@ object ThemeManager {
         DashboardTheme(27, "Cobre Ahumado Luxury", Color(0xFF080402), Color(0xFF140B06), Color(0xFF56301A), Color(0xFFF97316), Color(0xFFFFEDD5), Color(0xFFFFB300)),
         DashboardTheme(28, "Cuarzo Azul Titanium", Color(0xFF01060B), Color(0xFF061019), Color(0xFF183B58), Color(0xFF38BDF8), Color(0xFFE0F2FE), Color(0xFF0284C7)),
         DashboardTheme(29, "Obsidiana Monocromo OLED", Color(0xFF000000), Color(0xFF050505), Color(0xFF222222), Color(0xFFFFFFFF), Color(0xFFE5E5E5), Color(0xFF9E9E9E)),
-
-        // =========================================================================
-        // 🪵 SECCIÓN 4: MADERAS NOBLES, CUERO & INTERIORES DE LUJO (TAPICERÍA)
-        // =========================================================================
         DashboardTheme(30, "Cuero Cognac & Nogal", Color(0xFF070402), Color(0xFF130B06), Color(0xFF532E16), Color(0xFFD97724), Color(0xFFFDE8D0), Color(0xFFFFB300)),
         DashboardTheme(31, "Caoba & Cuero Habana", Color(0xFF080202), Color(0xFF160806), Color(0xFF5E2016), Color(0xFFC85A32), Color(0xFFFEE8DF), Color(0xFFFFA000)),
         DashboardTheme(32, "Saddle Brown & Roble", Color(0xFF060403), Color(0xFF120C08), Color(0xFF4A301E), Color(0xFFB45309), Color(0xFFF5E6D3), Color(0xFFFFC107)),
@@ -401,6 +383,25 @@ object ThemeManager {
     fun saveAutoRotateEqInterval(context: Context, seconds: Int) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putInt("auto_rotate_eq_interval", seconds).apply()
+    }
+
+    // =========================================================================
+    // 🪟 PREFERENCIAS DE GADGETS FLOTANTES AL SALIR DE LA APLICACIÓN
+    // =========================================================================
+    fun getSavedFloatingSpeedometerEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean("floating_speedometer_enabled", true)
+
+    fun saveFloatingSpeedometerEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean("floating_speedometer_enabled", enabled).apply()
+    }
+
+    fun getSavedFloatingMediaEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean("floating_media_enabled", true)
+
+    fun saveFloatingMediaEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean("floating_media_enabled", enabled).apply()
     }
 }
 
@@ -572,6 +573,10 @@ fun ThemeSelectorModal(
     var isAutoRotateEq by remember { mutableStateOf(ThemeManager.getSavedAutoRotateEqEnabled(context)) }
     var autoRotateEqInterval by remember { mutableIntStateOf(ThemeManager.getSavedAutoRotateEqInterval(context)) }
 
+    // Estados para los gadgets flotantes
+    var isFloatingSpeedometerEnabled by remember { mutableStateOf(ThemeManager.getSavedFloatingSpeedometerEnabled(context)) }
+    var isFloatingMediaEnabled by remember { mutableStateOf(ThemeManager.getSavedFloatingMediaEnabled(context)) }
+
     var allThemesList by remember { mutableStateOf(ThemeManager.getAllThemes(context)) }
     var showLauncherListModal by remember { mutableStateOf(false) }
     var showCreateThemeDialog by remember { mutableStateOf(false) }
@@ -587,6 +592,8 @@ fun ThemeSelectorModal(
         ThemeManager.saveEqualizerStyle(context, localEqStyle)
         ThemeManager.saveAutoRotateEqEnabled(context, isAutoRotateEq)
         ThemeManager.saveAutoRotateEqInterval(context, autoRotateEqInterval)
+        ThemeManager.saveFloatingSpeedometerEnabled(context, isFloatingSpeedometerEnabled)
+        ThemeManager.saveFloatingMediaEnabled(context, isFloatingMediaEnabled)
 
         onThemeSelected(localTheme)
         onTextScaleChanged(localTextScale)
@@ -761,6 +768,117 @@ fun ThemeSelectorModal(
                                     valueRange = 0.8f..2.5f,
                                     colors = SliderDefaults.colors(thumbColor = localTheme.accentCyan, activeTrackColor = localTheme.accentCyan)
                                 )
+                            }
+
+                            HorizontalDivider(color = localTheme.cardBorder.copy(alpha = 0.5f))
+
+                            // =============================================================
+                            // 🪟 CONTROL INDEPENDIENTE DE GADGETS FLOTANTES
+                            // =============================================================
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF161622)),
+                                border = BorderStroke(1.dp, localTheme.accentCyan.copy(alpha = 0.4f)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Layers,
+                                            contentDescription = null,
+                                            tint = localTheme.accentCyan,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Gadgets Flotantes al Salir",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    Text(
+                                        text = "Activa o apaga las ventanas flotantes que se muestran al abrir Waze, Maps u otra aplicación:",
+                                        color = Color.LightGray,
+                                        fontSize = 8.5.sp
+                                    )
+
+                                    // Switch 1: Velocímetro Flotante (Activado por defecto y guardado inmediato)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.Speed,
+                                                contentDescription = null,
+                                                tint = if (isFloatingSpeedometerEnabled) localTheme.accentOrange else Color.Gray,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "Velocímetro Flotante",
+                                                color = if (isFloatingSpeedometerEnabled) Color.White else Color.Gray,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                        Switch(
+                                            checked = isFloatingSpeedometerEnabled,
+                                            onCheckedChange = { isEnabled ->
+                                                isFloatingSpeedometerEnabled = isEnabled
+                                                // 💾 Guardado inmediato en preferencias
+                                                ThemeManager.saveFloatingSpeedometerEnabled(context, isEnabled)
+                                                // Si el usuario lo apaga, se quita inmediatamente de la pantalla
+                                                if (!isEnabled) {
+                                                    FloatingSpeedometerService.stop(context)
+                                                }
+                                            },
+                                            colors = SwitchDefaults.colors(checkedThumbColor = localTheme.accentOrange)
+                                        )
+                                    }
+
+                                    // Switch 2: Reproductor Multimedia Flotante (Activado por defecto y guardado inmediato)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.PlayCircle,
+                                                contentDescription = null,
+                                                tint = if (isFloatingMediaEnabled) localTheme.accentCyan else Color.Gray,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "Música / Video Flotante",
+                                                color = if (isFloatingMediaEnabled) Color.White else Color.Gray,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                        Switch(
+                                            checked = isFloatingMediaEnabled,
+                                            onCheckedChange = { isEnabled ->
+                                                isFloatingMediaEnabled = isEnabled
+                                                // 💾 Guardado inmediato en preferencias
+                                                ThemeManager.saveFloatingMediaEnabled(context, isEnabled)
+                                                // Si el usuario lo apaga, se quita inmediatamente de la pantalla
+                                                if (!isEnabled) {
+                                                    FloatingMediaService.stop(context)
+                                                }
+                                            },
+                                            colors = SwitchDefaults.colors(checkedThumbColor = localTheme.accentCyan)
+                                        )
+                                    }
+                                }
                             }
 
                             HorizontalDivider(color = localTheme.cardBorder.copy(alpha = 0.5f))
@@ -1336,5 +1454,5 @@ fun Interactive3DBackground(
         content()
     }
 }
-// Agrega esto al final del archivo
+
 class FakeLauncherActivity : android.app.Activity()

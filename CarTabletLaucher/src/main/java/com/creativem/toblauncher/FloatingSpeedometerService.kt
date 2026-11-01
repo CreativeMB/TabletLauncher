@@ -383,6 +383,11 @@ class FloatingSpeedometerService : Service() {
 
     companion object {
         fun start(context: Context) {
+            // 🛡️ Si el usuario lo desactivó en los ajustes, NO arranca bajo ninguna circunstancia
+            if (!ThemeManager.getSavedFloatingSpeedometerEnabled(context)) {
+                return
+            }
+
             try {
                 val intent = Intent(context, FloatingSpeedometerService::class.java)
                 context.startService(intent)
