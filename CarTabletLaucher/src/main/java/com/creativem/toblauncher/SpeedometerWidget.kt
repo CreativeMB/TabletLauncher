@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -323,15 +324,15 @@ fun ModernSpeedometerWidget(
         }
 
         // =========================================================================
-        // 2. VELOCIDAD DIGITAL (MAXIMIZADA Y CENTRADA)
+        // 2. VELOCIDAD DIGITAL (NÚMERO GIGANTE Y CENTRADO PERFECTO)
         // =========================================================================
         val speedText = "${displaySpeed.toInt()}"
 
-        // Tamaños de fuente aumentados al tener todo el espacio libre
+        // 🚀 Fuentes ampliadas al máximo para aprovechar todo el contenedor
         val digitalFontSize = when (speedText.length) {
-            3 -> 62.sp
-            2 -> 86.sp
-            else -> 98.sp
+            3 -> 74.sp
+            2 -> 104.sp
+            else -> 118.sp
         }
 
         Box(
@@ -352,46 +353,53 @@ fun ModernSpeedometerWidget(
                     .background(dynamicInnerBackground)
             )
 
-            // 🟠 NÚMERO DIGITAL (CENTRADO TOTALMENTE CON MÁXIMO TAMAÑO)
-            Text(
-                text = speedText,
-                fontSize = digitalFontSize,
-                fontWeight = FontWeight.Black,
-                fontFamily = dashboardFont.fontFamily,
-                textAlign = TextAlign.Center,
-                letterSpacing = if (speedText.length == 3) (-1.0).sp else (-2.5).sp,
-                maxLines = 1,
-                softWrap = false,
-                style = TextStyle(
-                    fontFamily = dashboardFont.fontFamily,
+            // 🎯 Columna perfectamente centrada arriba y abajo
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                // 🟠 NÚMERO DIGITAL DE MÁXIMA ESCALA
+                Text(
+                    text = speedText,
+                    fontSize = digitalFontSize,
+                    lineHeight = digitalFontSize,
                     fontWeight = FontWeight.Black,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            lerp(theme.numberColor, Color.White, 0.40f),
-                            dynamicSpeedColor
+                    fontFamily = dashboardFont.fontFamily,
+                    textAlign = TextAlign.Center,
+                    letterSpacing = if (speedText.length == 3) (-2.0).sp else (-3.5).sp,
+                    maxLines = 1,
+                    softWrap = false,
+                    style = TextStyle(
+                        fontFamily = dashboardFont.fontFamily,
+                        fontWeight = FontWeight.Black,
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                lerp(theme.numberColor, Color.White, 0.40f),
+                                dynamicSpeedColor
+                            )
+                        ),
+                        platformStyle = PlatformTextStyle(
+                            includeFontPadding = false // Evita espacios vacíos invisibles de Android
                         )
                     )
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.Center)
-                    .padding(horizontal = 4.dp)
-            )
+                )
 
-            // 🟣 KM / H INFERIOR
-            Text(
-                text = "KM / H",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.ExtraBold,
-                fontFamily = dashboardFont.fontFamily,
-                color = theme.textColor,
-                letterSpacing = 2.5.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 10.dp)
-            )
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // 🟣 KM / H INFERIOR SIMÉTRICO
+                Text(
+                    text = "KM / H",
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontFamily = dashboardFont.fontFamily,
+                    color = theme.textColor,
+                    letterSpacing = 2.5.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }
